@@ -1,0 +1,21 @@
+{
+  "name": "skillgate",
+  "version": "0.0.0",
+  "description": "Local runtime for selecting, controlling, and inspecting agent skills",
+  "type": "module",
+  "bin": { "skillgate": "./dist/cli.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "engines": { "node": ">=20" },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
