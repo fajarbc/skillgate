@@ -8,7 +8,7 @@ function terms(value: string): Set<string> {
   return new Set(
     value
       .toLowerCase()
-      .split(/[^a-z0-9+#.-]+/)
+      .split(/[^a-z0-9+#]+/)
       .map((term) => term.replace(/^[.-]+|[.-]+$/g, ""))
       .filter((term) => term.length > 1 && !STOP_WORDS.has(term)),
   );
