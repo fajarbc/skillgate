@@ -27,7 +27,7 @@ export async function discoverSkills(options: DiscoveryOptions): Promise<Discove
     }
   }
 
-  for (const root of [...new Set(options.roots.map(resolve))].sort()) {
+  for (const root of [...new Set(options.roots.map((root) => resolve(root)))].sort()) {
     await walk(root);
   }
 
