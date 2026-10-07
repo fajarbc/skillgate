@@ -2,6 +2,7 @@
 
 import { cwd } from "node:process";
 import { parseArgs } from "node:util";
+import { getAdapter, listAdapters } from "./adapters/index.js";
 import { detectProject } from "./detection/index.js";
 import { discoverSkills } from "./discovery/index.js";
 import { evaluatePolicies, loadPolicy } from "./policy/index.js";
@@ -21,10 +22,11 @@ function usage(): string {
     "  doctor                Check the local SkillGate setup",
     "",
     "Options:",
-    "  --root <path>   Project and skill root (default: current directory)",
-    "  --json          Print machine-readable JSON",
-    "  -h, --help      Show help",
-    "  -v, --version   Show version",
+    "  --root <path>     Project and skill root (default: current directory)",
+    "  --adapter <name>  Apply skills to agent workspace (e.g. codex)",
+    "  --json            Print machine-readable JSON",
+    "  -h, --help        Show help",
+    "  -v, --version     Show version",
   ].join("\n");
 }
 
@@ -47,6 +49,7 @@ export async function run(argv: string[]): Promise<number> {
         version: { type: "boolean", short: "v" },
         json: { type: "boolean" },
         root: { type: "string" },
+        adapter: { type: "string" },
       },
     });
   } catch (error) {
@@ -159,12 +162,42 @@ export async function run(argv: string[]): Promise<number> {
   });
   await saveTrace(traceRecord, root);
 
-  if (values.json) console.log(JSON.stringify({ task, recommendations: approvedRecommendations }, null, 2));
-  else if (approvedRecommendations.length === 0) console.log("No relevant skills found.");
-  else {
+  let adapterSummary: string | undefined;
+  if (values.adapter) {
+    const adapter = getAdapter(values.adapter);
+    if (!adapter) {
+      console.error(`Unknown adapter: ${values.adapter}. Available adapters: ${listAdapters().join(", ")}`);
+      return 1;
+    }
+    const result = await adapter.apply({
+      task,
+      root,
+      skills: approvedRecommendations,
+    });
+    adapterSummary = result.summary;
+  }
+
+  if (values.json) {
+    console.log(
+      JSON.stringify(
+        {
+          task,
+          recommendations: approvedRecommendations,
+          ...(adapterSummary ? { adapter: adapterSummary } : {}),
+        },
+        null,
+        2,
+      ),
+    );
+  } else if (approvedRecommendations.length === 0) {
+    console.log("No relevant skills found.");
+  } else {
     for (const skill of approvedRecommendations) {
       console.log(`${skill.metadata.name}  score=${skill.score}`);
       for (const reason of skill.reasons) console.log(`  - ${reason.source}:${reason.term} +${reason.points}`);
+    }
+    if (adapterSummary) {
+      console.log(adapterSummary);
     }
   }
   return 0;

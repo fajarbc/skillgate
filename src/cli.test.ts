@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -95,6 +95,18 @@ describe("CLI", () => {
     const rejected = traceJson.candidates.find((c: { name: string }) => c.name === "react-testing");
     expect(rejected?.status).toBe("rejected");
     expect(rejected?.decisionReason).toContain("denied by policy");
+    log.mockRestore();
+  });
+
+  it("applies approved skills with codex adapter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    await mkdir(join(root, "skills", "react"), { recursive: true });
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "codex"])).toBe(0);
+    const written = await readFile(join(root, ".codex", "skills", "react-testing", "SKILL.md"), "utf8");
+    expect(written).toContain("react-testing");
     log.mockRestore();
   });
 });
