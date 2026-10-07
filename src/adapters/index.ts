@@ -5,6 +5,12 @@ import type { AgentAdapter } from "./types.js";
 export type { AdapterContext, AdapterResult, AgentAdapter } from "./types.js";
 export { ClaudeCodeAdapter } from "./claude.js";
 export { CodexAdapter } from "./codex.js";
+export {
+  prepareSafeSkillPaths,
+  resolveSafeSubpath,
+  toSafeSkillIdentifier,
+} from "./safe-path.js";
+export type { PreparedSafeSkill } from "./safe-path.js";
 
 const ADAPTERS: Record<string, () => AgentAdapter> = {
   codex: () => new CodexAdapter(),
