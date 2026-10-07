@@ -4,6 +4,7 @@ import { cwd } from "node:process";
 import { parseArgs } from "node:util";
 import { detectProject } from "./detection/index.js";
 import { discoverSkills } from "./discovery/index.js";
+import { evaluatePolicies, loadPolicy } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
 import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
 
@@ -139,19 +140,29 @@ export async function run(argv: string[]): Promise<number> {
   );
   const recommendations = rankSkills({ task, skills, signals: state.signals });
 
+  const policy = await loadPolicy(root);
+  const policyEvaluations = evaluatePolicies(skills, policy);
+  const evalMap = new Map(policyEvaluations.map((e) => [e.skill.path, e]));
+
+  const approvedRecommendations = recommendations.filter((rec) => {
+    const evaluation = evalMap.get(rec.path);
+    return evaluation ? evaluation.decision === "allow" : true;
+  });
+
   const traceRecord = createTraceRecord({
     task,
     root,
     signals: state.signals,
     discoveredSkills: state.skills,
-    rankedSkills: recommendations,
+    rankedSkills: approvedRecommendations,
+    policyEvaluations: evalMap,
   });
   await saveTrace(traceRecord, root);
 
-  if (values.json) console.log(JSON.stringify({ task, recommendations }, null, 2));
-  else if (recommendations.length === 0) console.log("No relevant skills found.");
+  if (values.json) console.log(JSON.stringify({ task, recommendations: approvedRecommendations }, null, 2));
+  else if (approvedRecommendations.length === 0) console.log("No relevant skills found.");
   else {
-    for (const skill of recommendations) {
+    for (const skill of approvedRecommendations) {
       console.log(`${skill.metadata.name}  score=${skill.score}`);
       for (const reason of skill.reasons) console.log(`  - ${reason.source}:${reason.term} +${reason.points}`);
     }

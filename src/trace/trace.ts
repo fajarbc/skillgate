@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { DiscoveredSkill } from "../discovery/index.js";
 import type { ProjectSignal } from "../detection/index.js";
 import type { RankedSkill } from "../ranking/index.js";
+import type { SkillPolicyEvaluation } from "../policy/index.js";
 import { estimateTokens } from "./estimate.js";
 import { sanitizeText } from "./sanitize.js";
 import type { CandidateTrace, TraceRecord } from "./types.js";
@@ -17,6 +18,7 @@ export interface CreateTraceOptions {
   signals: ProjectSignal[];
   discoveredSkills: DiscoveredSkill[];
   rankedSkills: RankedSkill[];
+  policyEvaluations?: Map<string, SkillPolicyEvaluation>;
   limit?: number;
 }
 
@@ -40,11 +42,24 @@ export function createTraceRecord(options: CreateTraceOptions): TraceRecord {
       continue;
     }
 
+    const policyEval = options.policyEvaluations?.get(skill.path);
     const ranked = rankedMap.get(skill.path);
     const textForTokens = `${skill.metadata.name}: ${skill.metadata.description}`;
     const tokens = estimateTokens(textForTokens);
 
-    if (ranked) {
+    if (policyEval && policyEval.decision === "deny") {
+      candidates.push({
+        path: skill.path,
+        name: skill.metadata.name,
+        description: skill.metadata.description,
+        status: "rejected",
+        decisionReason: `denied by policy: ${policyEval.reason}`,
+        score: ranked ? ranked.score : 0,
+        reasons: ranked ? ranked.reasons : [],
+        estimatedTokens: tokens,
+        policyDecision: "deny",
+      });
+    } else if (ranked) {
       candidates.push({
         path: skill.path,
         name: skill.metadata.name,
@@ -54,6 +69,7 @@ export function createTraceRecord(options: CreateTraceOptions): TraceRecord {
         score: ranked.score,
         reasons: ranked.reasons,
         estimatedTokens: tokens,
+        policyDecision: "allow",
       });
     } else {
       candidates.push({
@@ -65,6 +81,7 @@ export function createTraceRecord(options: CreateTraceOptions): TraceRecord {
         score: 0,
         reasons: [],
         estimatedTokens: tokens,
+        policyDecision: policyEval?.decision ?? "allow",
       });
     }
   }
