@@ -3,16 +3,32 @@
   "version": "0.0.0",
   "description": "Local runtime for selecting, controlling, and inspecting agent skills",
   "type": "module",
-  "bin": { "skillgate": "./dist/cli.js" },
-  "files": ["dist"],
+  "bin": {
+    "skillgate": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "npm run typecheck && npm test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "benchmark": "vitest run src/benchmark"
+    "benchmark": "vitest run src/benchmark",
+    "prepack": "npm run check && npm run build",
+    "inspect:pack": "npm pack --dry-run"
   },
-  "engines": { "node": ">=20" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fajarbc/skillgate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fajarbc/skillgate/issues"
+  },
+  "homepage": "https://github.com/fajarbc/skillgate#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "license": "Apache-2.0",
   "dependencies": {
     "yaml": "^2.7.0"
