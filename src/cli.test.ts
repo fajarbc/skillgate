@@ -109,4 +109,16 @@ describe("CLI", () => {
     expect(written).toContain("react-testing");
     log.mockRestore();
   });
+
+  it("applies approved skills with claude adapter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    await mkdir(join(root, "skills", "react"), { recursive: true });
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "claude"])).toBe(0);
+    const written = await readFile(join(root, ".claude", "skills", "react-testing", "SKILL.md"), "utf8");
+    expect(written).toContain("react-testing");
+    log.mockRestore();
+  });
 });
