@@ -98,6 +98,16 @@ describe("CLI", () => {
     log.mockRestore();
   });
 
+  it("exits with non-zero when policy file is malformed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    await writeFile(join(root, "skillgate.policy.json"), "{ invalid json");
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await run(["recommend", "test", "--root", root])).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("Failed to parse policy JSON"));
+    error.mockRestore();
+  });
+
   it("applies approved skills with codex adapter", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SkillMetadata } from "../discovery/index.js";
+import { PolicyError } from "./errors.js";
 import type { PolicyConfig, SkillPolicyEvaluation } from "./types.js";
 
 export const DEFAULT_POLICY_FILES = [
@@ -16,34 +17,107 @@ export const DEFAULT_POLICY: PolicyConfig = {
   deniedCapabilities: [],
 };
 
+const ALLOWED_CONFIG_KEYS = new Set([
+  "defaultAction",
+  "allowedSkills",
+  "deniedSkills",
+  "allowedCapabilities",
+  "deniedCapabilities",
+]);
+
+function validateStringArray(
+  value: unknown,
+  fieldName: string,
+  filePath: string,
+): string[] {
+  if (!Array.isArray(value)) {
+    throw new PolicyError(`Field '${fieldName}' must be an array of strings`, filePath);
+  }
+  for (const item of value) {
+    if (typeof item !== "string" || item.trim() === "") {
+      throw new PolicyError(`Field '${fieldName}' contains invalid non-string or empty item`, filePath);
+    }
+  }
+  return value.map((s) => s.trim());
+}
+
+export function validatePolicyConfig(parsed: unknown, filePath: string): PolicyConfig {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new PolicyError("Policy file must contain a JSON object", filePath);
+  }
+
+  const obj = parsed as Record<string, unknown>;
+
+  for (const key of Object.keys(obj)) {
+    if (!ALLOWED_CONFIG_KEYS.has(key)) {
+      throw new PolicyError(`Unsupported policy field '${key}'`, filePath);
+    }
+  }
+
+  let defaultAction: "allow" | "deny" = "allow";
+  if (obj.defaultAction !== undefined) {
+    if (obj.defaultAction !== "allow" && obj.defaultAction !== "deny") {
+      throw new PolicyError(
+        `Invalid defaultAction '${String(obj.defaultAction)}': must be 'allow' or 'deny'`,
+        filePath,
+      );
+    }
+    defaultAction = obj.defaultAction;
+  }
+
+  const allowedSkills =
+    obj.allowedSkills !== undefined
+      ? validateStringArray(obj.allowedSkills, "allowedSkills", filePath)
+      : [];
+
+  const deniedSkills =
+    obj.deniedSkills !== undefined
+      ? validateStringArray(obj.deniedSkills, "deniedSkills", filePath)
+      : [];
+
+  const allowedCapabilities =
+    obj.allowedCapabilities !== undefined
+      ? validateStringArray(obj.allowedCapabilities, "allowedCapabilities", filePath)
+      : [];
+
+  const deniedCapabilities =
+    obj.deniedCapabilities !== undefined
+      ? validateStringArray(obj.deniedCapabilities, "deniedCapabilities", filePath)
+      : [];
+
+  return {
+    defaultAction,
+    allowedSkills,
+    deniedSkills,
+    allowedCapabilities,
+    deniedCapabilities,
+  };
+}
+
 export async function loadPolicy(root: string): Promise<PolicyConfig> {
   for (const relativePath of DEFAULT_POLICY_FILES) {
     const fullPath = join(root, relativePath);
+    let content: string;
     try {
-      const content = await readFile(fullPath, "utf8");
-      const parsed = JSON.parse(content) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const obj = parsed as Record<string, unknown>;
-        return {
-          defaultAction: obj.defaultAction === "deny" ? "deny" : "allow",
-          allowedSkills: Array.isArray(obj.allowedSkills)
-            ? obj.allowedSkills.filter((s): s is string => typeof s === "string")
-            : [],
-          deniedSkills: Array.isArray(obj.deniedSkills)
-            ? obj.deniedSkills.filter((s): s is string => typeof s === "string")
-            : [],
-          allowedCapabilities: Array.isArray(obj.allowedCapabilities)
-            ? obj.allowedCapabilities.filter((s): s is string => typeof s === "string")
-            : [],
-          deniedCapabilities: Array.isArray(obj.deniedCapabilities)
-            ? obj.deniedCapabilities.filter((s): s is string => typeof s === "string")
-            : [],
-        };
+      content = await readFile(fullPath, "utf8");
+    } catch (err: unknown) {
+      const isNotFound = (err as { code?: string })?.code === "ENOENT";
+      if (isNotFound) {
+        continue;
       }
-    } catch {
-      // Continue checking fallback file
+      throw new PolicyError(`Failed to read policy file: ${(err as Error).message}`, relativePath);
     }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (err: unknown) {
+      throw new PolicyError(`Failed to parse policy JSON: ${(err as Error).message}`, relativePath);
+    }
+
+    return validatePolicyConfig(parsed, relativePath);
   }
+
   return DEFAULT_POLICY;
 }
 

@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 import { getAdapter, listAdapters } from "./adapters/index.js";
 import { detectProject } from "./detection/index.js";
 import { discoverSkills } from "./discovery/index.js";
-import { evaluatePolicies, loadPolicy } from "./policy/index.js";
+import { evaluatePolicies, loadPolicy, PolicyError } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
 import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
 
@@ -143,7 +143,17 @@ export async function run(argv: string[]): Promise<number> {
   );
   const recommendations = rankSkills({ task, skills, signals: state.signals });
 
-  const policy = await loadPolicy(root);
+  let policy;
+  try {
+    policy = await loadPolicy(root);
+  } catch (error) {
+    if (error instanceof PolicyError) {
+      console.error(error.message);
+      return 1;
+    }
+    throw error;
+  }
+
   const policyEvaluations = evaluatePolicies(skills, policy);
   const evalMap = new Map(policyEvaluations.map((e) => [e.skill.path, e]));
 
