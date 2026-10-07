@@ -12,6 +12,7 @@ export interface CandidateTrace {
   score: number;
   reasons: ScoreReason[];
   estimatedTokens: number;
+  policyDecision?: "allow" | "deny";
 }
 
 export interface TraceRecord {

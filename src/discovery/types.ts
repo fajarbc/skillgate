@@ -1,6 +1,7 @@
 export interface SkillMetadata {
   name: string;
   description: string;
+  capabilities?: string[];
 }
 
 export interface DiscoveredSkill {

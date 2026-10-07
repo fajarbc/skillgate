@@ -75,4 +75,26 @@ describe("CLI", () => {
     expect(traceJson.candidates[0].name).toBe("react-testing");
     log.mockRestore();
   });
+
+  it("filters out policy-denied skills during recommend", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    await mkdir(join(root, "skills", "react"), { recursive: true });
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
+    await writeFile(
+      join(root, "skillgate.policy.json"),
+      JSON.stringify({ deniedSkills: ["react-*"] }),
+    );
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    expect(await run(["recommend", "test", "react", "--root", root, "--json"])).toBe(0);
+    const output = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    expect(output.recommendations).toHaveLength(0);
+
+    expect(await run(["trace", "--root", root, "--json"])).toBe(0);
+    const traceJson = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    const rejected = traceJson.candidates.find((c: { name: string }) => c.name === "react-testing");
+    expect(rejected?.status).toBe("rejected");
+    expect(rejected?.decisionReason).toContain("denied by policy");
+    log.mockRestore();
+  });
 });
