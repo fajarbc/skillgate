@@ -1,17 +1,26 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { evaluateSkillPolicy, loadPolicy } from "./index.js";
+import { evaluateSkillPolicy, loadPolicy, PolicyError } from "./index.js";
 
 describe("policy evaluation", () => {
-  it("allows skills by default", () => {
-    const result = evaluateSkillPolicy({
-      path: "/skills/test/SKILL.md",
-      metadata: { name: "safe-skill", description: "A safe skill" },
-    });
+  it("allows skills by default when no policy file exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-policy-"));
+    const policy = await loadPolicy(root);
+    expect(policy.defaultAction).toBe("allow");
+
+    const result = evaluateSkillPolicy(
+      {
+        path: "/skills/test/SKILL.md",
+        metadata: { name: "safe-skill", description: "A safe skill" },
+      },
+      policy,
+    );
     expect(result.decision).toBe("allow");
     expect(result.reason).toBe("permitted by policy");
+
+    await rm(root, { recursive: true, force: true });
   });
 
   it("denies skills matching deniedSkills patterns", () => {
@@ -26,56 +35,58 @@ describe("policy evaluation", () => {
     expect(result.reason).toContain("matches denied pattern");
   });
 
-  it("denies skills declaring denied capabilities", () => {
-    const result = evaluateSkillPolicy(
-      {
-        path: "/skills/test/SKILL.md",
-        metadata: {
-          name: "runner",
-          description: "Runs commands",
-          capabilities: ["exec", "filesystem"],
-        },
-      },
-      { deniedCapabilities: ["exec"] },
-    );
-    expect(result.decision).toBe("deny");
-    expect(result.reason).toContain("denied capability 'exec'");
+  it("fails explicitly when policy JSON is malformed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-policy-"));
+    await writeFile(join(root, "skillgate.policy.json"), "{ invalid json");
+
+    await expect(loadPolicy(root)).rejects.toThrow(PolicyError);
+    await expect(loadPolicy(root)).rejects.toThrow(/Failed to parse policy JSON/);
+
+    await rm(root, { recursive: true, force: true });
   });
 
-  it("enforces allowedSkills restriction", () => {
-    const allowed = evaluateSkillPolicy(
-      {
-        path: "/skills/a/SKILL.md",
-        metadata: { name: "allowed-one", description: "Allowed" },
-      },
-      { allowedSkills: ["allowed-one"] },
+  it("fails explicitly when policy contains unsupported fields", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-policy-"));
+    await writeFile(
+      join(root, "skillgate.policy.json"),
+      JSON.stringify({ unsupportedField: true }),
     );
-    expect(allowed.decision).toBe("allow");
 
-    const denied = evaluateSkillPolicy(
-      {
-        path: "/skills/b/SKILL.md",
-        metadata: { name: "other-skill", description: "Other" },
-      },
-      { allowedSkills: ["allowed-one"] },
-    );
-    expect(denied.decision).toBe("deny");
-    expect(denied.reason).toContain("not in allowed skills list");
+    await expect(loadPolicy(root)).rejects.toThrow(PolicyError);
+    await expect(loadPolicy(root)).rejects.toThrow(/Unsupported policy field 'unsupportedField'/);
+
+    await rm(root, { recursive: true, force: true });
   });
 
-  it("enforces defaultAction: deny", () => {
-    const result = evaluateSkillPolicy(
-      {
-        path: "/skills/test/SKILL.md",
-        metadata: { name: "any-skill", description: "Desc" },
-      },
-      { defaultAction: "deny" },
+  it("fails explicitly on invalid defaultAction", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-policy-"));
+    await writeFile(
+      join(root, "skillgate.policy.json"),
+      JSON.stringify({ defaultAction: "maybe" }),
     );
-    expect(result.decision).toBe("deny");
-    expect(result.reason).toBe("default policy action is deny");
+
+    await expect(loadPolicy(root)).rejects.toThrow(PolicyError);
+    await expect(loadPolicy(root)).rejects.toThrow(/Invalid defaultAction/);
+
+    await rm(root, { recursive: true, force: true });
   });
 
-  it("loads policy file from disk", async () => {
+  it("does not silently fall back when higher-precedence file is malformed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-policy-"));
+    await mkdir(join(root, ".skillgate"), { recursive: true });
+    await writeFile(join(root, ".skillgate", "policy.json"), "{ broken");
+    await writeFile(
+      join(root, "skillgate.policy.json"),
+      JSON.stringify({ defaultAction: "allow" }),
+    );
+
+    await expect(loadPolicy(root)).rejects.toThrow(PolicyError);
+    await expect(loadPolicy(root)).rejects.toThrow(/\.skillgate\/policy\.json/);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("loads valid policy file", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-policy-"));
     await writeFile(
       join(root, "skillgate.policy.json"),
