@@ -40,8 +40,9 @@ export async function loadPolicy(root: string): Promise<PolicyConfig> {
             : [],
         };
       }
-    } catch {
-      // Continue checking fallback file
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
+      throw new Error(`Invalid policy file: ${fullPath}`);
     }
   }
   return DEFAULT_POLICY;
