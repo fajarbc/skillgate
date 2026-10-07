@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterResult, AgentAdapter } from "./types.js";
 
 export class ClaudeCodeAdapter implements AgentAdapter {
@@ -28,17 +28,17 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async apply(context: AdapterContext): Promise<AdapterResult> {
-    const claudeDir = join(context.root, ".claude");
-    const skillsDir = join(claudeDir, "skills");
+    const claudeDir = resolveSafeSubpath(context.root, ".claude");
+    const skillsDir = resolveSafeSubpath(claudeDir, "skills");
     await mkdir(skillsDir, { recursive: true });
 
+    const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
     const filesWritten: string[] = [];
     const exposedSkills: string[] = [];
 
-    for (const skill of context.skills) {
-      const destDir = join(skillsDir, skill.metadata.name);
-      await mkdir(destDir, { recursive: true });
-      const destFile = join(destDir, "SKILL.md");
+    for (const { skill, safeId, dirPath } of preparedSkills) {
+      await mkdir(dirPath, { recursive: true });
+      const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
 
       let content = "";
       try {
@@ -52,16 +52,17 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       exposedSkills.push(skill.metadata.name);
     }
 
-    const manifestPath = join(claudeDir, "skills.json");
+    const manifestPath = resolveSafeSubpath(claudeDir, "skills.json");
     const manifest = {
       task: context.task,
       updatedAt: new Date().toISOString(),
-      skills: context.skills.map((s) => ({
-        name: s.metadata.name,
-        description: s.metadata.description,
-        path: s.path,
-        score: s.score,
-        capabilities: s.metadata.capabilities ?? [],
+      skills: preparedSkills.map(({ skill, safeId }) => ({
+        name: skill.metadata.name,
+        identifier: safeId,
+        description: skill.metadata.description,
+        path: skill.path,
+        score: skill.score,
+        capabilities: skill.metadata.capabilities ?? [],
       })),
     };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
