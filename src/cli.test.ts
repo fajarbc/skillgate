@@ -51,4 +51,28 @@ describe("CLI", () => {
     expect(error).toHaveBeenCalledWith("recommend requires task text");
     error.mockRestore();
   });
+
+  it("handles trace command when no trace exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    expect(await run(["trace", "--root", root])).toBe(0);
+    expect(log).toHaveBeenCalledWith("No trace found. Run `skillgate recommend` first.");
+    log.mockRestore();
+  });
+
+  it("persists trace during recommend and displays with trace command", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    await mkdir(join(root, "skills", "react"), { recursive: true });
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    expect(await run(["recommend", "test", "react", "--root", root])).toBe(0);
+
+    expect(await run(["trace", "--root", root, "--json"])).toBe(0);
+    const traceJson = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    expect(traceJson.task).toBe("test react");
+    expect(traceJson.selectedCount).toBe(1);
+    expect(traceJson.candidates[0].name).toBe("react-testing");
+    log.mockRestore();
+  });
 });

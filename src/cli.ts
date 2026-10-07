@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { detectProject } from "./detection/index.js";
 import { discoverSkills } from "./discovery/index.js";
 import { rankSkills } from "./ranking/index.js";
+import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
 
 const VERSION = "0.0.0";
 
@@ -68,12 +69,50 @@ export async function run(argv: string[]): Promise<number> {
     return 1;
   }
 
-  if (command === "trace" || command === "doctor") {
+  if (command === "doctor") {
     console.log(`${command}: not implemented yet`);
     return 0;
   }
 
   const root = values.root ?? cwd();
+
+  if (command === "trace") {
+    const trace = await loadLatestTrace(root);
+    if (!trace) {
+      if (values.json) {
+        console.log(JSON.stringify({ error: "no trace found" }, null, 2));
+      } else {
+        console.log("No trace found. Run `skillgate recommend` first.");
+      }
+      return 0;
+    }
+
+    if (values.json) {
+      console.log(JSON.stringify(trace, null, 2));
+    } else {
+      console.log(`Trace: ${trace.id} (${trace.timestamp})`);
+      console.log(`Task: ${trace.task}`);
+      console.log(`Root: ${trace.root}`);
+      console.log(`Signals: ${trace.signals.length}`);
+      for (const signal of trace.signals) {
+        console.log(`- ${signal.kind}:${signal.name} [${signal.evidence}]`);
+      }
+      console.log(`Selected (${trace.selectedCount}):`);
+      for (const candidate of trace.candidates.filter((c) => c.status === "selected")) {
+        console.log(`- ${candidate.name}  score=${candidate.score}  (~${candidate.estimatedTokens} tokens)`);
+        for (const reason of candidate.reasons) {
+          console.log(`    ${reason.source}:${reason.term} +${reason.points}`);
+        }
+      }
+      console.log(`Rejected (${trace.rejectedCount}):`);
+      for (const candidate of trace.candidates.filter((c) => c.status === "rejected")) {
+        console.log(`- ${candidate.name}  reason=${candidate.decisionReason}`);
+      }
+      console.log(`Total context estimate: ~${trace.totalEstimatedTokens} tokens`);
+    }
+    return 0;
+  }
+
   const state = await scan(root);
 
   if (command === "scan") {
@@ -99,6 +138,15 @@ export async function run(argv: string[]): Promise<number> {
     skill.metadata ? [{ path: skill.path, metadata: skill.metadata }] : [],
   );
   const recommendations = rankSkills({ task, skills, signals: state.signals });
+
+  const traceRecord = createTraceRecord({
+    task,
+    root,
+    signals: state.signals,
+    discoveredSkills: state.skills,
+    rankedSkills: recommendations,
+  });
+  await saveTrace(traceRecord, root);
 
   if (values.json) console.log(JSON.stringify({ task, recommendations }, null, 2));
   else if (recommendations.length === 0) console.log("No relevant skills found.");
