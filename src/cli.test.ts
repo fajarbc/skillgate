@@ -131,4 +131,15 @@ describe("CLI", () => {
     expect(written).toContain("react-testing");
     log.mockRestore();
   });
+
+  it("executes doctor command for healthy workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const exitCode = await run(["doctor", "--root", root, "--json"]);
+    expect(exitCode).toBe(0);
+    const report = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    expect(report.checks.length).toBeGreaterThan(0);
+    log.mockRestore();
+  });
 });
