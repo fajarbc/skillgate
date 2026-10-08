@@ -17,6 +17,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+      - run: npm install --package-lock-only --ignore-scripts
+      - run: npm ci
       - run: npm run check
       - run: npm run build
+      - run: npm run inspect:pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: generated-lockfile
+          path: package-lock.json
+          if-no-files-found: error
