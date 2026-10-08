@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install --package-lock-only --ignore-scripts
+      - name: Export generated lockfile
+        run: echo "SKILLGATE_LOCKFILE_B64=$(base64 -w 0 package-lock.json)"
       - run: npm ci
       - run: npm run check
       - run: npm run build
