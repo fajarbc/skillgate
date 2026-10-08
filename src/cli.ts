@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { getAdapter, listAdapters } from "./adapters/index.js";
 import { detectProject } from "./detection/index.js";
 import { discoverSkills } from "./discovery/index.js";
+import { formatDoctorReport, runDiagnostics } from "./doctor/index.js";
 import { evaluatePolicies, loadPolicy, PolicyError } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
 import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
@@ -73,12 +74,17 @@ export async function run(argv: string[]): Promise<number> {
     return 1;
   }
 
-  if (command === "doctor") {
-    console.log(`${command}: not implemented yet`);
-    return 0;
-  }
-
   const root = values.root ?? cwd();
+
+  if (command === "doctor") {
+    const report = await runDiagnostics({ root });
+    if (values.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatDoctorReport(report));
+    }
+    return report.status === "fail" ? 1 : 0;
+  }
 
   if (command === "trace") {
     const trace = await loadLatestTrace(root);
