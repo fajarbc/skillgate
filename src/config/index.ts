@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 export class ConfigurationError extends Error {
@@ -21,7 +20,7 @@ export interface SkillGateConfig {
 
 const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters"]);
 
-export function parseConfiguration(source: string, filename: string): SkillGateConfig {
+export function parseConfiguration(source: string, filename: string): Partial<SkillGateConfig> & { version: 1 } {
   let parsed: unknown;
   try {
     parsed = filename.endsWith(".json") ? JSON.parse(source) : parseYaml(source, { uniqueKeys: true });
@@ -36,16 +35,16 @@ export function parseConfiguration(source: string, filename: string): SkillGateC
     if (!keys.has(key)) throw new ConfigurationError(`${filename}: unknown key "${key}"`);
   }
   if (data.version !== 1) throw new ConfigurationError(`${filename}: version must be 1`);
-  const paths = data.skillRoots ?? ["."];
-  const adapters = data.adapters ?? [];
-  const limit = data.candidateLimit ?? 10;
-  if (!Array.isArray(paths) || !paths.every((p) => typeof p === "string" && p.trim().length > 0)) {
+  const paths = data.skillRoots;
+  const adapters = data.adapters;
+  const limit = data.candidateLimit;
+  if (paths !== undefined && (!Array.isArray(paths) || !paths.every((p) => typeof p === "string" && p.trim().length > 0))) {
     throw new ConfigurationError(`${filename}: skillRoots must be an array of non-empty paths`);
   }
-  if (!Array.isArray(adapters) || !adapters.every((a) => typeof a === "string" && a.trim().length > 0)) {
+  if (adapters !== undefined && (!Array.isArray(adapters) || !adapters.every((a) => typeof a === "string" && a.trim().length > 0))) {
     throw new ConfigurationError(`${filename}: adapters must be an array of non-empty names`);
   }
-  if (!Number.isSafeInteger(limit) || (limit as number) < 1) {
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || (limit as number) < 1)) {
     throw new ConfigurationError(`${filename}: candidateLimit must be a positive integer`);
   }
   if (data.policyPath !== undefined && (typeof data.policyPath !== "string" || !data.policyPath.trim())) {
@@ -55,14 +54,14 @@ export function parseConfiguration(source: string, filename: string): SkillGateC
   const absolute = (p: string) => isAbsolute(p) ? p : resolve(base, p);
   return {
     version: 1,
-    skillRoots: (paths as string[]).map(absolute),
-    candidateLimit: limit as number,
+    ...(paths === undefined ? {} : { skillRoots: (paths as string[]).map(absolute) }),
+    ...(limit === undefined ? {} : { candidateLimit: limit as number }),
     ...(data.policyPath === undefined ? {} : { policyPath: absolute(data.policyPath as string) }),
-    adapters: adapters as string[],
+    ...(adapters === undefined ? {} : { adapters: adapters as string[] }),
   };
 }
 
-export async function loadConfiguration(filename: string): Promise<SkillGateConfig> {
+export async function loadConfiguration(filename: string): Promise<Partial<SkillGateConfig> & { version: 1 }> {
   let content: string;
   try {
     content = await readFile(filename, "utf8");
@@ -83,7 +82,7 @@ export async function resolveConfiguration(options: {
 }): Promise<SkillGateConfig> {
   const projectFile = join(resolve(options.root), "skillgate.yaml");
   const userFile = options.userConfigFile ?? join(homedir(), ".config", "skillgate", "config.yaml");
-  const layers: SkillGateConfig[] = [];
+  const layers: Array<Partial<SkillGateConfig> & { version: 1 }> = [];
   for (const filename of [userFile, projectFile]) {
     try {
       await readFile(filename, "utf8");
