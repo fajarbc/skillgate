@@ -28,7 +28,6 @@ function usage(): string {
     "  --root <path>     Project and skill root (default: current directory)",
     "  --adapter <name>  Apply skills to agent workspace (e.g. codex)",
     "  --config <path>   Explicit configuration file",
-
     "  --json            Print machine-readable JSON",
     "  -h, --help        Show help",
     "  -v, --version     Show version",
@@ -174,7 +173,7 @@ export async function run(argv: string[]): Promise<number> {
 
   let policy;
   try {
-    policy = await loadPolicy(root);
+    policy = await loadPolicy(configuration.policyPath ?? root);
   } catch (error) {
     if (error instanceof PolicyError) {
       console.error(error.message);
