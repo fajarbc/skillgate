@@ -142,4 +142,21 @@ describe("CLI", () => {
     expect(report.checks.length).toBeGreaterThan(0);
     log.mockRestore();
   });
+  it("honors the configured policy path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-policy-"));
+    await mkdir(join(root, "skills", "react"), { recursive: true });
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\\nname: react-testing\\ndescription: Test React components\\n---\\n");
+    await writeFile(join(root, "restricted.json"), JSON.stringify({ deniedSkills: ["react-*"] }));
+    await writeFile(join(root, "skillgate.yaml"), "version: 1\\npolicyPath: ./restricted.json\\n");
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "test", "react", "--root", root, "--json"])).toBe(0);
+      const output = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+      expect(output.recommendations).toHaveLength(0);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
 });
