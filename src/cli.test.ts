@@ -145,9 +145,9 @@ describe("CLI", () => {
   it("honors the configured policy path", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-policy-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
-    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\\nname: react-testing\\ndescription: Test React components\\n---\\n");
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
     await writeFile(join(root, "restricted.json"), JSON.stringify({ deniedSkills: ["react-*"] }));
-    await writeFile(join(root, "skillgate.yaml"), "version: 1\\npolicyPath: ./restricted.json\\n");
+    await writeFile(join(root, "skillgate.yaml"), "version: 1\npolicyPath: ./restricted.json\n");
 
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
