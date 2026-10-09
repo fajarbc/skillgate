@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { cwd } from "node:process";
+import { resolveConfiguration, ConfigurationError } from "./config/index.js";
 import { parseArgs } from "node:util";
 import { getAdapter, listAdapters } from "./adapters/index.js";
 import { detectProject } from "./detection/index.js";
@@ -25,6 +26,8 @@ function usage(): string {
     "Options:",
     "  --root <path>     Project and skill root (default: current directory)",
     "  --adapter <name>  Apply skills to agent workspace (e.g. codex)",
+    "  --config <path>   Explicit configuration file",
+    "  config            Print effective configuration as JSON",
     "  --json            Print machine-readable JSON",
     "  -h, --help        Show help",
     "  -v, --version     Show version",
@@ -51,6 +54,7 @@ export async function run(argv: string[]): Promise<number> {
         json: { type: "boolean" },
         root: { type: "string" },
         adapter: { type: "string" },
+        config: { type: "string" },
       },
     });
   } catch (error) {
@@ -69,12 +73,22 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const command = positionals[0];
-  if (!["scan", "recommend", "trace", "doctor"].includes(command ?? "")) {
+  if (!["scan", "recommend", "trace", "doctor", "config"].includes(command ?? "")) {
     console.error(`Unknown command: ${command}\n\n${usage()}`);
     return 1;
   }
 
   const root = values.root ?? cwd();
+
+  if (command === "config") {
+    try {
+      console.log(JSON.stringify(await resolveConfiguration({ root, configFile: values.config }), null, 2));
+      return 0;
+    } catch (error) {
+      console.error(error instanceof ConfigurationError ? error.message : String(error));
+      return 1;
+    }
+  }
 
   if (command === "doctor") {
     const report = await runDiagnostics({ root });
