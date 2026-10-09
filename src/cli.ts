@@ -22,21 +22,22 @@ function usage(): string {
     "  recommend <task...>   Rank skills for a task",
     "  trace                 Explain the latest selection",
     "  doctor                Check the local SkillGate setup",
+    "  config                Print effective configuration as JSON",
     "",
     "Options:",
     "  --root <path>     Project and skill root (default: current directory)",
     "  --adapter <name>  Apply skills to agent workspace (e.g. codex)",
     "  --config <path>   Explicit configuration file",
-    "  config            Print effective configuration as JSON",
+
     "  --json            Print machine-readable JSON",
     "  -h, --help        Show help",
     "  -v, --version     Show version",
   ].join("\n");
 }
 
-async function scan(root: string) {
+async function scan(root: string, skillRoots: string[]) {
   const [discovered, signals] = await Promise.all([
-    discoverSkills({ roots: [root] }),
+    discoverSkills({ roots: skillRoots }),
     detectProject({ root }),
   ]);
   return { root, skills: discovered, signals };
@@ -137,7 +138,15 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const state = await scan(root);
+  let configuration;
+  try {
+    configuration = await resolveConfiguration({ root, configFile: values.config });
+  } catch (error) {
+    console.error(error instanceof ConfigurationError ? error.message : String(error));
+    return 1;
+  }
+
+  const state = await scan(root, configuration.skillRoots);
 
   if (command === "scan") {
     if (values.json) console.log(JSON.stringify(state, null, 2));
@@ -161,7 +170,7 @@ export async function run(argv: string[]): Promise<number> {
   const skills = state.skills.flatMap((skill) =>
     skill.metadata ? [{ path: skill.path, metadata: skill.metadata }] : [],
   );
-  const recommendations = rankSkills({ task, skills, signals: state.signals });
+  const recommendations = rankSkills({ task, skills, signals: state.signals, limit: configuration.candidateLimit });
 
   let policy;
   try {
