@@ -173,7 +173,7 @@ export async function run(argv: string[]): Promise<number> {
 
   let policy;
   try {
-    policy = await loadPolicy(configuration.policyPath ?? root);
+    policy = await loadPolicy(root, configuration.policyPath);
   } catch (error) {
     if (error instanceof PolicyError) {
       console.error(error.message);
