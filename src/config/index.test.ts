@@ -35,9 +35,9 @@ describe("configuration precedence", () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-config-"));
     const userFile = join(root, "user.yaml");
     const explicitFile = join(root, "override.yaml");
-    await writeFile(userFile, "version: 1\\ncandidateLimit: 4\\nadapters: [codex]\\n");
-    await writeFile(join(root, "skillgate.yaml"), "version: 1\\nskillRoots: [./skills]\\n");
-    await writeFile(explicitFile, "version: 1\\ncandidateLimit: 7\\n");
+    await writeFile(userFile, "version: 1\ncandidateLimit: 4\nadapters: [codex]\n");
+    await writeFile(join(root, "skillgate.yaml"), "version: 1\nskillRoots: [./skills]\n");
+    await writeFile(explicitFile, "version: 1\ncandidateLimit: 7\n");
     const effective = await resolveConfiguration({ root, userConfigFile: userFile, configFile: explicitFile });
     expect(effective.candidateLimit).toBe(7);
     expect(effective.adapters).toEqual(["codex"]);
