@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 
@@ -68,4 +70,34 @@ export async function loadConfiguration(filename: string): Promise<SkillGateConf
     throw new ConfigurationError(`Cannot read configuration ${filename}: ${error instanceof Error ? error.message : String(error)}`);
   }
   return parseConfiguration(content, filename);
+}
+
+/**
+ * Explicit CLI config overrides project config, which overrides user config.
+ * Omitted settings inherit from lower-priority sources.
+ */
+export async function resolveConfiguration(options: {
+  root: string;
+  configFile?: string;
+  userConfigFile?: string;
+}): Promise<SkillGateConfig> {
+  const projectFile = join(resolve(options.root), "skillgate.yaml");
+  const userFile = options.userConfigFile ?? join(homedir(), ".config", "skillgate", "config.yaml");
+  const layers: SkillGateConfig[] = [];
+  for (const filename of [userFile, projectFile]) {
+    try {
+      await readFile(filename, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new ConfigurationError(`Cannot read configuration ${filename}: ${String(error)}`);
+    }
+    layers.push(await loadConfiguration(filename));
+  }
+  if (options.configFile) layers.push(await loadConfiguration(options.configFile));
+  return layers.reduce<SkillGateConfig>((merged, layer) => ({ ...merged, ...layer }), {
+    version: 1,
+    skillRoots: [resolve(options.root)],
+    candidateLimit: 10,
+    adapters: [],
+  });
 }
