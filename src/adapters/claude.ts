@@ -103,6 +103,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
   async cleanup(context: AdapterContext): Promise<AdapterResult> {
     const agentDir = resolveSafeSubpath(context.root, ".claude");
+    await mkdir(agentDir, { recursive: true });
     return withManagedLock(agentDir, async () => {
     const filesRemoved = await cleanupManagedTargets(agentDir);
     return {
