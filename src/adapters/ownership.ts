@@ -81,8 +81,17 @@ export async function withManagedLock<T>(agentDir: string, operation: () => Prom
     await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
     return await operation();
   } finally {
+    const owned = await handle.stat();
     await handle.close();
-    await unlink(lockPath);
+    try {
+      const current = await lstat(lockPath);
+      if (current.ino !== owned.ino || current.dev !== owned.dev || !current.isFile() || current.isSymbolicLink()) {
+        throw new Error(`Adapter lock changed during operation: ${lockPath}`);
+      }
+      await unlink(lockPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 
