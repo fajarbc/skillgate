@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { resolveSafeSubpath } from "./safe-path.js";
 
@@ -61,6 +61,28 @@ async function readOwnership(agentDir: string): Promise<OwnershipRecord> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, files: {} };
     throw error;
+  }
+}
+
+/** Serialize cooperative adapter writers using an exclusive lock file. */
+export async function withManagedLock<T>(agentDir: string, operation: () => Promise<T>): Promise<T> {
+  const lockPath = resolveSafeSubpath(agentDir, ".skillgate.lock");
+  await assertSafeParents(agentDir, lockPath);
+  let handle;
+  try {
+    handle = await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(`Adapter directory is locked by another operation: ${agentDir}`);
+    }
+    throw error;
+  }
+  try {
+    await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+    return await operation();
+  } finally {
+    await handle.close();
+    await unlink(lockPath);
   }
 }
 
