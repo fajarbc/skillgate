@@ -91,7 +91,7 @@ export class CodexAdapter implements AgentAdapter {
     }
     filesWritten.push(manifestPath);
     await removeStaleManagedTargets(codexDir, filesWritten);
-    await recordManagedTargets(codexDir, filesWritten);
+    await recordManagedTargets(codexDir, filesWritten, pending);
 
     return {
       agent: this.name,
