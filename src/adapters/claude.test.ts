@@ -28,7 +28,12 @@ describe("ClaudeCodeAdapter", () => {
       expect(await readdir(root)).toEqual([]);
       await adapter.apply(context);
       const afterApply = await adapter.plan(context);
-      expect(afterApply?.conflicts).toHaveLength(2);
+      expect(afterApply?.conflicts).toEqual([]);
+      await adapter.apply(context);
+      const target = afterApply?.filesToWrite.find((file) => file.endsWith("SKILL.md"));
+      expect(target).toBeDefined();
+      await writeFile(target!, "user-modified content");
+      expect((await adapter.plan(context))?.conflicts).toContain(target);
       await expect(adapter.apply(context)).rejects.toThrow("Refusing to overwrite existing adapter files");
     } finally {
       await rm(root, { recursive: true, force: true });
