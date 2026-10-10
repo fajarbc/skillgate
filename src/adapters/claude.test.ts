@@ -313,6 +313,24 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("rejects symlinked workspace ancestors before writing", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "skillgate-workspace-link-"));
+    try {
+      const { mkdir, symlink, readdir } = await import("node:fs/promises");
+      const real = join(parent, "real");
+      await mkdir(real);
+      const alias = join(parent, "alias");
+      await symlink(real, alias, "dir");
+      const adapter = new ClaudeCodeAdapter();
+      const context = { task: "test", root: alias, skills: [] };
+      await expect(adapter.apply(context)).rejects.toThrow("Unsafe workspace ancestor");
+      await expect(adapter.cleanup(context)).rejects.toThrow("Unsafe workspace ancestor");
+      expect(await readdir(real)).toEqual([]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
     const adapter = new ClaudeCodeAdapter();
     const formatted = await adapter.format({
