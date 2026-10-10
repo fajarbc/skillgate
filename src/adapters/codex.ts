@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { checkManagedTargets, cleanupManagedTargets, recordManagedTargets } from "./ownership.js";
+import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, removeStaleManagedTargets, recordManagedTargets } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -34,8 +34,9 @@ export class CodexAdapter implements AgentAdapter {
     const prepared = prepareSafeSkillPaths(context.skills, skillsDir);
     const filesToWrite = prepared.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md"));
     filesToWrite.push(resolveSafeSubpath(agentDir, "skills.json"));
-    const conflicts = await checkManagedTargets(agentDir, filesToWrite);
-    return { agent: "codex", filesToWrite, filesToRemove: [], conflicts };
+    const stale = await planStaleManagedTargets(agentDir, filesToWrite);
+    const conflicts = [...await checkManagedTargets(agentDir, filesToWrite), ...stale.conflicts];
+    return { agent: "codex", filesToWrite, filesToRemove: stale.filesToRemove, conflicts };
   }
 
   async apply(context: AdapterContext): Promise<AdapterResult> {
@@ -82,6 +83,7 @@ export class CodexAdapter implements AgentAdapter {
     };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
     filesWritten.push(manifestPath);
+    await removeStaleManagedTargets(codexDir, filesWritten);
     await recordManagedTargets(codexDir, filesWritten);
 
     return {
