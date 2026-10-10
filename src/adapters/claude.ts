@@ -1,4 +1,5 @@
-import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { checkManagedTargets, recordManagedTargets } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -33,15 +34,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const prepared = prepareSafeSkillPaths(context.skills, skillsDir);
     const filesToWrite = prepared.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md"));
     filesToWrite.push(resolveSafeSubpath(agentDir, "skills.json"));
-    const conflicts: string[] = [];
-    for (const path of filesToWrite) {
-      try {
-        await lstat(path);
-        conflicts.push(path);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-    }
+    const conflicts = await checkManagedTargets(agentDir, filesToWrite);
     return { agent: "claude-code", filesToWrite, filesToRemove: [], conflicts };
   }
 
@@ -89,6 +82,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
     filesWritten.push(manifestPath);
+    await recordManagedTargets(claudeDir, filesWritten);
 
     return {
       agent: this.name,
