@@ -29,6 +29,7 @@ describe("CodexAdapter", () => {
       await adapter.apply(context);
       const afterApply = await adapter.plan(context);
       expect(afterApply?.conflicts).toHaveLength(2);
+      await expect(adapter.apply(context)).rejects.toThrow("Refusing to overwrite existing adapter files");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
