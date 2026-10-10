@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { cwd } from "node:process";
+import { resolveConfiguration, ConfigurationError } from "./config/index.js";
 import { parseArgs } from "node:util";
 import { getAdapter, listAdapters } from "./adapters/index.js";
 import { detectProject } from "./detection/index.js";
@@ -21,19 +22,21 @@ function usage(): string {
     "  recommend <task...>   Rank skills for a task",
     "  trace                 Explain the latest selection",
     "  doctor                Check the local SkillGate setup",
+    "  config                Print effective configuration as JSON",
     "",
     "Options:",
     "  --root <path>     Project and skill root (default: current directory)",
     "  --adapter <name>  Apply skills to agent workspace (e.g. codex)",
+    "  --config <path>   Explicit configuration file",
     "  --json            Print machine-readable JSON",
     "  -h, --help        Show help",
     "  -v, --version     Show version",
   ].join("\n");
 }
 
-async function scan(root: string) {
+async function scan(root: string, skillRoots: string[]) {
   const [discovered, signals] = await Promise.all([
-    discoverSkills({ roots: [root] }),
+    discoverSkills({ roots: skillRoots }),
     detectProject({ root }),
   ]);
   return { root, skills: discovered, signals };
@@ -51,6 +54,7 @@ export async function run(argv: string[]): Promise<number> {
         json: { type: "boolean" },
         root: { type: "string" },
         adapter: { type: "string" },
+        config: { type: "string" },
       },
     });
   } catch (error) {
@@ -69,12 +73,22 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const command = positionals[0];
-  if (!["scan", "recommend", "trace", "doctor"].includes(command ?? "")) {
+  if (!["scan", "recommend", "trace", "doctor", "config"].includes(command ?? "")) {
     console.error(`Unknown command: ${command}\n\n${usage()}`);
     return 1;
   }
 
   const root = values.root ?? cwd();
+
+  if (command === "config") {
+    try {
+      console.log(JSON.stringify(await resolveConfiguration({ root, configFile: values.config }), null, 2));
+      return 0;
+    } catch (error) {
+      console.error(error instanceof ConfigurationError ? error.message : String(error));
+      return 1;
+    }
+  }
 
   if (command === "doctor") {
     const report = await runDiagnostics({ root });
@@ -123,7 +137,15 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const state = await scan(root);
+  let configuration;
+  try {
+    configuration = await resolveConfiguration({ root, configFile: values.config });
+  } catch (error) {
+    console.error(error instanceof ConfigurationError ? error.message : String(error));
+    return 1;
+  }
+
+  const state = await scan(root, configuration.skillRoots);
 
   if (command === "scan") {
     if (values.json) console.log(JSON.stringify(state, null, 2));
@@ -147,11 +169,11 @@ export async function run(argv: string[]): Promise<number> {
   const skills = state.skills.flatMap((skill) =>
     skill.metadata ? [{ path: skill.path, metadata: skill.metadata }] : [],
   );
-  const recommendations = rankSkills({ task, skills, signals: state.signals });
+  const recommendations = rankSkills({ task, skills, signals: state.signals, limit: configuration.candidateLimit });
 
   let policy;
   try {
-    policy = await loadPolicy(root);
+    policy = await loadPolicy(root, configuration.policyPath);
   } catch (error) {
     if (error instanceof PolicyError) {
       console.error(error.message);
@@ -180,6 +202,10 @@ export async function run(argv: string[]): Promise<number> {
 
   let adapterSummary: string | undefined;
   if (values.adapter) {
+    if (configuration.adapters.length > 0 && !configuration.adapters.includes(values.adapter)) {
+      console.error(`Adapter ${values.adapter} is not enabled in the effective configuration`);
+      return 1;
+    }
     const adapter = getAdapter(values.adapter);
     if (!adapter) {
       console.error(`Unknown adapter: ${values.adapter}. Available adapters: ${listAdapters().join(", ")}`);

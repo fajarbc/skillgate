@@ -94,15 +94,15 @@ export function validatePolicyConfig(parsed: unknown, filePath: string): PolicyC
   };
 }
 
-export async function loadPolicy(root: string): Promise<PolicyConfig> {
-  for (const relativePath of DEFAULT_POLICY_FILES) {
-    const fullPath = join(root, relativePath);
+export async function loadPolicy(root: string, explicitPath?: string): Promise<PolicyConfig> {
+  for (const relativePath of explicitPath ? [explicitPath] : DEFAULT_POLICY_FILES) {
+    const fullPath = explicitPath ? explicitPath : join(root, relativePath);
     let content: string;
     try {
       content = await readFile(fullPath, "utf8");
     } catch (err: unknown) {
       const isNotFound = (err as { code?: string })?.code === "ENOENT";
-      if (isNotFound) {
+      if (isNotFound && !explicitPath) {
         continue;
       }
       throw new PolicyError(`Failed to read policy file: ${(err as Error).message}`, relativePath);

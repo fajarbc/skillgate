@@ -31,6 +31,25 @@ skillgate doctor
 
 The command surface will stay small until the underlying behavior is stable.
 
+## Configuration
+
+Create `skillgate.yaml` in the project root:
+
+```yaml
+version: 1
+skillRoots:
+  - ./skills
+candidateLimit: 10
+policyPath: ./skillgate.policy.json
+adapters:
+  - codex
+  - claude
+```
+
+Run `skillgate config --json` to inspect the effective configuration, or use `--config path/to/config.yaml` for an explicit JSON or YAML file. Values are resolved in this order (highest priority first): explicit `--config`, project `skillgate.yaml`, user `~/.config/skillgate/config.yaml`, built-in defaults. Missing keys inherit from lower-priority sources. Skill and policy paths are relative to the configuration file that declares them. `--root` chooses the workspace and default skill root, while `--adapter` chooses which enabled adapter to apply. A nonempty `adapters` list restricts available adapters; an empty list does not restrict them.
+
+Invalid keys, unsupported versions, and invalid values are rejected. If a configured policy file is missing, recommendations fail rather than silently using a permissive policy.
+
 ## Design principles
 
 **Local first.** Discovery, filtering, and deterministic ranking should work without a network connection.
