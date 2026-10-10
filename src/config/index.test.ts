@@ -37,6 +37,17 @@ describe("parseConfiguration", () => {
 });
 
 describe("configuration precedence", () => {
+  it("merges per-adapter options without discarding lower-priority settings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-adapter-options-"));
+    const userFile = join(root, "user.yaml");
+    const explicitFile = join(root, "override.yaml");
+    await writeFile(userFile, "version: 1\nadapterOptions:\n  codex:\n    mode: safe\n    retries: 2\n");
+    await writeFile(join(root, "skillgate.yaml"), "version: 1\nadapterOptions:\n  codex:\n    retries: 3\n  claude:\n    enabled: true\n");
+    await writeFile(explicitFile, "version: 1\nadapterOptions:\n  codex:\n    mode: strict\n");
+    const config = await resolveConfiguration({ root, userConfigFile: userFile, configFile: explicitFile });
+    expect(config.adapterOptions).toEqual({ codex: { mode: "strict", retries: 3 }, claude: { enabled: true } });
+  });
+
   it("inherits omitted values and honors explicit overrides", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-config-"));
     const userFile = join(root, "user.yaml");
