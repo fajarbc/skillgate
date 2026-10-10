@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, writeFile } from "node:fs/promises";
+import { dirname, relative, resolve, sep } from "node:path";
 import { resolveSafeSubpath } from "./safe-path.js";
 
 interface OwnershipRecord {
@@ -11,8 +12,40 @@ function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+async function assertSafeParents(agentDir: string, path: string): Promise<void> {
+  const root = resolve(agentDir);
+  const target = resolve(path);
+  const rel = relative(root, target);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || rel === "" || rel.startsWith(sep)) {
+    throw new Error(`Unsafe managed target: ${path}`);
+  }
+  let parent = dirname(target);
+  while (parent !== root) {
+    try {
+      const stat = await lstat(parent);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Unsafe managed parent: ${parent}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    parent = dirname(parent);
+  }
+  try {
+    const stat = await lstat(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Unsafe adapter directory: ${root}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
 async function readOwnership(agentDir: string): Promise<OwnershipRecord> {
   const filename = resolveSafeSubpath(agentDir, "skillgate-owned.json");
+  await assertSafeParents(agentDir, filename);
+  try {
+    const stat = await lstat(filename);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   try {
     const raw = JSON.parse(await readFile(filename, "utf8")) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid ownership manifest");
@@ -35,6 +68,7 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
   const ownership = await readOwnership(agentDir);
   const conflicts: string[] = [];
   for (const path of targets) {
+    await assertSafeParents(agentDir, path);
     const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
     try {
       const stat = await lstat(path);
@@ -59,6 +93,7 @@ export async function recordManagedTargets(agentDir: string, targets: string[]):
     ownership.files[relative] = hash(await readFile(path, "utf8"));
   }
   const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
+  await assertSafeParents(agentDir, manifestPath);
   try {
     const existing = await lstat(manifestPath);
     if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
