@@ -292,6 +292,27 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("refuses a symlinked adapter root for both apply and cleanup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-root-link-"));
+    const external = await mkdtemp(join(tmpdir(), "skillgate-root-external-"));
+    try {
+      const { symlink } = await import("node:fs/promises");
+      await symlink(external, join(root, ".claude"), "dir");
+      const adapter = new ClaudeCodeAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await expect(adapter.apply(context)).rejects.toThrow("Unsafe adapter directory");
+      await expect(adapter.cleanup(context)).rejects.toThrow("Unsafe adapter directory");
+      const { readdir } = await import("node:fs/promises");
+      expect(await readdir(external)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
     const adapter = new ClaudeCodeAdapter();
     const formatted = await adapter.format({
