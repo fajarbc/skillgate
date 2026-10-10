@@ -112,6 +112,25 @@ export async function recordManagedTargets(agentDir: string, targets: string[]):
   }
 }
 
+/** Stage a complete file and atomically publish it after rechecking ownership. */
+export async function writeManagedTarget(agentDir: string, path: string, content: string): Promise<void> {
+  await assertSafeParents(agentDir, path);
+  const conflicts = await checkManagedTargets(agentDir, [path]);
+  if (conflicts.length) throw new Error(`Refusing to overwrite existing adapter files: ${conflicts.join(", ")}`);
+  const temporary = resolveSafeSubpath(dirname(path), `.skillgate-stage-${randomUUID()}.tmp`);
+  await writeFile(temporary, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  try {
+    await assertSafeParents(agentDir, path);
+    const latest = await checkManagedTargets(agentDir, [path]);
+    if (latest.length) throw new Error(`Refusing to overwrite existing adapter files: ${latest.join(", ")}`);
+    await rename(temporary, path);
+  } finally {
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+}
+
 /** Preview stale managed targets without touching user-owned files. */
 export async function planStaleManagedTargets(agentDir: string, intended: string[]): Promise<{ filesToRemove: string[]; conflicts: string[] }> {
   const ownership = await readOwnership(agentDir);
