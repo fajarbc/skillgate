@@ -272,6 +272,26 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("refuses to record unexpected modified output as owned", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-ownership-commit-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { prepareManagedTargets, recordManagedTargets } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      const skillDir = join(agentDir, "skills", "example");
+      await mkdir(skillDir, { recursive: true });
+      const target = join(skillDir, "SKILL.md");
+      const expected = [{ path: target, content: "intended content" }];
+      await prepareManagedTargets(agentDir, expected);
+      await writeFile(target, "unexpected modification");
+      await expect(recordManagedTargets(agentDir, [target], expected))
+        .rejects.toThrow("Managed output changed before ownership commit");
+      expect(await readFile(target, "utf8")).toBe("unexpected modification");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
