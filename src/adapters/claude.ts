@@ -1,5 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, removeStaleManagedTargets, recordManagedTargets, writeManagedTarget } from "./ownership.js";
+import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, writeManagedTarget } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -51,6 +51,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
     const filesWritten: string[] = [];
     const exposedSkills: string[] = [];
+    const pending: Array<{ path: string; content: string }> = [];
 
     for (const { skill, safeId, dirPath } of preparedSkills) {
       await mkdir(dirPath, { recursive: true });
@@ -63,7 +64,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         content = `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
       }
 
-      await writeManagedTarget(claudeDir, destFile, content);
+      pending.push({ path: destFile, content });
       filesWritten.push(destFile);
       exposedSkills.push(skill.metadata.name);
     }
@@ -81,7 +82,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         capabilities: skill.metadata.capabilities ?? [],
       })),
     };
-    await writeManagedTarget(claudeDir, manifestPath, JSON.stringify(manifest, null, 2));
+    pending.push({ path: manifestPath, content: JSON.stringify(manifest, null, 2) });
+    await prepareManagedTargets(claudeDir, pending);
+    for (const entry of pending) {
+      await writeManagedTarget(claudeDir, entry.path, entry.content);
+    }
     filesWritten.push(manifestPath);
     await removeStaleManagedTargets(claudeDir, filesWritten);
     await recordManagedTargets(claudeDir, filesWritten);
