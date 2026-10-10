@@ -205,6 +205,29 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects changing the intended set while a replacement remains pending", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-set-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { prepareManagedTargets } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      const skillDir = join(agentDir, "skills", "example");
+      await mkdir(skillDir, { recursive: true });
+      const target = join(skillDir, "SKILL.md");
+      const original = "original";
+      const replacement = "replacement";
+      await prepareManagedTargets(agentDir, [{ path: target, content: original }]);
+      await writeFile(target, original);
+      const { recordManagedTargets } = await import("./ownership.js");
+      await recordManagedTargets(agentDir, [target], [{ path: target, content: original }]);
+      await prepareManagedTargets(agentDir, [{ path: target, content: replacement }]);
+      await expect(prepareManagedTargets(agentDir, [])).rejects.toThrow("Pending replacement requires recovery");
+      expect(await readFile(target, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
