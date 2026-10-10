@@ -40,6 +40,25 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("rejects a symlinked managed skills directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-"));
+    const external = await mkdtemp(join(tmpdir(), "skillgate-external-"));
+    try {
+      const { mkdir, symlink } = await import("node:fs/promises");
+      await mkdir(join(root, ".claude"));
+      await symlink(external, join(root, ".claude", "skills"), "dir");
+      const adapter = new ClaudeCodeAdapter();
+      await expect(adapter.plan({
+        task: "test",
+        root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      })).rejects.toThrow("Unsafe managed parent");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
     const adapter = new ClaudeCodeAdapter();
     const formatted = await adapter.format({
