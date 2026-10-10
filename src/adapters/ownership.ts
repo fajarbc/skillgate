@@ -129,6 +129,7 @@ export async function withManagedLock<T>(agentDir: string, operation: () => Prom
 
 export async function checkManagedTargets(agentDir: string, targets: string[]): Promise<string[]> {
   const ownership = await readOwnership(agentDir);
+  const journal = await readReplacementJournal(agentDir);
   const conflicts: string[] = [];
   for (const path of targets) {
     await assertSafeParents(agentDir, path);
@@ -140,7 +141,9 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
         continue;
       }
       const currentHash = hash(await readFile(path, "utf8"));
-      if (ownership.files[relative] !== currentHash) conflicts.push(path);
+      const replacement = journal.files[relative];
+      const matchesJournal = replacement && replacement.previous === ownership.files[relative] && replacement.next === currentHash;
+      if (ownership.files[relative] !== currentHash && !matchesJournal) conflicts.push(path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       // Missing previously managed files are safe to recreate after interruption.
@@ -250,6 +253,20 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
       current.files[key] = hash(entry.content);
     }
   }
+  const journal = await readReplacementJournal(agentDir);
+  for (const entry of entries) {
+    const key = relative(agentDir, entry.path).replaceAll("\\", "/");
+    const prior = current.files[key];
+    if (!prior) continue;
+    const next = hash(entry.content);
+    if (prior === next) continue;
+    const existing = journal.files[key];
+    if (existing && (existing.previous !== prior || existing.next !== next)) {
+      throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
+    }
+    journal.files[key] = { previous: prior, next };
+  }
+  await saveReplacementJournal(agentDir, journal);
   await saveOwnership(agentDir, current);
 }
 
