@@ -254,6 +254,24 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("never removes a pre-existing adapter lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-existing-lock-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const agentDir = join(root, ".codex");
+      await mkdir(agentDir);
+      const lock = join(agentDir, ".skillgate.lock");
+      await writeFile(lock, "held by another process");
+      const adapter = new CodexAdapter();
+      const context = { task: "test", root, skills: [] };
+      await expect(adapter.apply(context)).rejects.toThrow("Adapter directory is locked");
+      await expect(adapter.cleanup(context)).rejects.toThrow("Adapter directory is locked");
+      expect(await readFile(lock, "utf8")).toBe("held by another process");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
