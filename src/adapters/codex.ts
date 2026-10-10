@@ -1,5 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { assertSafeAdapterDirectory, assertSafeWorkspacePath, checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, withManagedLock, writeManagedTarget } from "./ownership.js";
+import { assertSafeAdapterDirectory, assertSafeWorkspacePath, checkManagedTargets, cleanupManagedTargets, clearReplacementJournal, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, withManagedLock, writeManagedTarget } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -94,6 +94,7 @@ export class CodexAdapter implements AgentAdapter {
     filesWritten.push(manifestPath);
     await removeStaleManagedTargets(codexDir, filesWritten);
     await recordManagedTargets(codexDir, filesWritten, pending);
+    await clearReplacementJournal(codexDir);
 
     return {
       agent: this.name,
@@ -110,6 +111,7 @@ export class CodexAdapter implements AgentAdapter {
     await mkdir(agentDir, { recursive: true });
     return withManagedLock(agentDir, async () => {
     const filesRemoved = await cleanupManagedTargets(agentDir);
+    await clearReplacementJournal(agentDir);
     return {
       agent: this.name,
       filesWritten: [],
