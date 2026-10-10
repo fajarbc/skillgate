@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { cwd } from "node:process";
-import { resolveConfiguration, ConfigurationError } from "./config/index.js";
+import { resolveConfiguration, sanitizeConfiguration, ConfigurationError } from "./config/index.js";
 import { parseArgs } from "node:util";
 import { getAdapter, listAdapters } from "./adapters/index.js";
 import { detectProject } from "./detection/index.js";
@@ -82,7 +82,7 @@ export async function run(argv: string[]): Promise<number> {
 
   if (command === "config") {
     try {
-      console.log(JSON.stringify(await resolveConfiguration({ root, configFile: values.config }), null, 2));
+      console.log(JSON.stringify(sanitizeConfiguration(await resolveConfiguration({ root, configFile: values.config })), null, 2));
       return 0;
     } catch (error) {
       console.error(error instanceof ConfigurationError ? error.message : String(error));
