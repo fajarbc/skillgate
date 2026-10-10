@@ -5,6 +5,35 @@ import { describe, expect, it } from "vitest";
 import { CodexAdapter } from "./codex.js";
 
 describe("CodexAdapter", () => {
+  it("plans without modifying the workspace and detects existing targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-plan-"));
+    try {
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test",
+        root,
+        skills: [{
+          path: join(root, "source.md"),
+          metadata: { name: "example", description: "Example" },
+          score: 1,
+          reasons: [],
+        }],
+      };
+      const first = await adapter.plan(context);
+      expect(first?.filesToWrite).toHaveLength(2);
+      expect(first?.conflicts).toEqual([]);
+      const second = await adapter.plan(context);
+      expect(second).toEqual(first);
+      const { readdir } = await import("node:fs/promises");
+      expect(await readdir(root)).toEqual([]);
+      await adapter.apply(context);
+      const afterApply = await adapter.plan(context);
+      expect(afterApply?.conflicts).toHaveLength(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
