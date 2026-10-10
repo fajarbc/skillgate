@@ -331,6 +331,33 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("recovers a replacement interrupted after publishing a previously owned skill", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-replacement-"));
+    try {
+      const { prepareManagedTargets, writeManagedTarget } = await import("./ownership.js");
+      const adapter = new CodexAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "old skill content");
+      const context = {
+        task: "test", root,
+        skills: [{ path: source, metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await adapter.apply(context);
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      await writeFile(source, "new skill content");
+      const agentDir = join(root, ".codex");
+      await prepareManagedTargets(agentDir, [{ path: target, content: "new skill content" }]);
+      await writeManagedTarget(agentDir, target, "new skill content");
+      expect((await adapter.plan(context)).conflicts).toEqual([]);
+      await adapter.apply(context);
+      expect(await readFile(target, "utf8")).toBe("new skill content");
+      const { readdir } = await import("node:fs/promises");
+      expect((await readdir(agentDir)).includes("skillgate-replacements.json")).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
