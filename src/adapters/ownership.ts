@@ -117,11 +117,17 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
   return conflicts;
 }
 
-export async function recordManagedTargets(agentDir: string, targets: string[]): Promise<void> {
+export async function recordManagedTargets(agentDir: string, targets: string[], expected?: ReadonlyArray<{ path: string; content: string }>): Promise<void> {
+  const intended = new Map(expected?.map((entry) => [resolve(entry.path), hash(entry.content)]));
   const ownership: OwnershipRecord = { version: 1, files: {} };
   for (const path of targets) {
     const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
-    ownership.files[relative] = hash(await readFile(path, "utf8"));
+    await assertSafeParents(agentDir, path);
+    const actual = hash(await readFile(path, "utf8"));
+    if (intended && actual !== intended.get(resolve(path))) {
+      throw new Error(`Managed output changed before ownership commit: ${path}`);
+    }
+    ownership.files[relative] = actual;
   }
   await saveOwnership(agentDir, ownership);
 }
