@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, writeFile } from "node:fs/promises";
+import { lstat, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { resolveSafeSubpath } from "./safe-path.js";
 
@@ -102,4 +102,32 @@ export async function recordManagedTargets(agentDir: string, targets: string[]):
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     await writeFile(manifestPath, JSON.stringify(ownership, null, 2), { encoding: "utf8", flag: "wx" });
   }
+}
+
+/** Remove only files whose contents still match SkillGate's recorded hashes. */
+export async function cleanupManagedTargets(agentDir: string): Promise<string[]> {
+  const ownership = await readOwnership(agentDir);
+  const paths = Object.keys(ownership.files).map((name) => resolveSafeSubpath(agentDir, name));
+  const conflicts = await checkManagedTargets(agentDir, paths);
+  if (conflicts.length > 0) {
+    throw new Error(`Refusing to remove modified managed files: ${conflicts.join(", ")}`);
+  }
+  const removed: string[] = [];
+  for (const path of paths) {
+    await assertSafeParents(agentDir, path);
+    const stat = await lstat(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed file: ${path}`);
+    const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
+    if (hash(await readFile(path, "utf8")) !== ownership.files[relative]) {
+      throw new Error(`Managed file changed during cleanup: ${path}`);
+    }
+    await unlink(path);
+    removed.push(path);
+  }
+  const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
+  await assertSafeParents(agentDir, manifestPath);
+  const manifestStat = await lstat(manifestPath);
+  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
+  await unlink(manifestPath);
+  return removed;
 }
