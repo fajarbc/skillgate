@@ -81,6 +81,60 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("plans and removes stale managed skills without deleting unrelated files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-stale-"));
+    try {
+      const adapter = new ClaudeCodeAdapter();
+      const makeSkill = (name: string) => ({
+        path: join(root, name + ".md"),
+        metadata: { name, description: "Example" },
+        score: 1,
+        reasons: [],
+      });
+      const initial = { task: "test", root, skills: [makeSkill("first"), makeSkill("second")] };
+      await adapter.apply(initial);
+      const unrelated = join(root, ".claude", "skills", "first", "notes.txt");
+      await writeFile(unrelated, "user-owned");
+      const reduced = { ...initial, skills: [makeSkill("first")] };
+      const stale = join(root, ".claude", "skills", "second", "SKILL.md");
+      const preview = await adapter.plan(reduced);
+      expect(preview.filesToRemove).toEqual([stale]);
+      expect(preview.conflicts).toEqual([]);
+      expect(await readFile(stale, "utf8")).toContain("second");
+      await adapter.apply(reduced);
+      await expect(readFile(stale, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(unrelated, "utf8")).toBe("user-owned");
+      expect((await adapter.plan(reduced)).filesToRemove).toEqual([]);
+      await adapter.cleanup(reduced);
+      expect(await readFile(unrelated, "utf8")).toBe("user-owned");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses stale cleanup when a removed skill was modified", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-stale-conflict-"));
+    try {
+      const adapter = new ClaudeCodeAdapter();
+      const skill = (name: string) => ({
+        path: join(root, name + ".md"),
+        metadata: { name, description: "Example" },
+        score: 1,
+        reasons: [],
+      });
+      const context = { task: "test", root, skills: [skill("first"), skill("second")] };
+      await adapter.apply(context);
+      const modified = join(root, ".claude", "skills", "second", "SKILL.md");
+      await writeFile(modified, "user modification");
+      const reduced = { ...context, skills: [skill("first")] };
+      expect((await adapter.plan(reduced)).conflicts).toContain(modified);
+      await expect(adapter.apply(reduced)).rejects.toThrow("Refusing to overwrite existing adapter files");
+      expect(await readFile(modified, "utf8")).toBe("user modification");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
     const adapter = new ClaudeCodeAdapter();
     const formatted = await adapter.format({
