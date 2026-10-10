@@ -358,6 +358,24 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("blocks cleanup while a replacement journal is unfinished", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-cleanup-"));
+    try {
+      const { prepareManagedTargets } = await import("./ownership.js");
+      const adapter = new CodexAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "initial");
+      const context = { task: "test", root, skills: [{ path: source, metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }] };
+      await adapter.apply(context);
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      await prepareManagedTargets(join(root, ".codex"), [{ path: target, content: "replacement" }]);
+      await expect(adapter.cleanup(context)).rejects.toThrow("replacement transaction is pending");
+      expect(await readFile(target, "utf8")).toBe("initial");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
