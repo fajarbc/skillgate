@@ -21,7 +21,7 @@ async function readOwnership(agentDir: string): Promise<OwnershipRecord> {
       throw new Error("invalid ownership manifest");
     }
     const files = data.files as Record<string, unknown>;
-    if (Object.entries(files).some(([name, digest]) => !/^[a-z0-9-]+\/SKILL\.md$|^skills\.json$/.test(name) || typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest))) {
+    if (Object.entries(files).some(([name, digest]) => !/^skills\/[a-z0-9.-]+\/SKILL\.md$|^skills\.json$/.test(name) || typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest))) {
       throw new Error("invalid ownership entries");
     }
     return { version: 1, files: files as Record<string, string> };
@@ -58,5 +58,13 @@ export async function recordManagedTargets(agentDir: string, targets: string[]):
     const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
     ownership.files[relative] = hash(await readFile(path, "utf8"));
   }
-  await writeFile(resolveSafeSubpath(agentDir, "skillgate-owned.json"), JSON.stringify(ownership, null, 2), { encoding: "utf8", flag: "wx" });
+  const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
+  try {
+    const existing = await lstat(manifestPath);
+    if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
+    await writeFile(manifestPath, JSON.stringify(ownership, null, 2), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await writeFile(manifestPath, JSON.stringify(ownership, null, 2), { encoding: "utf8", flag: "wx" });
+  }
 }
