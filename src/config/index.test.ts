@@ -23,6 +23,12 @@ describe("parseConfiguration", () => {
     expect(() => parseConfiguration("version: 1\nsecret: true", filename)).toThrow('unknown key "secret"');
   });
 
+  it("validates adapter option values", () => {
+    expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
+    expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
+    expect(() => parseConfiguration('{"version":1,"adapterOptions":[]}', "config.json")).toThrow("adapterOptions");
+  });
+
   it("rejects malformed or invalid values", () => {
     expect(() => parseConfiguration("version: [", filename)).toThrow(ConfigurationError);
     expect(() => parseConfiguration("version: 1\ncandidateLimit: 0", filename)).toThrow("candidateLimit");
