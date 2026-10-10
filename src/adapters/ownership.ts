@@ -202,7 +202,19 @@ export async function recordManagedTargets(agentDir: string, targets: string[], 
   for (const path of targets) {
     const key = relativePath(agentDir, path);
     await assertSafeParents(agentDir, path);
-    const actual = hash(await readFile(path, "utf8"));
+    const stat = await lstat(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed target: ${path}`);
+    const handle = await open(path, "r");
+    let actual: string;
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.ino !== stat.ino || opened.dev !== stat.dev) {
+        throw new Error(`Managed output changed before ownership commit: ${path}`);
+      }
+      actual = hash(await handle.readFile({ encoding: "utf8" }));
+    } finally {
+      await handle.close();
+    }
     if (actual !== intended.get(resolve(path))) {
       throw new Error(`Managed output changed before ownership commit: ${path}`);
     }
