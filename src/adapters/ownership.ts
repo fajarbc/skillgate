@@ -95,6 +95,33 @@ export async function assertSafeWorkspacePath(workspace: string): Promise<void> 
   }
 }
 
+/** Reclaim only a lock whose recorded local process is definitely gone.
+ * Malformed or live locks require manual intervention rather than risking overlap.
+ */
+async function reclaimDeadProcessLock(lockPath: string): Promise<boolean> {
+  let stat;
+  try {
+    stat = await lstat(lockPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    const raw = JSON.parse(await readFile(lockPath, "utf8")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+    const pid = (raw as Record<string, unknown>).pid;
+    if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+    }
+    const latest = await lstat(lockPath);
+    if (latest.ino !== stat.ino || latest.dev !== stat.dev || !latest.isFile() || latest.isSymbolicLink()) return false;
+    await unlink(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Serialize cooperative adapter writers using an exclusive lock file. */
 export async function withManagedLock<T>(agentDir: string, operation: () => Promise<T>): Promise<T> {
   await assertSafeAdapterDirectory(agentDir);
@@ -104,10 +131,19 @@ export async function withManagedLock<T>(agentDir: string, operation: () => Prom
   try {
     handle = await open(lockPath, "wx", 0o600);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!await reclaimDeadProcessLock(lockPath)) {
       throw new Error(`Adapter directory is locked by another operation: ${agentDir}`);
     }
-    throw error;
+    // Exclusive creation still protects against a concurrent recovery attempt.
+    try {
+      handle = await open(lockPath, "wx", 0o600);
+    } catch (retryError) {
+      if ((retryError as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`Adapter directory is locked by another operation: ${agentDir}`);
+      }
+      throw retryError;
+    }
   }
   try {
     await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
