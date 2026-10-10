@@ -1,5 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, writeManagedTarget } from "./ownership.js";
+import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, withManagedLock, writeManagedTarget } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -40,11 +40,13 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async apply(context: AdapterContext): Promise<AdapterResult> {
+    const codexDir = resolveSafeSubpath(context.root, ".codex");
+    await mkdir(codexDir, { recursive: true });
+    return withManagedLock(codexDir, async () => {
     const plan = await this.plan(context);
     if (plan.conflicts.length > 0) {
       throw new Error(`Refusing to overwrite existing adapter files: ${plan.conflicts.join(", ")}`);
     }
-    const codexDir = resolveSafeSubpath(context.root, ".codex");
     const skillsDir = resolveSafeSubpath(codexDir, "skills");
     await mkdir(skillsDir, { recursive: true });
 
@@ -97,9 +99,11 @@ export class CodexAdapter implements AgentAdapter {
       exposedSkills,
       summary: `Exposed ${exposedSkills.length} skills to .codex/skills/`,
     };
+    });
   }
   async cleanup(context: AdapterContext): Promise<AdapterResult> {
     const agentDir = resolveSafeSubpath(context.root, ".codex");
+    return withManagedLock(agentDir, async () => {
     const filesRemoved = await cleanupManagedTargets(agentDir);
     return {
       agent: this.name,
@@ -107,5 +111,6 @@ export class CodexAdapter implements AgentAdapter {
       exposedSkills: [],
       summary: `Removed ${filesRemoved.length} SkillGate-managed files from .codex/`,
     };
+    });
   }
 }
