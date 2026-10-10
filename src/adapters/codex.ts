@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, removeStaleManagedTargets, recordManagedTargets } from "./ownership.js";
+import { mkdir, readFile } from "node:fs/promises";
+import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, removeStaleManagedTargets, recordManagedTargets, writeManagedTarget } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -63,7 +63,7 @@ export class CodexAdapter implements AgentAdapter {
         content = `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
       }
 
-      await writeFile(destFile, content, "utf8");
+      await writeManagedTarget(codexDir, destFile, content);
       filesWritten.push(destFile);
       exposedSkills.push(skill.metadata.name);
     }
@@ -81,7 +81,7 @@ export class CodexAdapter implements AgentAdapter {
         capabilities: skill.metadata.capabilities ?? [],
       })),
     };
-    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    await writeManagedTarget(codexDir, manifestPath, JSON.stringify(manifest, null, 2));
     filesWritten.push(manifestPath);
     await removeStaleManagedTargets(codexDir, filesWritten);
     await recordManagedTargets(codexDir, filesWritten);
