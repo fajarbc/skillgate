@@ -161,7 +161,7 @@ describe("CLI", () => {
 
   it("rejects adapters excluded by configuration", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-adapters-"));
-    await writeFile(join(root, "skillgate.yaml"), "version: 1\\nadapters: [claude]\\n");
+    await writeFile(join(root, "skillgate.yaml"), "version: 1\nadapters: [claude]\n");
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       expect(await run(["recommend", "test", "--root", root, "--adapter", "codex"])).toBe(1);
