@@ -20,6 +20,17 @@ export interface SkillGateConfig {
 }
 
 const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters", "adapterOptions"]);
+const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key)/i;
+
+export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig {
+  return {
+    ...config,
+    adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
+      adapter,
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, sensitiveOption.test(key) ? "[REDACTED]" : value])),
+    ])),
+  };
+}
 
 export function parseConfiguration(source: string, filename: string): Partial<SkillGateConfig> & { version: 1 } {
   let parsed: unknown;
