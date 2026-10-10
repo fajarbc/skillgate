@@ -180,6 +180,31 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("recovers a published output from an interrupted journaled apply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-journal-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { prepareManagedTargets } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      const skillDir = join(agentDir, "skills", "example");
+      await mkdir(skillDir, { recursive: true });
+      const target = join(skillDir, "SKILL.md");
+      const content = "---\\nname: example\\ndescription: Example\\n---\\n".replaceAll("\\n", "\n");
+      await prepareManagedTargets(agentDir, [{ path: target, content }]);
+      await writeFile(target, content);
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      expect((await adapter.plan(context)).conflicts).toEqual([]);
+      await adapter.apply(context);
+      await expect(adapter.cleanup(context)).resolves.toMatchObject({ filesWritten: [] });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
