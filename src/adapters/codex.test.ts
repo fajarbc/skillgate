@@ -274,6 +274,33 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("recovers a dead-process lock but never steals a live lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-dead-lock-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { withManagedLock } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      await mkdir(agentDir);
+      const lockPath = join(agentDir, ".skillgate.lock");
+      await writeFile(lockPath, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+      await expect(withManagedLock(agentDir, async () => "unsafe")).rejects.toThrow("locked");
+      // A very large positive PID is not guaranteed to be absent on every platform;
+      // use a platform-supported ESRCH probe before asserting recovery.
+      const deadPid = 2147483647;
+      let absent = false;
+      try { process.kill(deadPid, 0); } catch (error) {
+        absent = (error as NodeJS.ErrnoException).code === "ESRCH";
+      }
+      if (absent) {
+        await writeFile(lockPath, JSON.stringify({ pid: deadPid, createdAt: new Date().toISOString() }));
+        await expect(withManagedLock(agentDir, async () => "recovered")).resolves.toBe("recovered");
+        await expect(readFile(lockPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
