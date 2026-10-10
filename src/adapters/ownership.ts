@@ -200,13 +200,13 @@ export async function recordManagedTargets(agentDir: string, targets: string[], 
   const intended = new Map(expected.map((entry) => [resolve(entry.path), hash(entry.content)]));
   const ownership: OwnershipRecord = { version: 1, files: {} };
   for (const path of targets) {
-    const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
+    const key = relativePath(agentDir, path);
     await assertSafeParents(agentDir, path);
     const actual = hash(await readFile(path, "utf8"));
     if (actual !== intended.get(resolve(path))) {
       throw new Error(`Managed output changed before ownership commit: ${path}`);
     }
-    ownership.files[relative] = actual;
+    ownership.files[key] = actual;
   }
   await saveOwnership(agentDir, ownership);
   // The committed manifest is authoritative; a completed replacement no longer needs recovery state.
@@ -426,8 +426,8 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
       throw error;
     }
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed file: ${path}`);
-    const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
-    if (hash(await readFile(path, "utf8")) !== ownership.files[relative]) {
+    const key = relativePath(agentDir, path);
+    if (hash(await readFile(path, "utf8")) !== ownership.files[key]) {
       throw new Error(`Managed file changed during cleanup: ${path}`);
     }
     await unlink(path);
