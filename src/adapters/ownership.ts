@@ -349,6 +349,10 @@ export async function removeStaleManagedTargets(agentDir: string, intended: stri
 /** Remove only files whose contents still match SkillGate's recorded hashes. */
 export async function cleanupManagedTargets(agentDir: string): Promise<string[]> {
   const ownership = await readOwnership(agentDir);
+  const journal = await readReplacementJournal(agentDir);
+  if (Object.keys(journal.files).length > 0) {
+    throw new Error("Refusing cleanup while a replacement transaction is pending; complete apply first");
+  }
   const paths = Object.keys(ownership.files).map((name) => resolveSafeSubpath(agentDir, name));
   const conflicts = await checkManagedTargets(agentDir, paths);
   if (conflicts.length > 0) {
