@@ -92,6 +92,31 @@ export async function recordManagedTargets(agentDir: string, targets: string[]):
     const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
     ownership.files[relative] = hash(await readFile(path, "utf8"));
   }
+  await saveOwnership(agentDir, ownership);
+}
+
+/** Register intended output before publishing, so interrupted writes remain recoverable. */
+export async function prepareManagedTargets(agentDir: string, entries: ReadonlyArray<{ path: string; content: string }>): Promise<void> {
+  const current = await readOwnership(agentDir);
+  const conflicts = await checkManagedTargets(agentDir, entries.map((entry) => entry.path));
+  if (conflicts.length) throw new Error(`Refusing to overwrite existing adapter files: ${conflicts.join(", ")}`);
+  for (const entry of entries) {
+    await assertSafeParents(agentDir, entry.path);
+    const key = relative(agentDir, entry.path).replaceAll("\\", "/");
+    if (!/^skills\/[a-z0-9.-]+\/SKILL\.md$|^skills\.json$/.test(key)) throw new Error(`Invalid managed target: ${entry.path}`);
+    // Only publish the intended digest for previously absent targets.
+    // Existing managed files retain their old digest until the replacement is published.
+    try {
+      await lstat(entry.path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      current.files[key] = hash(entry.content);
+    }
+  }
+  await saveOwnership(agentDir, current);
+}
+
+async function saveOwnership(agentDir: string, ownership: OwnershipRecord): Promise<void> {
   const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
   await assertSafeParents(agentDir, manifestPath);
   try {
