@@ -77,6 +77,24 @@ export async function assertSafeAdapterDirectory(agentDir: string): Promise<void
   }
 }
 
+/** Never follow a symlink in the workspace path leading to an adapter root. */
+export async function assertSafeWorkspacePath(workspace: string): Promise<void> {
+  let current = resolve(workspace);
+  while (true) {
+    try {
+      const stat = await lstat(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error(`Unsafe workspace ancestor: ${current}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+}
+
 /** Serialize cooperative adapter writers using an exclusive lock file. */
 export async function withManagedLock<T>(agentDir: string, operation: () => Promise<T>): Promise<T> {
   await assertSafeAdapterDirectory(agentDir);
