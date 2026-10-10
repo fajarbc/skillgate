@@ -261,8 +261,14 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
     const prior = current.files[key];
     if (!prior) continue;
     const next = hash(entry.content);
-    if (prior === next) continue;
     const existing = journal.files[key];
+    // A pending replacement may already be published after an interrupted apply.
+    // Preserve its original ownership digest until the manifest is committed.
+    if (existing && existing.previous === prior && existing.next === next) continue;
+    if (prior === next) {
+      if (existing) throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
+      continue;
+    }
     if (existing && (existing.previous !== prior || existing.next !== next)) {
       throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
     }
