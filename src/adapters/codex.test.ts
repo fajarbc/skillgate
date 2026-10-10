@@ -226,6 +226,34 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects overlapping operations and releases the lock after failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-lock-"));
+    try {
+      const { mkdir, readdir } = await import("node:fs/promises");
+      const { withManagedLock } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      await mkdir(agentDir);
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await withManagedLock(agentDir, async () => {
+        await expect(adapter.apply(context)).rejects.toThrow("Adapter directory is locked");
+        await expect(adapter.cleanup(context)).rejects.toThrow("Adapter directory is locked");
+      });
+      await expect(withManagedLock(agentDir, async () => {
+        throw new Error("simulated failure");
+      })).rejects.toThrow("simulated failure");
+      expect(await readdir(agentDir)).toEqual([]);
+      await adapter.apply(context);
+      await adapter.cleanup(context);
+      expect((await readdir(agentDir)).includes(".skillgate.lock")).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
