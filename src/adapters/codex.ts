@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { checkManagedTargets, recordManagedTargets } from "./ownership.js";
+import { checkManagedTargets, cleanupManagedTargets, recordManagedTargets } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -89,6 +89,16 @@ export class CodexAdapter implements AgentAdapter {
       filesWritten,
       exposedSkills,
       summary: `Exposed ${exposedSkills.length} skills to .codex/skills/`,
+    };
+  }
+  async cleanup(context: AdapterContext): Promise<AdapterResult> {
+    const agentDir = resolveSafeSubpath(context.root, ".codex");
+    const filesRemoved = await cleanupManagedTargets(agentDir);
+    return {
+      agent: this.name,
+      filesWritten: [],
+      exposedSkills: [],
+      summary: `Removed ${filesRemoved.length} SkillGate-managed files from .codex/`,
     };
   }
 }
