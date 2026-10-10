@@ -272,6 +272,26 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("refuses to record unexpected modified output as owned", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-ownership-commit-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { prepareManagedTargets, recordManagedTargets } = await import("./ownership.js");
+      const agentDir = join(root, ".claude");
+      const skillDir = join(agentDir, "skills", "example");
+      await mkdir(skillDir, { recursive: true });
+      const target = join(skillDir, "SKILL.md");
+      const expected = [{ path: target, content: "intended content" }];
+      await prepareManagedTargets(agentDir, expected);
+      await writeFile(target, "unexpected modification");
+      await expect(recordManagedTargets(agentDir, [target], expected))
+        .rejects.toThrow("Managed output changed before ownership commit");
+      expect(await readFile(target, "utf8")).toBe("unexpected modification");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
     const adapter = new ClaudeCodeAdapter();
     const formatted = await adapter.format({
