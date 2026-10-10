@@ -91,7 +91,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     }
     filesWritten.push(manifestPath);
     await removeStaleManagedTargets(claudeDir, filesWritten);
-    await recordManagedTargets(claudeDir, filesWritten);
+    await recordManagedTargets(claudeDir, filesWritten, pending);
 
     return {
       agent: this.name,
