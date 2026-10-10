@@ -205,6 +205,27 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects corrupted ownership manifests before modifying managed files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
+    try {
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await adapter.apply(context);
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      const before = await readFile(target, "utf8");
+      const manifest = join(root, ".codex", "skillgate-owned.json");
+      await writeFile(manifest, '{"version":1,"files":{"../../outside":"aaaaaaaa"}}');
+      await expect(adapter.plan(context)).rejects.toThrow("invalid ownership entries");
+      await expect(adapter.apply(context)).rejects.toThrow("invalid ownership entries");
+      expect(await readFile(target, "utf8")).toBe(before);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
