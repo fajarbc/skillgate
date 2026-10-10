@@ -228,6 +228,25 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("detects user edits with a trailing separator in the adapter root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-root-path-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { checkManagedTargets, prepareManagedTargets, recordManagedTargets } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      const target = join(agentDir, "skills", "example", "SKILL.md");
+      await mkdir(join(agentDir, "skills", "example"), { recursive: true });
+      await prepareManagedTargets(agentDir, [{ path: target, content: "managed" }]);
+      await writeFile(target, "managed");
+      await recordManagedTargets(agentDir, [target], [{ path: target, content: "managed" }]);
+      expect(await checkManagedTargets(agentDir + "/", [target])).toEqual([]);
+      await writeFile(target, "user edit");
+      expect(await checkManagedTargets(agentDir + "/", [target])).toEqual([target]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
