@@ -64,8 +64,22 @@ async function readOwnership(agentDir: string): Promise<OwnershipRecord> {
   }
 }
 
+/** Reject symlinked or non-directory adapter roots before any writes. */
+export async function assertSafeAdapterDirectory(agentDir: string): Promise<void> {
+  const root = resolve(agentDir);
+  try {
+    const stat = await lstat(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error(`Unsafe adapter directory: ${root}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
 /** Serialize cooperative adapter writers using an exclusive lock file. */
 export async function withManagedLock<T>(agentDir: string, operation: () => Promise<T>): Promise<T> {
+  await assertSafeAdapterDirectory(agentDir);
   const lockPath = resolveSafeSubpath(agentDir, ".skillgate.lock");
   await assertSafeParents(agentDir, lockPath);
   let handle;
