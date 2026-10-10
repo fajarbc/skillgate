@@ -202,6 +202,10 @@ export async function run(argv: string[]): Promise<number> {
 
   let adapterSummary: string | undefined;
   if (values.adapter) {
+    if (configuration.adapters.length > 0 && !configuration.adapters.includes(values.adapter)) {
+      console.error(`Adapter ${values.adapter} is not enabled in the effective configuration`);
+      return 1;
+    }
     const adapter = getAdapter(values.adapter);
     if (!adapter) {
       console.error(`Unknown adapter: ${values.adapter}. Available adapters: ${listAdapters().join(", ")}`);
