@@ -1,5 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, writeManagedTarget } from "./ownership.js";
+import { checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, withManagedLock, writeManagedTarget } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -40,11 +40,13 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async apply(context: AdapterContext): Promise<AdapterResult> {
+    const claudeDir = resolveSafeSubpath(context.root, ".claude");
+    await mkdir(claudeDir, { recursive: true });
+    return withManagedLock(claudeDir, async () => {
     const plan = await this.plan(context);
     if (plan.conflicts.length > 0) {
       throw new Error(`Refusing to overwrite existing adapter files: ${plan.conflicts.join(", ")}`);
     }
-    const claudeDir = resolveSafeSubpath(context.root, ".claude");
     const skillsDir = resolveSafeSubpath(claudeDir, "skills");
     await mkdir(skillsDir, { recursive: true });
 
@@ -97,9 +99,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       exposedSkills,
       summary: `Exposed ${exposedSkills.length} skills to .claude/skills/`,
     };
+    });
   }
   async cleanup(context: AdapterContext): Promise<AdapterResult> {
     const agentDir = resolveSafeSubpath(context.root, ".claude");
+    return withManagedLock(agentDir, async () => {
     const filesRemoved = await cleanupManagedTargets(agentDir);
     return {
       agent: this.name,
@@ -107,5 +111,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       exposedSkills: [],
       summary: `Removed ${filesRemoved.length} SkillGate-managed files from .claude/`,
     };
+    });
   }
 }
