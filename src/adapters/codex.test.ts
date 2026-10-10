@@ -75,6 +75,7 @@ describe("CodexAdapter", () => {
       expect(await readFile(target, "utf8")).toBe("user edit");
       await writeFile(target, original);
       await expect(adapter.cleanup(context)).resolves.toMatchObject({ filesWritten: [] });
+      await expect(adapter.cleanup(context)).resolves.toMatchObject({ filesWritten: [] });
       await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { recursive: true, force: true });
