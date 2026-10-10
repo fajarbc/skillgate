@@ -80,14 +80,14 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
       if (ownership.files[relative] !== currentHash) conflicts.push(path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      if (ownership.files[relative]) conflicts.push(path);
+      // Missing previously managed files are safe to recreate after interruption.
     }
   }
   return conflicts;
 }
 
 export async function recordManagedTargets(agentDir: string, targets: string[]): Promise<void> {
-  const ownership = await readOwnership(agentDir);
+  const ownership: OwnershipRecord = { version: 1, files: {} };
   for (const path of targets) {
     const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
     ownership.files[relative] = hash(await readFile(path, "utf8"));
@@ -104,6 +104,42 @@ export async function recordManagedTargets(agentDir: string, targets: string[]):
   }
 }
 
+/** Preview stale managed targets without touching user-owned files. */
+export async function planStaleManagedTargets(agentDir: string, intended: string[]): Promise<{ filesToRemove: string[]; conflicts: string[] }> {
+  const ownership = await readOwnership(agentDir);
+  const expected = new Set(intended.map((path) => resolve(path)));
+  const filesToRemove = Object.keys(ownership.files)
+    .map((name) => resolveSafeSubpath(agentDir, name))
+    .filter((path) => !expected.has(resolve(path)));
+  const conflicts = await checkManagedTargets(agentDir, filesToRemove);
+  return { filesToRemove, conflicts };
+}
+
+/** Remove stale owned files, refusing to remove modified or unowned files. */
+export async function removeStaleManagedTargets(agentDir: string, intended: string[]): Promise<string[]> {
+  const { filesToRemove, conflicts } = await planStaleManagedTargets(agentDir, intended);
+  if (conflicts.length > 0) {
+    throw new Error(`Refusing to remove modified managed files: ${conflicts.join(", ")}`);
+  }
+  const ownership = await readOwnership(agentDir);
+  const removed: string[] = [];
+  for (const path of filesToRemove) {
+    await assertSafeParents(agentDir, path);
+    const name = relative(agentDir, path).replaceAll("\\", "/");
+    try {
+      const stat = await lstat(path);
+      if (!stat.isFile() || stat.isSymbolicLink() || hash(await readFile(path, "utf8")) !== ownership.files[name]) {
+        throw new Error(`Managed file changed during cleanup: ${path}`);
+      }
+      await unlink(path);
+      removed.push(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return removed;
+}
+
 /** Remove only files whose contents still match SkillGate's recorded hashes. */
 export async function cleanupManagedTargets(agentDir: string): Promise<string[]> {
   const ownership = await readOwnership(agentDir);
@@ -115,7 +151,13 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
   const removed: string[] = [];
   for (const path of paths) {
     await assertSafeParents(agentDir, path);
-    const stat = await lstat(path);
+    let stat;
+    try {
+      stat = await lstat(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed file: ${path}`);
     const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
     if (hash(await readFile(path, "utf8")) !== ownership.files[relative]) {
