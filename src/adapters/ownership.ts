@@ -127,13 +127,21 @@ export async function withManagedLock<T>(agentDir: string, operation: () => Prom
   }
 }
 
+function relativePath(agentDir: string, path: string): string {
+  const rel = relative(resolve(agentDir), resolve(path)).replaceAll("\\", "/");
+  if (rel === "" || rel === ".." || rel.startsWith("../") || rel.startsWith("/")) {
+    throw new Error(`Unsafe managed target: ${path}`);
+  }
+  return rel;
+}
+
 export async function checkManagedTargets(agentDir: string, targets: string[]): Promise<string[]> {
   const ownership = await readOwnership(agentDir);
   const journal = await readReplacementJournal(agentDir);
   const conflicts: string[] = [];
   for (const path of targets) {
     await assertSafeParents(agentDir, path);
-    const relative = path.slice(agentDir.length + 1).replaceAll("\\", "/");
+    const key = relativePath(agentDir, path);
     try {
       const stat = await lstat(path);
       if (!stat.isFile() || stat.isSymbolicLink()) {
@@ -141,9 +149,9 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
         continue;
       }
       const currentHash = hash(await readFile(path, "utf8"));
-      const replacement = journal.files[relative];
-      const matchesJournal = replacement && replacement.previous === ownership.files[relative] && replacement.next === currentHash;
-      if (ownership.files[relative] !== currentHash && !matchesJournal) conflicts.push(path);
+      const replacement = journal.files[key];
+      const matchesJournal = replacement && replacement.previous === ownership.files[key] && replacement.next === currentHash;
+      if (ownership.files[key] !== currentHash && !matchesJournal) conflicts.push(path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       // Missing previously managed files are safe to recreate after interruption.
