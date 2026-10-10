@@ -195,8 +195,12 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
   }
   const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
   await assertSafeParents(agentDir, manifestPath);
-  const manifestStat = await lstat(manifestPath);
-  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
-  await unlink(manifestPath);
+  try {
+    const manifestStat = await lstat(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
+    await unlink(manifestPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   return removed;
 }
