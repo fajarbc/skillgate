@@ -282,7 +282,7 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
       if (existing) throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
       continue;
     }
-    if (existing && (existing.previous !== prior || existing.next !== next)) {
+    if (existing) {
       throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
     }
     journal.files[key] = { previous: prior, next };
