@@ -135,6 +135,29 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("recovers cleanup after an owned file was already removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-recovery-"));
+    try {
+      const adapter = new ClaudeCodeAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await adapter.apply(context);
+      const missing = join(root, ".claude", "skills", "example", "SKILL.md");
+      await rm(missing);
+      expect((await adapter.plan(context)).conflicts).toEqual([]);
+      await adapter.apply(context);
+      expect(await readFile(missing, "utf8")).toContain("example");
+      await rm(missing);
+      await expect(adapter.cleanup(context)).resolves.toMatchObject({ filesWritten: [] });
+      await expect(readFile(join(root, ".claude", "skillgate-owned.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
     const adapter = new ClaudeCodeAdapter();
     const formatted = await adapter.format({
