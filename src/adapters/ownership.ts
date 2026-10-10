@@ -164,6 +164,73 @@ export async function recordManagedTargets(agentDir: string, targets: string[], 
   await saveOwnership(agentDir, ownership);
 }
 
+/** Record the next digest before replacing a previously owned file.
+ * Both old and next hashes are accepted during an interrupted replacement.
+ */
+interface ReplacementJournal { version: 1; files: Record<string, { previous: string; next: string }> }
+
+async function readReplacementJournal(agentDir: string): Promise<ReplacementJournal> {
+  const file = resolveSafeSubpath(agentDir, "skillgate-replacements.json");
+  await assertSafeParents(agentDir, file);
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe replacement journal");
+    const raw = JSON.parse(await readFile(file, "utf8")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid replacement journal");
+    const data = raw as Record<string, unknown>;
+    if (data.version !== 1 || !data.files || typeof data.files !== "object" || Array.isArray(data.files)) {
+      throw new Error("Invalid replacement journal");
+    }
+    const files = data.files as Record<string, unknown>;
+    for (const [name, item] of Object.entries(files)) {
+      if (!/^skills\/[a-z0-9.-]+\/SKILL\.md$|^skills\.json$/.test(name) ||
+          !item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid replacement entry");
+      const entry = item as Record<string, unknown>;
+      if (typeof entry.previous !== "string" || !/^[a-f0-9]{64}$/.test(entry.previous) ||
+          typeof entry.next !== "string" || !/^[a-f0-9]{64}$/.test(entry.next)) {
+        throw new Error("Invalid replacement entry");
+      }
+    }
+    return { version: 1, files: files as ReplacementJournal["files"] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, files: {} };
+    throw error;
+  }
+}
+
+async function saveReplacementJournal(agentDir: string, journal: ReplacementJournal): Promise<void> {
+  const file = resolveSafeSubpath(agentDir, "skillgate-replacements.json");
+  await assertSafeParents(agentDir, file);
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe replacement journal");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temp = resolveSafeSubpath(agentDir, `.skillgate-replacements-${randomUUID()}.tmp`);
+  await writeFile(temp, JSON.stringify(journal, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  try {
+    await assertSafeParents(agentDir, file);
+    await rename(temp, file);
+  } finally {
+    await unlink(temp).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+}
+
+export async function clearReplacementJournal(agentDir: string): Promise<void> {
+  const file = resolveSafeSubpath(agentDir, "skillgate-replacements.json");
+  await assertSafeParents(agentDir, file);
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe replacement journal");
+    await unlink(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
 /** Register intended output before publishing, so interrupted writes remain recoverable. */
 export async function prepareManagedTargets(agentDir: string, entries: ReadonlyArray<{ path: string; content: string }>): Promise<void> {
   const current = await readOwnership(agentDir);
