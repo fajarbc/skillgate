@@ -46,6 +46,10 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async apply(context: AdapterContext): Promise<AdapterResult> {
+    const plan = await this.plan(context);
+    if (plan.conflicts.length > 0) {
+      throw new Error(`Refusing to overwrite existing adapter files: ${plan.conflicts.join(", ")}`);
+    }
     const codexDir = resolveSafeSubpath(context.root, ".codex");
     const skillsDir = resolveSafeSubpath(codexDir, "skills");
     await mkdir(skillsDir, { recursive: true });
