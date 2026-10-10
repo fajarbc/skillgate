@@ -215,6 +215,7 @@ export async function run(argv: string[]): Promise<number> {
       task,
       root,
       skills: approvedRecommendations,
+      options: configuration.adapterOptions[adapter.name] ?? configuration.adapterOptions[values.adapter],
     });
     adapterSummary = result.summary;
   }
