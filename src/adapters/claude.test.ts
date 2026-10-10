@@ -69,10 +69,11 @@ describe("ClaudeCodeAdapter", () => {
       };
       await adapter.apply(context);
       const target = join(root, ".claude", "skills", "example", "SKILL.md");
+      const original = await readFile(target, "utf8");
       await writeFile(target, "user edit");
       await expect(adapter.cleanup(context)).rejects.toThrow("Refusing to remove modified managed files");
       expect(await readFile(target, "utf8")).toBe("user edit");
-      await writeFile(target, "---\\nname: example\\ndescription: Example\\n---\\n".replaceAll("\\n", "\n"));
+      await writeFile(target, original);
       await expect(adapter.cleanup(context)).resolves.toMatchObject({ filesWritten: [] });
       await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
