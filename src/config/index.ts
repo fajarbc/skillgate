@@ -16,9 +16,10 @@ export interface SkillGateConfig {
   candidateLimit: number;
   policyPath?: string;
   adapters: string[];
+  adapterOptions: Record<string, Record<string, string | number | boolean>>;
 }
 
-const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters"]);
+const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters", "adapterOptions"]);
 
 export function parseConfiguration(source: string, filename: string): Partial<SkillGateConfig> & { version: 1 } {
   let parsed: unknown;
@@ -38,6 +39,10 @@ export function parseConfiguration(source: string, filename: string): Partial<Sk
   const paths = data.skillRoots;
   const adapters = data.adapters;
   const limit = data.candidateLimit;
+  const adapterOptions = data.adapterOptions;
+  if (adapterOptions !== undefined && (!adapterOptions || typeof adapterOptions !== "object" || Array.isArray(adapterOptions) || Object.values(adapterOptions).some((options) => !options || typeof options !== "object" || Array.isArray(options) || Object.values(options).some((value) => typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean" || typeof value === "number" && !Number.isFinite(value))))) {
+    throw new ConfigurationError(`${filename}: adapterOptions must map adapter names to objects containing string, finite number, or boolean values`);
+  }
   if (paths !== undefined && (!Array.isArray(paths) || !paths.every((p) => typeof p === "string" && p.trim().length > 0))) {
     throw new ConfigurationError(`${filename}: skillRoots must be an array of non-empty paths`);
   }
@@ -58,6 +63,7 @@ export function parseConfiguration(source: string, filename: string): Partial<Sk
     ...(limit === undefined ? {} : { candidateLimit: limit as number }),
     ...(data.policyPath === undefined ? {} : { policyPath: absolute(data.policyPath as string) }),
     ...(adapters === undefined ? {} : { adapters: adapters as string[] }),
+    ...(adapterOptions === undefined ? {} : { adapterOptions: adapterOptions as SkillGateConfig["adapterOptions"] }),
   };
 }
 
@@ -98,5 +104,6 @@ export async function resolveConfiguration(options: {
     skillRoots: [resolve(options.root)],
     candidateLimit: 10,
     adapters: [],
+    adapterOptions: {},
   });
 }
