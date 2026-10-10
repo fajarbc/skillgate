@@ -158,6 +158,27 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("refuses unmanaged targets without leaving staged temporary files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-unmanaged-"));
+    try {
+      const { mkdir, readdir } = await import("node:fs/promises");
+      const skillsDir = join(root, ".codex", "skills", "example");
+      await mkdir(skillsDir, { recursive: true });
+      const target = join(skillsDir, "SKILL.md");
+      await writeFile(target, "user content");
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await expect(adapter.apply(context)).rejects.toThrow("Refusing to overwrite existing adapter files");
+      expect(await readFile(target, "utf8")).toBe("user content");
+      expect(await readdir(skillsDir)).toEqual(["SKILL.md"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
