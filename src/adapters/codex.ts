@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { assertSafeAdapterDirectory, assertSafeWorkspacePath, checkManagedTargets, cleanupManagedTargets, clearReplacementJournal, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, withManagedLock, writeManagedTarget } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
-import type { AdapterContext, AdapterResult, AgentAdapter } from "./types.js";
+import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
 export class CodexAdapter implements AgentAdapter {
   readonly name = "codex";
@@ -27,14 +28,34 @@ export class CodexAdapter implements AgentAdapter {
     return lines.join("\n");
   }
 
+  async plan(context: AdapterContext): Promise<AdapterPlan> {
+    const agentDir = resolveSafeSubpath(context.root, ".codex");
+    const skillsDir = resolveSafeSubpath(agentDir, "skills");
+    const prepared = prepareSafeSkillPaths(context.skills, skillsDir);
+    const filesToWrite = prepared.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md"));
+    filesToWrite.push(resolveSafeSubpath(agentDir, "skills.json"));
+    const stale = await planStaleManagedTargets(agentDir, filesToWrite);
+    const conflicts = [...await checkManagedTargets(agentDir, filesToWrite), ...stale.conflicts];
+    return { agent: "codex", filesToWrite, filesToRemove: stale.filesToRemove, conflicts };
+  }
+
   async apply(context: AdapterContext): Promise<AdapterResult> {
     const codexDir = resolveSafeSubpath(context.root, ".codex");
+    await assertSafeWorkspacePath(context.root);
+    await assertSafeAdapterDirectory(codexDir);
+    await mkdir(codexDir, { recursive: true });
+    return withManagedLock(codexDir, async () => {
+    const plan = await this.plan(context);
+    if (plan.conflicts.length > 0) {
+      throw new Error(`Refusing to overwrite existing adapter files: ${plan.conflicts.join(", ")}`);
+    }
     const skillsDir = resolveSafeSubpath(codexDir, "skills");
     await mkdir(skillsDir, { recursive: true });
 
     const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
     const filesWritten: string[] = [];
     const exposedSkills: string[] = [];
+    const pending: Array<{ path: string; content: string }> = [];
 
     for (const { skill, safeId, dirPath } of preparedSkills) {
       await mkdir(dirPath, { recursive: true });
@@ -47,7 +68,7 @@ export class CodexAdapter implements AgentAdapter {
         content = `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
       }
 
-      await writeFile(destFile, content, "utf8");
+      pending.push({ path: destFile, content });
       filesWritten.push(destFile);
       exposedSkills.push(skill.metadata.name);
     }
@@ -65,8 +86,15 @@ export class CodexAdapter implements AgentAdapter {
         capabilities: skill.metadata.capabilities ?? [],
       })),
     };
-    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    pending.push({ path: manifestPath, content: JSON.stringify(manifest, null, 2) });
+    await prepareManagedTargets(codexDir, pending);
+    for (const entry of pending) {
+      await writeManagedTarget(codexDir, entry.path, entry.content);
+    }
     filesWritten.push(manifestPath);
+    await removeStaleManagedTargets(codexDir, filesWritten);
+    await recordManagedTargets(codexDir, filesWritten, pending);
+    await clearReplacementJournal(codexDir);
 
     return {
       agent: this.name,
@@ -74,5 +102,22 @@ export class CodexAdapter implements AgentAdapter {
       exposedSkills,
       summary: `Exposed ${exposedSkills.length} skills to .codex/skills/`,
     };
+    });
+  }
+  async cleanup(context: AdapterContext): Promise<AdapterResult> {
+    const agentDir = resolveSafeSubpath(context.root, ".codex");
+    await assertSafeWorkspacePath(context.root);
+    await assertSafeAdapterDirectory(agentDir);
+    await mkdir(agentDir, { recursive: true });
+    return withManagedLock(agentDir, async () => {
+    const filesRemoved = await cleanupManagedTargets(agentDir);
+    await clearReplacementJournal(agentDir);
+    return {
+      agent: this.name,
+      filesWritten: [],
+      exposedSkills: [],
+      summary: `Removed ${filesRemoved.length} SkillGate-managed files from .codex/`,
+    };
+    });
   }
 }

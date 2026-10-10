@@ -14,8 +14,18 @@ export interface AdapterResult {
   summary: string;
 }
 
+/** A read-only preview of an adapter's intended workspace changes. */
+export interface AdapterPlan {
+  agent: string;
+  filesToWrite: string[];
+  filesToRemove: string[];
+  conflicts: string[];
+}
+
 export interface AgentAdapter {
   readonly name: string;
   format(context: AdapterContext): Promise<string> | string;
+  plan?(context: AdapterContext): Promise<AdapterPlan>;
   apply(context: AdapterContext): Promise<AdapterResult>;
+  cleanup?(context: AdapterContext): Promise<AdapterResult>;
 }
