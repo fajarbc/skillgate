@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { lstat, readFile, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { lstat, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { resolveSafeSubpath } from "./safe-path.js";
 
@@ -97,10 +97,18 @@ export async function recordManagedTargets(agentDir: string, targets: string[]):
   try {
     const existing = await lstat(manifestPath);
     if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
-    await writeFile(manifestPath, JSON.stringify(ownership, null, 2), "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    await writeFile(manifestPath, JSON.stringify(ownership, null, 2), { encoding: "utf8", flag: "wx" });
+  }
+  const temporary = resolveSafeSubpath(agentDir, `.skillgate-owned-${randomUUID()}.tmp`);
+  await writeFile(temporary, JSON.stringify(ownership, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  try {
+    await assertSafeParents(agentDir, manifestPath);
+    await rename(temporary, manifestPath);
+  } finally {
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
   }
 }
 
