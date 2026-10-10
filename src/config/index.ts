@@ -99,7 +99,17 @@ export async function resolveConfiguration(options: {
     layers.push(await loadConfiguration(filename));
   }
   if (options.configFile) layers.push(await loadConfiguration(options.configFile));
-  return layers.reduce<SkillGateConfig>((merged, layer) => ({ ...merged, ...layer }), {
+  return layers.reduce<SkillGateConfig>((merged, layer) => ({
+    ...merged,
+    ...layer,
+    adapterOptions: {
+      ...merged.adapterOptions,
+      ...Object.fromEntries(Object.entries(layer.adapterOptions ?? {}).map(([name, options]) => [
+        name,
+        { ...merged.adapterOptions[name], ...options },
+      ])),
+    },
+  }), {
     version: 1,
     skillRoots: [resolve(options.root)],
     candidateLimit: 10,
