@@ -1,5 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { assertSafeAdapterDirectory, checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, withManagedLock, writeManagedTarget } from "./ownership.js";
+import { assertSafeAdapterDirectory, assertSafeWorkspacePath, checkManagedTargets, cleanupManagedTargets, planStaleManagedTargets, prepareManagedTargets, removeStaleManagedTargets, recordManagedTargets, withManagedLock, writeManagedTarget } from "./ownership.js";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type { AdapterContext, AdapterPlan, AdapterResult, AgentAdapter } from "./types.js";
 
@@ -41,6 +41,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
 
   async apply(context: AdapterContext): Promise<AdapterResult> {
     const claudeDir = resolveSafeSubpath(context.root, ".claude");
+    await assertSafeWorkspacePath(context.root);
     await assertSafeAdapterDirectory(claudeDir);
     await mkdir(claudeDir, { recursive: true });
     return withManagedLock(claudeDir, async () => {
@@ -104,6 +105,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
   async cleanup(context: AdapterContext): Promise<AdapterResult> {
     const agentDir = resolveSafeSubpath(context.root, ".claude");
+    await assertSafeWorkspacePath(context.root);
     await assertSafeAdapterDirectory(agentDir);
     await mkdir(agentDir, { recursive: true });
     return withManagedLock(agentDir, async () => {
