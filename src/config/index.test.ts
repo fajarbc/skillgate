@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveConfiguration } from "./index.js";
 import { resolve } from "node:path";
-import { ConfigurationError, parseConfiguration } from "./index.js";
+import { ConfigurationError, parseConfiguration, sanitizeConfiguration } from "./index.js";
 
 describe("parseConfiguration", () => {
   const filename = resolve("fixtures/project/skillgate.yaml");
@@ -21,6 +21,18 @@ describe("parseConfiguration", () => {
   it("rejects unsupported versions and unknown keys", () => {
     expect(() => parseConfiguration("version: 2", filename)).toThrow(ConfigurationError);
     expect(() => parseConfiguration("version: 1\nsecret: true", filename)).toThrow('unknown key "secret"');
+  });
+
+  it("redacts sensitive adapter settings in public config output", () => {
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: { apiKey: "secret-value", accessToken: "hidden", mode: "safe" } },
+    };
+    expect(sanitizeConfiguration(config).adapterOptions.codex).toEqual({ apiKey: "[REDACTED]", accessToken: "[REDACTED]", mode: "safe" });
+    expect(config.adapterOptions.codex.apiKey).toBe("secret-value");
   });
 
   it("validates adapter option values", () => {
