@@ -103,6 +103,7 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
   for (const entry of entries) {
     await assertSafeParents(agentDir, entry.path);
     const key = relative(agentDir, entry.path).replaceAll("\\", "/");
+    if (Object.hasOwn(current.files, key) && !/^[a-f0-9]{64}$/.test(current.files[key])) throw new Error("Invalid ownership hash");
     if (!/^skills\/[a-z0-9.-]+\/SKILL\.md$|^skills\.json$/.test(key)) throw new Error(`Invalid managed target: ${entry.path}`);
     // Only publish the intended digest for previously absent targets.
     // Existing managed files retain their old digest until the replacement is published.
