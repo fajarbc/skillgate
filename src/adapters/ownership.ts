@@ -256,6 +256,11 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
     }
   }
   const journal = await readReplacementJournal(agentDir);
+  // Do not silently discard an unfinished replacement for a target omitted by this apply.
+  const intendedKeys = new Set(entries.map((entry) => relative(agentDir, entry.path).replaceAll("\\", "/")));
+  for (const key of Object.keys(journal.files)) {
+    if (!intendedKeys.has(key)) throw new Error(`Pending replacement requires recovery before changing the skill set: ${key}`);
+  }
   for (const entry of entries) {
     const key = relative(agentDir, entry.path).replaceAll("\\", "/");
     const prior = current.files[key];
