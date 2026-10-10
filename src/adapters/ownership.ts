@@ -165,6 +165,8 @@ export async function recordManagedTargets(agentDir: string, targets: string[], 
     ownership.files[relative] = actual;
   }
   await saveOwnership(agentDir, ownership);
+  // The committed manifest is authoritative; a completed replacement no longer needs recovery state.
+  await clearReplacementJournal(agentDir);
 }
 
 /** Record the next digest before replacing a previously owned file.
