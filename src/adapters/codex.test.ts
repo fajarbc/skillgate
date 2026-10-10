@@ -59,6 +59,27 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("cleans up only unchanged managed files and preserves user edits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cleanup-"));
+    try {
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await adapter.apply(context);
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      await writeFile(target, "user edit");
+      await expect(adapter.cleanup(context)).rejects.toThrow("Refusing to remove modified managed files");
+      expect(await readFile(target, "utf8")).toBe("user edit");
+      await writeFile(target, "---\\nname: example\\ndescription: Example\\n---\\n".replaceAll("\\n", "\n"));
+      await expect(adapter.cleanup(context)).resolves.toMatchObject({ filesWritten: [] });
+      await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
