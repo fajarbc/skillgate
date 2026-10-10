@@ -4,6 +4,7 @@ export interface AdapterContext {
   task: string;
   root: string;
   skills: RankedSkill[];
+  options?: Readonly<Record<string, string | number | boolean>>;
 }
 
 export interface AdapterResult {
