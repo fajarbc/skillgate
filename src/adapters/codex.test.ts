@@ -247,6 +247,33 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("recovers a replacement published before its ownership commit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-replace-crash-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { checkManagedTargets, prepareManagedTargets, recordManagedTargets, writeManagedTarget } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      const target = join(agentDir, "skills", "example", "SKILL.md");
+      await mkdir(join(agentDir, "skills", "example"), { recursive: true });
+      await prepareManagedTargets(agentDir, [{ path: target, content: "old" }]);
+      await writeManagedTarget(agentDir, target, "old");
+      await recordManagedTargets(agentDir, [target], [{ path: target, content: "old" }]);
+      await prepareManagedTargets(agentDir, [{ path: target, content: "new" }]);
+      await writeManagedTarget(agentDir, target, "new");
+      // Simulate a crash before recordManagedTargets: the journal must authorize recovery.
+      expect(await checkManagedTargets(agentDir, [target])).toEqual([]);
+      await prepareManagedTargets(agentDir, [{ path: target, content: "new" }]);
+      await recordManagedTargets(agentDir, [target], [{ path: target, content: "new" }]);
+      expect(await checkManagedTargets(agentDir, [target])).toEqual([]);
+      await expect(readFile(join(agentDir, "skillgate-replacements.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      await writeFile(target, "user-modified");
+      expect(await checkManagedTargets(agentDir, [target])).toEqual([target]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
