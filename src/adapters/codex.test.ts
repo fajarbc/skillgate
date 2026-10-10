@@ -40,6 +40,25 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects a symlinked managed skills directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-"));
+    const external = await mkdtemp(join(tmpdir(), "skillgate-external-"));
+    try {
+      const { mkdir, symlink } = await import("node:fs/promises");
+      await mkdir(join(root, ".codex"));
+      await symlink(external, join(root, ".codex", "skills"), "dir");
+      const adapter = new CodexAdapter();
+      await expect(adapter.plan({
+        task: "test",
+        root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      })).rejects.toThrow("Unsafe managed parent");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions", async () => {
     const adapter = new CodexAdapter();
     const formatted = await adapter.format({
