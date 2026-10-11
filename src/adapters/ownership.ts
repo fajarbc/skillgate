@@ -441,7 +441,7 @@ export async function removeStaleManagedTargets(agentDir: string, intended: stri
     await assertSafeParents(agentDir, path);
     const name = relative(agentDir, path).replaceAll("\\", "/");
     try {
-      await verifyManagedFile(path, ownership.files[name]);
+      await verifyManagedFile(path, ownership.files[name]!);
       await unlink(path);
       removed.push(path);
     } catch (error) {
@@ -474,7 +474,7 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
       throw error;
     }
     const key = relativePath(agentDir, path);
-    await verifyManagedFile(path, ownership.files[key]);
+    await verifyManagedFile(path, ownership.files[key]!);
     await unlink(path);
     removed.push(path);
   }
