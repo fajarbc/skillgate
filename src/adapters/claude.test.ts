@@ -40,6 +40,29 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("keeps managed file contents and inode stable on identical repeated applies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-idempotent-"));
+    try {
+      const { stat } = await import("node:fs/promises");
+      const adapter = new ClaudeAdapter();
+      const context = {
+        task: "repeatable task", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await adapter.apply(context);
+      const manifest = join(root, ".claude", "skills.json");
+      const skill = join(root, ".claude", "skills", "example", "SKILL.md");
+      const before = await Promise.all([readFile(manifest, "utf8"), readFile(skill, "utf8"), stat(manifest), stat(skill)]);
+      await adapter.apply(context);
+      expect(await readFile(manifest, "utf8")).toBe(before[0]);
+      expect(await readFile(skill, "utf8")).toBe(before[1]);
+      expect((await stat(manifest)).ino).toBe(before[2].ino);
+      expect((await stat(skill)).ino).toBe(before[3].ino);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a symlinked managed skills directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-"));
     const external = await mkdtemp(join(tmpdir(), "skillgate-external-"));
