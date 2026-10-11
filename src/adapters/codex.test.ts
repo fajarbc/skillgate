@@ -301,6 +301,28 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects a symlinked managed file instead of reading its destination", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-file-symlink-"));
+    try {
+      const { mkdir, symlink } = await import("node:fs/promises");
+      const { checkManagedTargets, prepareManagedTargets, recordManagedTargets } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      const target = join(agentDir, "skills", "example", "SKILL.md");
+      const external = join(root, "external.md");
+      await mkdir(join(agentDir, "skills", "example"), { recursive: true });
+      await prepareManagedTargets(agentDir, [{ path: target, content: "managed" }]);
+      await writeFile(target, "managed");
+      await recordManagedTargets(agentDir, [target], [{ path: target, content: "managed" }]);
+      await rm(target);
+      await writeFile(external, "managed");
+      await symlink(external, target);
+      expect(await checkManagedTargets(agentDir, [target])).toEqual([target]);
+      expect(await readFile(external, "utf8")).toBe("managed");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
