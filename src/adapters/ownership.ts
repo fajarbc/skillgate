@@ -184,7 +184,19 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
         conflicts.push(path);
         continue;
       }
-      const currentHash = hash(await readFile(path, "utf8"));
+      // Read from the same inode that passed the no-symlink check.
+      const handle = await open(path, "r");
+      let currentHash: string;
+      try {
+        const opened = await handle.stat();
+        if (!opened.isFile() || opened.ino !== stat.ino || opened.dev !== stat.dev) {
+          conflicts.push(path);
+          continue;
+        }
+        currentHash = hash(await handle.readFile({ encoding: "utf8" }));
+      } finally {
+        await handle.close();
+      }
       const replacement = journal.files[key];
       const matchesJournal = replacement && replacement.previous === ownership.files[key] && replacement.next === currentHash;
       if (ownership.files[key] !== currentHash && !matchesJournal) conflicts.push(path);
