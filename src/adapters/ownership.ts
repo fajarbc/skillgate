@@ -412,6 +412,11 @@ export async function planStaleManagedTargets(agentDir: string, intended: string
     .map((name) => resolveSafeSubpath(agentDir, name))
     .filter((path) => !expected.has(resolve(path)));
   const conflicts = await checkManagedTargets(agentDir, filesToRemove);
+  const journal = await readReplacementJournal(agentDir);
+  for (const name of Object.keys(journal.files)) {
+    const path = resolveSafeSubpath(agentDir, name);
+    if (!expected.has(path) && !conflicts.includes(path)) conflicts.push(path);
+  }
   return { filesToRemove, conflicts };
 }
 
