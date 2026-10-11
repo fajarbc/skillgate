@@ -44,7 +44,7 @@ describe("ClaudeCodeAdapter", () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-idempotent-"));
     try {
       const { stat } = await import("node:fs/promises");
-      const adapter = new ClaudeAdapter();
+      const adapter = new ClaudeCodeAdapter();
       const context = {
         task: "repeatable task", root,
         skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
