@@ -323,6 +323,29 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("recovers a missing owned target without discarding its pending replacement", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-missing-recovery-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      const { prepareManagedTargets, recordManagedTargets, writeManagedTarget, checkManagedTargets } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      const target = join(agentDir, "skills", "example", "SKILL.md");
+      await mkdir(join(agentDir, "skills", "example"), { recursive: true });
+      await prepareManagedTargets(agentDir, [{ path: target, content: "before" }]);
+      await writeManagedTarget(agentDir, target, "before");
+      await recordManagedTargets(agentDir, [target], [{ path: target, content: "before" }]);
+      await prepareManagedTargets(agentDir, [{ path: target, content: "after" }]);
+      await rm(target);
+      await prepareManagedTargets(agentDir, [{ path: target, content: "after" }]);
+      await writeManagedTarget(agentDir, target, "after");
+      await recordManagedTargets(agentDir, [target], [{ path: target, content: "after" }]);
+      expect(await readFile(target, "utf8")).toBe("after");
+      expect(await checkManagedTargets(agentDir, [target])).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
