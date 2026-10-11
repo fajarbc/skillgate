@@ -320,7 +320,9 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
       await lstat(entry.path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      current.files[key] = hash(entry.content);
+      // Preserve the original digest for a missing previously-owned target: an
+      // interrupted replacement still needs the prior checksum for recovery.
+      if (!Object.hasOwn(current.files, key)) current.files[key] = hash(entry.content);
     }
   }
   const journal = await readReplacementJournal(agentDir);
