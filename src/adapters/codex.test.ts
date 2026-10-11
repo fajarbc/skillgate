@@ -63,6 +63,28 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("recovers a journal left after the ownership manifest was committed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-committed-journal-"));
+    try {
+      const { createHash } = await import("node:crypto");
+      const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+      const adapter = new CodexAdapter();
+      const initial = { task: "before", root, skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }] };
+      await adapter.apply(initial);
+      const manifest = join(root, ".codex", "skills.json");
+      const before = await readFile(manifest, "utf8");
+      const updated = { ...initial, task: "after" };
+      await adapter.apply(updated);
+      const after = await readFile(manifest, "utf8");
+      const journal = join(root, ".codex", "skillgate-replacements.json");
+      await writeFile(journal, JSON.stringify({ version: 1, files: { "skills.json": { previous: digest(before), next: digest(after) } } }));
+      await expect(adapter.apply(updated)).resolves.toMatchObject({ agent: "codex" });
+      await expect(readFile(journal, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a symlinked managed skills directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-"));
     const external = await mkdtemp(join(tmpdir(), "skillgate-external-"));
