@@ -76,7 +76,6 @@ export class CodexAdapter implements AgentAdapter {
     const manifestPath = resolveSafeSubpath(codexDir, "skills.json");
     const manifest = {
       task: context.task,
-      updatedAt: new Date().toISOString(),
       skills: preparedSkills.map(({ skill, safeId }) => ({
         name: skill.metadata.name,
         identifier: safeId,
