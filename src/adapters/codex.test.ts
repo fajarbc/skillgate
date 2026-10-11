@@ -105,6 +105,28 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("refuses cleanup when an owned target becomes a symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cleanup-symlink-"));
+    try {
+      const { symlink } = await import("node:fs/promises");
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await adapter.apply(context);
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      const external = join(root, "outside.md");
+      await writeFile(external, await readFile(target, "utf8"));
+      await rm(target);
+      await symlink(external, target);
+      await expect(adapter.cleanup(context)).rejects.toThrow();
+      expect(await readFile(external, "utf8")).toContain("name: example");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("plans and removes stale managed skills without deleting unrelated files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-stale-"));
     try {
