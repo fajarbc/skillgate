@@ -8,6 +8,10 @@ interface OwnershipRecord {
   files: Record<string, string>;
 }
 
+function isManagedTargetKey(key: string): boolean {
+  return /^(?:skills\/(?!\.{1,2}\/)[a-z0-9.-]+\/SKILL\.md|skills\.json)$/.test(key);
+}
+
 function hash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -54,7 +58,7 @@ async function readOwnership(agentDir: string): Promise<OwnershipRecord> {
       throw new Error("invalid ownership manifest");
     }
     const files = data.files as Record<string, unknown>;
-    if (Object.entries(files).some(([name, digest]) => !/^skills\/[a-z0-9.-]+\/SKILL\.md$|^skills\.json$/.test(name) || typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest))) {
+    if (Object.entries(files).some(([name, digest]) => !isManagedTargetKey(name) || typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest))) {
       throw new Error("invalid ownership entries");
     }
     return { version: 1, files: files as Record<string, string> };
@@ -256,7 +260,7 @@ async function readReplacementJournal(agentDir: string): Promise<ReplacementJour
     }
     const files = data.files as Record<string, unknown>;
     for (const [name, item] of Object.entries(files)) {
-      if (!/^skills\/[a-z0-9.-]+\/SKILL\.md$|^skills\.json$/.test(name) ||
+      if (!isManagedTargetKey(name) ||
           !item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid replacement entry");
       const entry = item as Record<string, unknown>;
       if (typeof entry.previous !== "string" || !/^[a-f0-9]{64}$/.test(entry.previous) ||
@@ -313,7 +317,7 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
     await assertSafeParents(agentDir, entry.path);
     const key = relative(agentDir, entry.path).replaceAll("\\", "/");
     if (Object.hasOwn(current.files, key) && !/^[a-f0-9]{64}$/.test(current.files[key] ?? "")) throw new Error("Invalid ownership hash");
-    if (!/^skills\/[a-z0-9.-]+\/SKILL\.md$|^skills\.json$/.test(key)) throw new Error(`Invalid managed target: ${entry.path}`);
+    if (!isManagedTargetKey(key)) throw new Error(`Invalid managed target: ${entry.path}`);
     // Only publish the intended digest for previously absent targets.
     // Existing managed files retain their old digest until the replacement is published.
     try {
