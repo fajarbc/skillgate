@@ -379,6 +379,13 @@ export async function writeManagedTarget(agentDir: string, path: string, content
   await assertSafeParents(agentDir, path);
   const conflicts = await checkManagedTargets(agentDir, [path]);
   if (conflicts.length) throw new Error(`Refusing to overwrite existing adapter files: ${conflicts.join(", ")}`);
+  // Preserve unchanged managed files without rewriting them.
+  try {
+    const stat = await lstat(path);
+    if (stat.isFile() && !stat.isSymbolicLink() && hash(await readFile(path, "utf8")) === hash(content)) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const temporary = resolveSafeSubpath(dirname(path), `.skillgate-stage-${randomUUID()}.tmp`);
   await writeFile(temporary, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
   try {
