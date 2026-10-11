@@ -391,6 +391,22 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects dot-segment ownership entries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-owned-segments-"));
+    try {
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(join(root, ".codex"));
+      await writeFile(join(root, ".codex", "skillgate-owned.json"), JSON.stringify({
+        version: 1,
+        files: { ["skills/" + ".." + "/SKILL.md"]: "a".repeat(64) },
+      }));
+      const adapter = new CodexAdapter();
+      await expect(adapter.plan({ task: "test", root, skills: [] })).rejects.toThrow("invalid ownership entries");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
