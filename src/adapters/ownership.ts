@@ -411,6 +411,24 @@ export async function planStaleManagedTargets(agentDir: string, intended: string
   return { filesToRemove, conflicts };
 }
 
+/** Verify a managed file through the same inode checked by lstat. */
+async function verifyManagedFile(path: string, expected: string): Promise<void> {
+  const stat = await lstat(path);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed file: ${path}`);
+  const handle = await open(path, "r");
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
+      throw new Error(`Managed file changed during cleanup: ${path}`);
+    }
+    if (hash(await handle.readFile({ encoding: "utf8" })) !== expected) {
+      throw new Error(`Managed file changed during cleanup: ${path}`);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Remove stale owned files, refusing to remove modified or unowned files. */
 export async function removeStaleManagedTargets(agentDir: string, intended: string[]): Promise<string[]> {
   const { filesToRemove, conflicts } = await planStaleManagedTargets(agentDir, intended);
@@ -423,10 +441,7 @@ export async function removeStaleManagedTargets(agentDir: string, intended: stri
     await assertSafeParents(agentDir, path);
     const name = relative(agentDir, path).replaceAll("\\", "/");
     try {
-      const stat = await lstat(path);
-      if (!stat.isFile() || stat.isSymbolicLink() || hash(await readFile(path, "utf8")) !== ownership.files[name]) {
-        throw new Error(`Managed file changed during cleanup: ${path}`);
-      }
+      await verifyManagedFile(path, ownership.files[name]);
       await unlink(path);
       removed.push(path);
     } catch (error) {
@@ -458,11 +473,8 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
     }
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed file: ${path}`);
     const key = relativePath(agentDir, path);
-    if (hash(await readFile(path, "utf8")) !== ownership.files[key]) {
-      throw new Error(`Managed file changed during cleanup: ${path}`);
-    }
+    await verifyManagedFile(path, ownership.files[key]);
     await unlink(path);
     removed.push(path);
   }
