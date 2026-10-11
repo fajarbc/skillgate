@@ -76,7 +76,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const manifestPath = resolveSafeSubpath(claudeDir, "skills.json");
     const manifest = {
       task: context.task,
-      updatedAt: new Date().toISOString(),
       skills: preparedSkills.map(({ skill, safeId }) => ({
         name: skill.metadata.name,
         identifier: safeId,
