@@ -345,6 +345,9 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
     // A pending replacement may already be published after an interrupted apply.
     // Preserve its original ownership digest until the manifest is committed.
     if (existing && existing.previous === prior && existing.next === next) continue;
+    // The ownership manifest may have committed before journal cleanup. In that
+    // case the intended digest is already authoritative; allow finalization.
+    if (existing && existing.next === prior && existing.next === next) continue;
     if (prior === next) {
       if (existing) throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
       continue;
