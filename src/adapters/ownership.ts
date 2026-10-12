@@ -472,6 +472,11 @@ async function verifyManagedFile(path: string, expected: string): Promise<void> 
     if (hash(await handle.readFile({ encoding: "utf8" })) !== expected) {
       throw new Error(`Managed file changed during cleanup: ${path}`);
     }
+    // Detect pathname replacement during verification, before the caller unlinks.
+    const latest = await lstat(path);
+    if (!latest.isFile() || latest.isSymbolicLink() || latest.dev !== opened.dev || latest.ino !== opened.ino) {
+      throw new Error(`Managed file changed during cleanup: ${path}`);
+    }
   } finally {
     await handle.close();
   }
