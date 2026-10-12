@@ -429,6 +429,35 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it.each(["skillgate-owned.json", "skillgate-replacements.json"])(
+    "refuses a symlinked %s without changing its external destination",
+    async (filename) => {
+      const root = await mkdtemp(join(tmpdir(), "skillgate-metadata-symlink-"));
+      try {
+        const { symlink } = await import("node:fs/promises");
+        const adapter = new CodexAdapter();
+        const context = {
+          task: "test", root,
+          skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+        };
+        await adapter.apply(context);
+        const metadata = join(root, ".codex", filename);
+        const external = join(root, "external-metadata.json");
+        const content = JSON.stringify({ version: 1, files: {} });
+        await writeFile(external, content);
+        await rm(metadata, { force: true });
+        await symlink(external, metadata);
+        const expected = filename === "skillgate-owned.json" ? "Unsafe ownership manifest" : "Unsafe replacement journal";
+        await expect(adapter.plan(context)).rejects.toThrow(expected);
+        await expect(adapter.apply(context)).rejects.toThrow(expected);
+        await expect(adapter.cleanup(context)).rejects.toThrow(expected);
+        expect(await readFile(external, "utf8")).toBe(content);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
