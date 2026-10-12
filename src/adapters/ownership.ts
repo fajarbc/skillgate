@@ -255,6 +255,10 @@ export async function recordManagedTargets(agentDir: string, targets: string[], 
     if (actual !== intended.get(resolve(path))) {
       throw new Error(`Managed output changed before ownership commit: ${path}`);
     }
+    const latest = await lstat(path);
+    if (!latest.isFile() || latest.isSymbolicLink() || latest.dev !== stat.dev || latest.ino !== stat.ino) {
+      throw new Error(`Managed output changed before ownership commit: ${path}`);
+    }
     ownership.files[key] = actual;
   }
   await saveOwnership(agentDir, ownership);
