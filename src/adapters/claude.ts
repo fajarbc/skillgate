@@ -1,6 +1,16 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
-import type { AdapterContext, AdapterResult, AgentAdapter } from "./types.js";
+import {
+  applyFilesystemAdapter,
+  cleanupFilesystemAdapter,
+  planFilesystemAdapter,
+} from "./filesystem-lifecycle.js";
+import type {
+  AdapterContext,
+  AdapterPlan,
+  AdapterResult,
+  AgentAdapter,
+  CleanupResult,
+  LifecycleOptions,
+} from "./types.js";
 
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly name = "claude-code";
@@ -27,52 +37,15 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     return lines.join("\n");
   }
 
-  async apply(context: AdapterContext): Promise<AdapterResult> {
-    const claudeDir = resolveSafeSubpath(context.root, ".claude");
-    const skillsDir = resolveSafeSubpath(claudeDir, "skills");
-    await mkdir(skillsDir, { recursive: true });
+  async plan(context: AdapterContext, options?: LifecycleOptions): Promise<AdapterPlan> {
+    return planFilesystemAdapter(this.name, ".claude", context, options);
+  }
 
-    const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
-    const filesWritten: string[] = [];
-    const exposedSkills: string[] = [];
+  async apply(context: AdapterContext, options?: LifecycleOptions): Promise<AdapterResult> {
+    return applyFilesystemAdapter(this.name, ".claude", context, options);
+  }
 
-    for (const { skill, safeId, dirPath } of preparedSkills) {
-      await mkdir(dirPath, { recursive: true });
-      const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
-
-      let content = "";
-      try {
-        content = await readFile(skill.path, "utf8");
-      } catch {
-        content = `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
-      }
-
-      await writeFile(destFile, content, "utf8");
-      filesWritten.push(destFile);
-      exposedSkills.push(skill.metadata.name);
-    }
-
-    const manifestPath = resolveSafeSubpath(claudeDir, "skills.json");
-    const manifest = {
-      task: context.task,
-      updatedAt: new Date().toISOString(),
-      skills: preparedSkills.map(({ skill, safeId }) => ({
-        name: skill.metadata.name,
-        identifier: safeId,
-        description: skill.metadata.description,
-        path: skill.path,
-        score: skill.score,
-        capabilities: skill.metadata.capabilities ?? [],
-      })),
-    };
-    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
-    filesWritten.push(manifestPath);
-
-    return {
-      agent: this.name,
-      filesWritten,
-      exposedSkills,
-      summary: `Exposed ${exposedSkills.length} skills to .claude/skills/`,
-    };
+  async cleanup(context: AdapterContext, options?: LifecycleOptions): Promise<CleanupResult> {
+    return cleanupFilesystemAdapter(this.name, ".claude", context, options);
   }
 }
