@@ -125,7 +125,8 @@ async function reclaimDeadProcessLock(lockPath: string): Promise<boolean> {
   try {
     stat = await lstat(lockPath);
     if (!stat.isFile() || stat.isSymbolicLink()) return false;
-    const raw = JSON.parse(await readStableMetadata(lockPath, "adapter lock")) as unknown;
+    const lockContents = await readStableMetadata(lockPath, "adapter lock");
+    const raw = JSON.parse(lockContents) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
     const pid = (raw as Record<string, unknown>).pid;
     if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return false;
@@ -137,6 +138,7 @@ async function reclaimDeadProcessLock(lockPath: string): Promise<boolean> {
     }
     const latest = await lstat(lockPath);
     if (latest.ino !== stat.ino || latest.dev !== stat.dev || !latest.isFile() || latest.isSymbolicLink()) return false;
+    if (await readStableMetadata(lockPath, "adapter lock") !== lockContents) return false;
     await unlink(lockPath);
     return true;
   } catch {
