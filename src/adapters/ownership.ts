@@ -1,0 +1,553 @@
+import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { link, lstat, open, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname, relative, resolve, sep } from "node:path";
+import { resolveSafeSubpath } from "./safe-path.js";
+
+interface OwnershipRecord {
+  version: 1;
+  files: Record<string, string>;
+}
+
+function isManagedTargetKey(key: string): boolean {
+  return /^(?:skills\/(?!\.{1,2}\/)[a-z0-9.-]+\/SKILL\.md|skills\.json)$/.test(key);
+}
+
+function hash(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function assertSafeParents(agentDir: string, path: string): Promise<void> {
+  const root = resolve(agentDir);
+  const target = resolve(path);
+  const rel = relative(root, target);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || rel === "" || rel.startsWith(sep)) {
+    throw new Error(`Unsafe managed target: ${path}`);
+  }
+  let parent = dirname(target);
+  while (parent !== root) {
+    try {
+      const stat = await lstat(parent);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Unsafe managed parent: ${parent}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    parent = dirname(parent);
+  }
+  try {
+    const stat = await lstat(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Unsafe adapter directory: ${root}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+/** Read metadata without following a swapped symlink or trusting a different inode.
+ * The final pathname check catches replacement during the read itself.
+ */
+async function readStableMetadata(path: string, label: string): Promise<string> {
+  const before = await lstat(path);
+  if (!before.isFile() || before.isSymbolicLink()) throw new Error(`Unsafe ${label}`);
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error(`Unsafe ${label}: file changed during read`);
+    }
+    const content = await handle.readFile({ encoding: "utf8" });
+    const after = await lstat(path);
+    if (!after.isFile() || after.isSymbolicLink() || after.dev !== opened.dev || after.ino !== opened.ino) {
+      throw new Error(`Unsafe ${label}: file changed during read`);
+    }
+    return content;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readOwnership(agentDir: string): Promise<OwnershipRecord> {
+  const filename = resolveSafeSubpath(agentDir, "skillgate-owned.json");
+  await assertSafeParents(agentDir, filename);
+  try {
+    const raw = JSON.parse(await readStableMetadata(filename, "ownership manifest")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid ownership manifest");
+    const data = raw as Record<string, unknown>;
+    if (data.version !== 1 || !data.files || typeof data.files !== "object" || Array.isArray(data.files)) {
+      throw new Error("invalid ownership manifest");
+    }
+    const files = data.files as Record<string, unknown>;
+    if (Object.entries(files).some(([name, digest]) => !isManagedTargetKey(name) || typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest))) {
+      throw new Error("invalid ownership entries");
+    }
+    return { version: 1, files: files as Record<string, string> };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, files: {} };
+    throw error;
+  }
+}
+
+/** Reject symlinked or non-directory adapter roots before any writes. */
+export async function assertSafeAdapterDirectory(agentDir: string): Promise<void> {
+  const root = resolve(agentDir);
+  try {
+    const stat = await lstat(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error(`Unsafe adapter directory: ${root}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+/** Never follow a symlink in the workspace path leading to an adapter root. */
+export async function assertSafeWorkspacePath(workspace: string): Promise<void> {
+  let current = resolve(workspace);
+  while (true) {
+    try {
+      const stat = await lstat(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error(`Unsafe workspace ancestor: ${current}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+}
+
+/** Reclaim only a lock whose recorded local process is definitely gone.
+ * Malformed or live locks require manual intervention rather than risking overlap.
+ */
+async function reclaimDeadProcessLock(lockPath: string): Promise<boolean> {
+  let stat;
+  try {
+    stat = await lstat(lockPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    const lockContents = await readStableMetadata(lockPath, "adapter lock");
+    const raw = JSON.parse(lockContents) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+    const pid = (raw as Record<string, unknown>).pid;
+    if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+    }
+    const latest = await lstat(lockPath);
+    if (latest.ino !== stat.ino || latest.dev !== stat.dev || !latest.isFile() || latest.isSymbolicLink()) return false;
+    if (await readStableMetadata(lockPath, "adapter lock") !== lockContents) return false;
+    await unlink(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Serialize cooperative adapter writers using an exclusive lock file. */
+export async function withManagedLock<T>(agentDir: string, operation: () => Promise<T>): Promise<T> {
+  await assertSafeAdapterDirectory(agentDir);
+  const lockPath = resolveSafeSubpath(agentDir, ".skillgate.lock");
+  await assertSafeParents(agentDir, lockPath);
+  let handle;
+  try {
+    handle = await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!await reclaimDeadProcessLock(lockPath)) {
+      throw new Error(`Adapter directory is locked by another operation: ${agentDir}`);
+    }
+    // Exclusive creation still protects against a concurrent recovery attempt.
+    try {
+      handle = await open(lockPath, "wx", 0o600);
+    } catch (retryError) {
+      if ((retryError as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`Adapter directory is locked by another operation: ${agentDir}`);
+      }
+      throw retryError;
+    }
+  }
+  try {
+    await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+    return await operation();
+  } finally {
+    const owned = await handle.stat();
+    await handle.close();
+    try {
+      const current = await lstat(lockPath);
+      if (current.ino !== owned.ino || current.dev !== owned.dev || !current.isFile() || current.isSymbolicLink()) {
+        throw new Error(`Adapter lock changed during operation: ${lockPath}`);
+      }
+      await unlink(lockPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+}
+
+function relativePath(agentDir: string, path: string): string {
+  const rel = relative(resolve(agentDir), resolve(path)).replaceAll("\\", "/");
+  if (rel === "" || rel === ".." || rel.startsWith("../") || rel.startsWith("/")) {
+    throw new Error(`Unsafe managed target: ${path}`);
+  }
+  return rel;
+}
+
+export async function checkManagedTargets(agentDir: string, targets: string[]): Promise<string[]> {
+  const ownership = await readOwnership(agentDir);
+  const journal = await readReplacementJournal(agentDir);
+  const conflicts: string[] = [];
+  for (const path of targets) {
+    await assertSafeParents(agentDir, path);
+    const key = relativePath(agentDir, path);
+    try {
+      const stat = await lstat(path);
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        conflicts.push(path);
+        continue;
+      }
+      // Read from the same inode that passed the no-symlink check.
+      const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      let currentHash: string;
+      try {
+        const opened = await handle.stat();
+        if (!opened.isFile() || opened.ino !== stat.ino || opened.dev !== stat.dev) {
+          conflicts.push(path);
+          continue;
+        }
+        currentHash = hash(await handle.readFile({ encoding: "utf8" }));
+        const latest = await lstat(path);
+        if (!latest.isFile() || latest.isSymbolicLink() || latest.dev !== opened.dev || latest.ino !== opened.ino) {
+          conflicts.push(path);
+          continue;
+        }
+      } finally {
+        await handle.close();
+      }
+      const replacement = journal.files[key];
+      const matchesJournal = replacement && replacement.previous === ownership.files[key] && replacement.next === currentHash;
+      if (ownership.files[key] !== currentHash && !matchesJournal) conflicts.push(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // A missing previously managed file may be recreated during recovery, but
+      // an unowned missing path must not be mistaken for an owned file.
+    }
+  }
+  return conflicts;
+}
+
+export async function recordManagedTargets(agentDir: string, targets: string[], expected: ReadonlyArray<{ path: string; content: string }>): Promise<void> {
+  const intended = new Map(expected.map((entry) => [resolve(entry.path), hash(entry.content)]));
+  const ownership: OwnershipRecord = { version: 1, files: {} };
+  for (const path of targets) {
+    const key = relativePath(agentDir, path);
+    await assertSafeParents(agentDir, path);
+    const stat = await lstat(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed target: ${path}`);
+    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let actual: string;
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.ino !== stat.ino || opened.dev !== stat.dev) {
+        throw new Error(`Managed output changed before ownership commit: ${path}`);
+      }
+      actual = hash(await handle.readFile({ encoding: "utf8" }));
+    } finally {
+      await handle.close();
+    }
+    if (actual !== intended.get(resolve(path))) {
+      throw new Error(`Managed output changed before ownership commit: ${path}`);
+    }
+    const latest = await lstat(path);
+    if (!latest.isFile() || latest.isSymbolicLink() || latest.dev !== stat.dev || latest.ino !== stat.ino) {
+      throw new Error(`Managed output changed before ownership commit: ${path}`);
+    }
+    ownership.files[key] = actual;
+  }
+  await saveOwnership(agentDir, ownership);
+  // The committed manifest is authoritative; a completed replacement no longer needs recovery state.
+  await clearReplacementJournal(agentDir);
+}
+
+/** Record the next digest before replacing a previously owned file.
+ * Both old and next hashes are accepted during an interrupted replacement.
+ */
+interface ReplacementJournal { version: 1; files: Record<string, { previous: string; next: string }> }
+
+async function readReplacementJournal(agentDir: string): Promise<ReplacementJournal> {
+  const file = resolveSafeSubpath(agentDir, "skillgate-replacements.json");
+  await assertSafeParents(agentDir, file);
+  try {
+    const raw = JSON.parse(await readStableMetadata(file, "replacement journal")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid replacement journal");
+    const data = raw as Record<string, unknown>;
+    if (data.version !== 1 || !data.files || typeof data.files !== "object" || Array.isArray(data.files)) {
+      throw new Error("Invalid replacement journal");
+    }
+    const files = data.files as Record<string, unknown>;
+    for (const [name, item] of Object.entries(files)) {
+      if (!isManagedTargetKey(name) ||
+          !item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid replacement entry");
+      const entry = item as Record<string, unknown>;
+      if (typeof entry.previous !== "string" || !/^[a-f0-9]{64}$/.test(entry.previous) ||
+          typeof entry.next !== "string" || !/^[a-f0-9]{64}$/.test(entry.next)) {
+        throw new Error("Invalid replacement entry");
+      }
+    }
+    return { version: 1, files: files as ReplacementJournal["files"] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, files: {} };
+    throw error;
+  }
+}
+
+async function saveReplacementJournal(agentDir: string, journal: ReplacementJournal): Promise<void> {
+  const file = resolveSafeSubpath(agentDir, "skillgate-replacements.json");
+  await assertSafeParents(agentDir, file);
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe replacement journal");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temp = resolveSafeSubpath(agentDir, `.skillgate-replacements-${randomUUID()}.tmp`);
+  await writeFile(temp, JSON.stringify(journal, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  try {
+    await assertSafeParents(agentDir, file);
+    await rename(temp, file);
+  } finally {
+    await unlink(temp).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+}
+
+export async function clearReplacementJournal(agentDir: string): Promise<void> {
+  const file = resolveSafeSubpath(agentDir, "skillgate-replacements.json");
+  await assertSafeParents(agentDir, file);
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe replacement journal");
+    await unlink(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+/** Register intended output before publishing, so interrupted writes remain recoverable. */
+export async function prepareManagedTargets(agentDir: string, entries: ReadonlyArray<{ path: string; content: string }>): Promise<void> {
+  const current = await readOwnership(agentDir);
+  const conflicts = await checkManagedTargets(agentDir, entries.map((entry) => entry.path));
+  if (conflicts.length) throw new Error(`Refusing to overwrite existing adapter files: ${conflicts.join(", ")}`);
+  for (const entry of entries) {
+    await assertSafeParents(agentDir, entry.path);
+    const key = relative(agentDir, entry.path).replaceAll("\\", "/");
+    if (Object.hasOwn(current.files, key) && !/^[a-f0-9]{64}$/.test(current.files[key] ?? "")) throw new Error("Invalid ownership hash");
+    if (!isManagedTargetKey(key)) throw new Error(`Invalid managed target: ${entry.path}`);
+    // Only publish the intended digest for previously absent targets.
+    // Existing managed files retain their old digest until the replacement is published.
+    try {
+      await lstat(entry.path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Preserve the original digest for a missing previously-owned target: an
+      // interrupted replacement still needs the prior checksum for recovery.
+      if (!Object.hasOwn(current.files, key)) current.files[key] = hash(entry.content);
+    }
+  }
+  const journal = await readReplacementJournal(agentDir);
+  // Do not silently discard an unfinished replacement for a target omitted by this apply.
+  const intendedKeys = new Set(entries.map((entry) => relative(agentDir, entry.path).replaceAll("\\", "/")));
+  for (const key of Object.keys(journal.files)) {
+    if (!intendedKeys.has(key)) throw new Error(`Pending replacement requires recovery before changing the skill set: ${key}`);
+  }
+  for (const entry of entries) {
+    const key = relative(agentDir, entry.path).replaceAll("\\", "/");
+    const prior = current.files[key];
+    if (!prior) continue;
+    const next = hash(entry.content);
+    const existing = journal.files[key];
+    // A pending replacement may already be published after an interrupted apply.
+    // Preserve its original ownership digest until the manifest is committed.
+    if (existing && existing.previous === prior && existing.next === next) continue;
+    // The ownership manifest may have committed before journal cleanup. In that
+    // case the intended digest is already authoritative; allow finalization.
+    if (existing && existing.next === prior && existing.next === next) continue;
+    if (prior === next) {
+      if (existing) throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
+      continue;
+    }
+    if (existing) {
+      throw new Error(`Pending replacement differs from intended output: ${entry.path}`);
+    }
+    journal.files[key] = { previous: prior, next };
+  }
+  await saveReplacementJournal(agentDir, journal);
+  await saveOwnership(agentDir, current);
+}
+
+async function saveOwnership(agentDir: string, ownership: OwnershipRecord): Promise<void> {
+  const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
+  await assertSafeParents(agentDir, manifestPath);
+  try {
+    const existing = await lstat(manifestPath);
+    if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temporary = resolveSafeSubpath(agentDir, `.skillgate-owned-${randomUUID()}.tmp`);
+  await writeFile(temporary, JSON.stringify(ownership, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  try {
+    await assertSafeParents(agentDir, manifestPath);
+    await rename(temporary, manifestPath);
+  } finally {
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+}
+
+/** Stage a complete file and atomically publish it after rechecking ownership. */
+export async function writeManagedTarget(agentDir: string, path: string, content: string): Promise<void> {
+  await assertSafeParents(agentDir, path);
+  const conflicts = await checkManagedTargets(agentDir, [path]);
+  if (conflicts.length) throw new Error(`Refusing to overwrite existing adapter files: ${conflicts.join(", ")}`);
+  // Preserve unchanged managed files without rewriting them.
+  try {
+    const stat = await lstat(path);
+    if (stat.isFile() && !stat.isSymbolicLink() && hash(await readStableMetadata(path, "managed target")) === hash(content)) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temporary = resolveSafeSubpath(dirname(path), `.skillgate-stage-${randomUUID()}.tmp`);
+  await writeFile(temporary, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  try {
+    await assertSafeParents(agentDir, path);
+    const latest = await checkManagedTargets(agentDir, [path]);
+    if (latest.length) throw new Error(`Refusing to overwrite existing adapter files: ${latest.join(", ")}`);
+    // Atomic no-clobber creation protects initially missing targets.
+    let missing = false;
+    try { await lstat(path); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      missing = true;
+    }
+    if (missing) {
+      try {
+        await link(temporary, path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new Error(`Refusing to overwrite existing adapter files: ${path}`);
+        }
+        throw error;
+      }
+    } else {
+      await rename(temporary, path);
+    }
+  } finally {
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+}
+
+/** Preview stale managed targets without touching user-owned files. */
+export async function planStaleManagedTargets(agentDir: string, intended: string[]): Promise<{ filesToRemove: string[]; conflicts: string[] }> {
+  const ownership = await readOwnership(agentDir);
+  const expected = new Set(intended.map((path) => resolve(path)));
+  const filesToRemove = Object.keys(ownership.files)
+    .map((name) => resolveSafeSubpath(agentDir, name))
+    .filter((path) => !expected.has(resolve(path)));
+  const conflicts = await checkManagedTargets(agentDir, filesToRemove);
+  const journal = await readReplacementJournal(agentDir);
+  for (const name of Object.keys(journal.files)) {
+    const path = resolveSafeSubpath(agentDir, name);
+    if (!expected.has(path) && !conflicts.includes(path)) conflicts.push(path);
+  }
+  return { filesToRemove, conflicts };
+}
+
+/** Verify a managed file through the same inode checked by lstat. */
+async function verifyManagedFile(path: string, expected: string): Promise<void> {
+  const stat = await lstat(path);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed file: ${path}`);
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
+      throw new Error(`Managed file changed during cleanup: ${path}`);
+    }
+    if (hash(await handle.readFile({ encoding: "utf8" })) !== expected) {
+      throw new Error(`Managed file changed during cleanup: ${path}`);
+    }
+    // Detect pathname replacement during verification, before the caller unlinks.
+    const latest = await lstat(path);
+    if (!latest.isFile() || latest.isSymbolicLink() || latest.dev !== opened.dev || latest.ino !== opened.ino) {
+      throw new Error(`Managed file changed during cleanup: ${path}`);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Remove stale owned files, refusing to remove modified or unowned files. */
+export async function removeStaleManagedTargets(agentDir: string, intended: string[]): Promise<string[]> {
+  const { filesToRemove, conflicts } = await planStaleManagedTargets(agentDir, intended);
+  if (conflicts.length > 0) {
+    throw new Error(`Refusing to remove modified managed files: ${conflicts.join(", ")}`);
+  }
+  const ownership = await readOwnership(agentDir);
+  const removed: string[] = [];
+  for (const path of filesToRemove) {
+    await assertSafeParents(agentDir, path);
+    const name = relative(agentDir, path).replaceAll("\\", "/");
+    try {
+      await verifyManagedFile(path, ownership.files[name]!);
+      await unlink(path);
+      removed.push(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return removed;
+}
+
+/** Remove only files whose contents still match SkillGate's recorded hashes. */
+export async function cleanupManagedTargets(agentDir: string): Promise<string[]> {
+  const ownership = await readOwnership(agentDir);
+  const journal = await readReplacementJournal(agentDir);
+  if (Object.keys(journal.files).length > 0) {
+    throw new Error("Refusing cleanup while a replacement transaction is pending; complete apply first");
+  }
+  const paths = Object.keys(ownership.files).map((name) => resolveSafeSubpath(agentDir, name));
+  const conflicts = await checkManagedTargets(agentDir, paths);
+  if (conflicts.length > 0) {
+    throw new Error(`Refusing to remove modified managed files: ${conflicts.join(", ")}`);
+  }
+  const removed: string[] = [];
+  for (const path of paths) {
+    await assertSafeParents(agentDir, path);
+    let stat;
+    try {
+      stat = await lstat(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    const key = relativePath(agentDir, path);
+    await verifyManagedFile(path, ownership.files[key]!);
+    await unlink(path);
+    removed.push(path);
+  }
+  const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
+  await assertSafeParents(agentDir, manifestPath);
+  try {
+    const manifestStat = await lstat(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
+    await unlink(manifestPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return removed;
+}
