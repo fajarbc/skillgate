@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, open, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { resolveSafeSubpath } from "./safe-path.js";
 
