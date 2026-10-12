@@ -228,6 +228,25 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("rejects symlinked ownership metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-metadata-"));
+    try {
+      const { symlink } = await import("node:fs/promises");
+      const adapter = new ClaudeCodeAdapter();
+      const context = { task: "test", root, skills: [] };
+      await adapter.apply(context);
+      const manifest = join(root, ".claude", "skillgate-owned.json");
+      const external = join(root, "external.json");
+      await writeFile(external, JSON.stringify({ version: 1, files: {} }));
+      await rm(manifest);
+      await symlink(external, manifest);
+      await expect(adapter.plan(context)).rejects.toThrow("Unsafe ownership manifest");
+      await expect(adapter.cleanup(context)).rejects.toThrow("Unsafe ownership manifest");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects corrupted ownership manifests before modifying managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-corrupt-"));
     try {
