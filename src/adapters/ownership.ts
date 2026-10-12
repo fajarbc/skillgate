@@ -408,7 +408,7 @@ export async function writeManagedTarget(agentDir: string, path: string, content
   // Preserve unchanged managed files without rewriting them.
   try {
     const stat = await lstat(path);
-    if (stat.isFile() && !stat.isSymbolicLink() && hash(await readFile(path, "utf8")) === hash(content)) return;
+    if (stat.isFile() && !stat.isSymbolicLink() && hash(await readStableMetadata(path, "managed target")) === hash(content)) return;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
