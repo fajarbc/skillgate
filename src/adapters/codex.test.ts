@@ -5,6 +5,21 @@ import { describe, expect, it } from "vitest";
 import { CodexAdapter } from "./codex.js";
 
 describe("CodexAdapter", () => {
+  it("rejects unreadable skill sources rather than silently generating fallback content", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-source-error-"));
+    try {
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "test", root,
+        skills: [{ path: root, metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      await expect(adapter.apply(context)).rejects.toMatchObject({ code: "EISDIR" });
+      await expect(readFile(join(root, ".codex", "skills.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("plans without modifying the workspace and detects existing targets", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-plan-"));
     try {
