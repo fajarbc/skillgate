@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { resolveSafeSubpath } from "./safe-path.js";
@@ -41,17 +42,34 @@ async function assertSafeParents(agentDir: string, path: string): Promise<void> 
   }
 }
 
+/** Read metadata without following a swapped symlink or trusting a different inode.
+ * The final pathname check catches replacement during the read itself.
+ */
+async function readStableMetadata(path: string, label: string): Promise<string> {
+  const before = await lstat(path);
+  if (!before.isFile() || before.isSymbolicLink()) throw new Error(`Unsafe ${label}`);
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error(`Unsafe ${label}: file changed during read`);
+    }
+    const content = await handle.readFile({ encoding: "utf8" });
+    const after = await lstat(path);
+    if (!after.isFile() || after.isSymbolicLink() || after.dev !== opened.dev || after.ino !== opened.ino) {
+      throw new Error(`Unsafe ${label}: file changed during read`);
+    }
+    return content;
+  } finally {
+    await handle.close();
+  }
+}
+
 async function readOwnership(agentDir: string): Promise<OwnershipRecord> {
   const filename = resolveSafeSubpath(agentDir, "skillgate-owned.json");
   await assertSafeParents(agentDir, filename);
   try {
-    const stat = await lstat(filename);
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  try {
-    const raw = JSON.parse(await readFile(filename, "utf8")) as unknown;
+    const raw = JSON.parse(await readStableMetadata(filename, "ownership manifest")) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid ownership manifest");
     const data = raw as Record<string, unknown>;
     if (data.version !== 1 || !data.files || typeof data.files !== "object" || Array.isArray(data.files)) {
@@ -107,7 +125,7 @@ async function reclaimDeadProcessLock(lockPath: string): Promise<boolean> {
   try {
     stat = await lstat(lockPath);
     if (!stat.isFile() || stat.isSymbolicLink()) return false;
-    const raw = JSON.parse(await readFile(lockPath, "utf8")) as unknown;
+    const raw = JSON.parse(await readStableMetadata(lockPath, "adapter lock")) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
     const pid = (raw as Record<string, unknown>).pid;
     if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return false;
@@ -251,9 +269,7 @@ async function readReplacementJournal(agentDir: string): Promise<ReplacementJour
   const file = resolveSafeSubpath(agentDir, "skillgate-replacements.json");
   await assertSafeParents(agentDir, file);
   try {
-    const stat = await lstat(file);
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe replacement journal");
-    const raw = JSON.parse(await readFile(file, "utf8")) as unknown;
+    const raw = JSON.parse(await readStableMetadata(file, "replacement journal")) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid replacement journal");
     const data = raw as Record<string, unknown>;
     if (data.version !== 1 || !data.files || typeof data.files !== "object" || Array.isArray(data.files)) {
