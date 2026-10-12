@@ -64,7 +64,8 @@ export class CodexAdapter implements AgentAdapter {
       let content = "";
       try {
         content = await readFile(skill.path, "utf8");
-      } catch {
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         content = `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
       }
 
