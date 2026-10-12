@@ -2,9 +2,25 @@ import { ClaudeCodeAdapter } from "./claude.js";
 import { CodexAdapter } from "./codex.js";
 import type { AgentAdapter } from "./types.js";
 
-export type { AdapterContext, AdapterResult, AgentAdapter } from "./types.js";
+export type {
+  AdapterContext,
+  AdapterPlan,
+  AdapterResult,
+  AgentAdapter,
+  CleanupResult,
+  LifecycleOptions,
+} from "./types.js";
 export { ClaudeCodeAdapter } from "./claude.js";
 export { CodexAdapter } from "./codex.js";
+export {
+  AdapterConflictError,
+  OWNERSHIP_HEADER,
+  applyFilesystemAdapter,
+  cleanupFilesystemAdapter,
+  isManagedFile,
+  planFilesystemAdapter,
+  readPreviousManifest,
+} from "./filesystem-lifecycle.js";
 export {
   prepareSafeSkillPaths,
   resolveSafeSubpath,

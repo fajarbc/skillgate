@@ -7,15 +7,37 @@ export interface AdapterContext {
   options?: Readonly<Record<string, string | number | boolean>>;
 }
 
+export interface LifecycleOptions {
+  force?: boolean;
+}
+
+export interface AdapterPlan {
+  agent: string;
+  writes: string[];
+  removals: string[];
+  conflicts: string[];
+  skills: string[];
+  summary: string;
+}
+
 export interface AdapterResult {
   agent: string;
   filesWritten: string[];
+  filesRemoved?: string[];
   exposedSkills: string[];
+  summary: string;
+}
+
+export interface CleanupResult {
+  agent: string;
+  filesRemoved: string[];
   summary: string;
 }
 
 export interface AgentAdapter {
   readonly name: string;
   format(context: AdapterContext): Promise<string> | string;
-  apply(context: AdapterContext): Promise<AdapterResult>;
+  plan(context: AdapterContext, options?: LifecycleOptions): Promise<AdapterPlan>;
+  apply(context: AdapterContext, options?: LifecycleOptions): Promise<AdapterResult>;
+  cleanup(context: AdapterContext, options?: LifecycleOptions): Promise<CleanupResult>;
 }
