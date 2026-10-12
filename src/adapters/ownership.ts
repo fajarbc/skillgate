@@ -424,8 +424,18 @@ export async function writeManagedTarget(agentDir: string, path: string, content
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       missing = true;
     }
-    if (missing) await link(temporary, path);
-    else await rename(temporary, path);
+    if (missing) {
+      try {
+        await link(temporary, path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new Error(`Refusing to overwrite existing adapter files: ${path}`);
+        }
+        throw error;
+      }
+    } else {
+      await rename(temporary, path);
+    }
   } finally {
     await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;
