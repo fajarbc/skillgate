@@ -206,7 +206,8 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
       if (ownership.files[key] !== currentHash && !matchesJournal) conflicts.push(path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      // Missing previously managed files are safe to recreate after interruption.
+      // A missing previously managed file may be recreated during recovery, but
+      // an unowned missing path must not be mistaken for an owned file.
     }
   }
   return conflicts;
