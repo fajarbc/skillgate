@@ -40,6 +40,25 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("matches a clean dry-run plan to the actual applied output paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-plan-apply-"));
+    try {
+      const adapter = new CodexAdapter();
+      const context = {
+        task: "plan consistency", root,
+        skills: [{ path: join(root, "source.md"), metadata: { name: "example", description: "Example" }, score: 1, reasons: [] }],
+      };
+      const plan = await adapter.plan(context);
+      expect(plan.conflicts).toEqual([]);
+      expect(plan.filesToRemove).toEqual([]);
+      const result = await adapter.apply(context);
+      expect([...result.filesWritten].sort()).toEqual([...plan.filesToWrite].sort());
+      expect((await adapter.plan(context)).conflicts).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps managed file contents and inode stable on identical repeated applies", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-idempotent-"));
     try {
