@@ -341,6 +341,26 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("does not reclaim a symlinked lock or touch its destination", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-lock-link-"));
+    try {
+      const { mkdir, symlink, lstat } = await import("node:fs/promises");
+      const { withManagedLock } = await import("./ownership.js");
+      const agentDir = join(root, ".codex");
+      await mkdir(agentDir);
+      const external = join(root, "outside-lock.json");
+      const content = JSON.stringify({ pid: 2147483647 });
+      await writeFile(external, content);
+      const lockPath = join(agentDir, ".skillgate.lock");
+      await symlink(external, lockPath);
+      await expect(withManagedLock(agentDir, async () => "unexpected")).rejects.toThrow("locked");
+      expect((await lstat(lockPath)).isSymbolicLink()).toBe(true);
+      expect(await readFile(external, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("recovers a dead-process lock but never steals a live lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-dead-lock-"));
     try {
