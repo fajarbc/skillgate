@@ -418,7 +418,14 @@ export async function writeManagedTarget(agentDir: string, path: string, content
     await assertSafeParents(agentDir, path);
     const latest = await checkManagedTargets(agentDir, [path]);
     if (latest.length) throw new Error(`Refusing to overwrite existing adapter files: ${latest.join(", ")}`);
-    await rename(temporary, path);
+    // Atomic no-clobber creation protects initially missing targets.
+    let missing = false;
+    try { await lstat(path); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      missing = true;
+    }
+    if (missing) await link(temporary, path);
+    else await rename(temporary, path);
   } finally {
     await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;
