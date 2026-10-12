@@ -218,6 +218,11 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
           continue;
         }
         currentHash = hash(await handle.readFile({ encoding: "utf8" }));
+        const latest = await lstat(path);
+        if (!latest.isFile() || latest.isSymbolicLink() || latest.dev !== opened.dev || latest.ino !== opened.ino) {
+          conflicts.push(path);
+          continue;
+        }
       } finally {
         await handle.close();
       }
