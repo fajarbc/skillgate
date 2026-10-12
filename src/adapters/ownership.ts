@@ -209,7 +209,7 @@ export async function checkManagedTargets(agentDir: string, targets: string[]): 
         continue;
       }
       // Read from the same inode that passed the no-symlink check.
-      const handle = await open(path, "r");
+      const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
       let currentHash: string;
       try {
         const opened = await handle.stat();
@@ -241,7 +241,7 @@ export async function recordManagedTargets(agentDir: string, targets: string[], 
     await assertSafeParents(agentDir, path);
     const stat = await lstat(path);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed target: ${path}`);
-    const handle = await open(path, "r");
+    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     let actual: string;
     try {
       const opened = await handle.stat();
@@ -446,7 +446,7 @@ export async function planStaleManagedTargets(agentDir: string, intended: string
 async function verifyManagedFile(path: string, expected: string): Promise<void> {
   const stat = await lstat(path);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe managed file: ${path}`);
-  const handle = await open(path, "r");
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const opened = await handle.stat();
     if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
