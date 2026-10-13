@@ -1,5 +1,5 @@
 import { access, lstat, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, parse, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
   AdapterContext,
@@ -47,6 +47,16 @@ async function assertNoSymlink(path: string): Promise<void> {
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+async function assertSafeAncestors(path: string): Promise<void> {
+  const absolute = resolve(path);
+  const root = parse(absolute).root;
+  let current = root;
+  for (const segment of relative(root, absolute).split(sep).filter(Boolean)) {
+    current = resolve(current, segment);
+    await assertNoSymlink(current);
   }
 }
 
@@ -106,7 +116,7 @@ export async function planFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
-  await assertNoSymlink(manifestPath);
+  await assertSafeAncestors(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath);
   for (const path of previousManifest?.managedFiles ?? []) {
     assertManifestPath(agentRoot, path);
@@ -118,7 +128,7 @@ export async function planFilesystemAdapter(
 
   for (const { dirPath } of preparedSkills) {
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
-    await assertNoSymlink(destFile);
+    await assertSafeAncestors(destFile);
     plannedWrites.push(destFile);
 
     if (await fileExists(destFile)) {
@@ -175,12 +185,14 @@ export async function applyFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
+  await assertSafeAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
 
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
   const filesWritten: string[] = [];
 
   for (const { skill, dirPath } of preparedSkills) {
+    await assertSafeAncestors(dirPath);
     await mkdir(dirPath, { recursive: true });
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
 
@@ -192,6 +204,7 @@ export async function applyFilesystemAdapter(
     }
 
     const contentToWrite = `${OWNERSHIP_HEADER}${originalContent}`;
+    await assertSafeAncestors(destFile);
     await writeFile(destFile, contentToWrite, "utf8");
     filesWritten.push(destFile);
   }
@@ -199,6 +212,7 @@ export async function applyFilesystemAdapter(
   const filesRemoved: string[] = [];
   for (const staleFile of plan.removals) {
     try {
+      await assertSafeAncestors(staleFile);
       await rm(staleFile, { force: true });
       filesRemoved.push(staleFile);
       const parentDir = dirname(staleFile);
@@ -229,6 +243,7 @@ export async function applyFilesystemAdapter(
     })),
   };
 
+  await assertSafeAncestors(manifestPath);
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
   filesWritten.push(manifestPath);
 
@@ -262,7 +277,7 @@ export async function cleanupFilesystemAdapter(
       if (await fileExists(filePath)) {
         const managed = await isManagedFile(filePath, previousManifest);
         if (managed || options?.force) {
-          await assertNoSymlink(filePath);
+          await assertSafeAncestors(filePath);
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
           try {
