@@ -75,11 +75,14 @@ for (const fixture of fixtures) {
       expect(JSON.parse(JSON.stringify(applied))).toEqual(applied);
       const before = await Promise.all(plan.filesToWrite.map((path) => readFile(path, "utf8")));
       const ownershipPath = join(root, fixture.directory, "skillgate-owned.json");
-      const ownershipBefore = await stat(ownershipPath);
+      const ownershipBefore = await readFile(ownershipPath, "utf8");
+      const outputBefore = await stat(plan.filesToWrite[0]!);
       expect((await adapter.apply(context)).filesWritten).toEqual(plan.filesToWrite);
-      const ownershipAfter = await stat(ownershipPath);
-      expect(ownershipAfter.ino).toBe(ownershipBefore.ino);
-      expect(ownershipAfter.mtimeMs).toBe(ownershipBefore.mtimeMs);
+      const ownershipAfter = await readFile(ownershipPath, "utf8");
+      const outputAfter = await stat(plan.filesToWrite[0]!);
+      expect(ownershipAfter).toBe(ownershipBefore);
+      expect(outputAfter.ino).toBe(outputBefore.ino);
+      expect(outputAfter.mtimeMs).toBe(outputBefore.mtimeMs);
       expect(await Promise.all(plan.filesToWrite.map((path) => readFile(path, "utf8")))).toEqual(before);
       const personal = join(root, fixture.directory, "personal.txt");
       await writeFile(personal, "not managed");
