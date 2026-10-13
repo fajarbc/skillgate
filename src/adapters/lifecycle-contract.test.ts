@@ -122,6 +122,21 @@ for (const fixture of fixtures) {
       expect(await readFile(target, "utf8")).toBe("personal content");
     }));
 
+    it("preflights every managed file before cleanup to avoid partial deletion", async () => workspace(async (root) => {
+      const adapter = fixture.factory();
+      const context: AdapterContext = {
+        task: "contract", root, skills: [skill(root, "first"), skill(root, "second")],
+      };
+      await adapter.apply(context);
+      const first = join(root, fixture.directory, "skills", "first", "SKILL.md");
+      const second = join(root, fixture.directory, "skills", "second", "SKILL.md");
+      const original = await readFile(first, "utf8");
+      await writeFile(second, "user-edited content");
+      await expect(adapter.cleanup!(context)).rejects.toThrow(/modified managed files/);
+      expect(await readFile(first, "utf8")).toBe(original);
+      expect(await readFile(second, "utf8")).toBe("user-edited content");
+    }));
+
     it("rejects invalid metadata and collisions while containing traversal-like names", async () => workspace(async (root) => {
       const adapter = fixture.factory();
       const invalid: AdapterContext = { task: "contract", root, skills: [skill(root, "")] };
