@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
   AdapterContext,
@@ -26,6 +26,18 @@ export interface ManifestData {
     score: number;
     capabilities: string[];
   }>;
+}
+
+function assertManifestPath(agentRoot: string, filePath: string): void {
+  const file = resolve(filePath);
+  const parts = relative(resolve(agentRoot, "skills"), file).split(sep);
+  if (filePath !== file && filePath !== resolve(agentRoot, "skills.json")) {
+    throw new Error("Invalid managed file path");
+  }
+  if (file !== resolve(agentRoot, "skills.json") &&
+      !(parts.length === 2 && parts[0] !== ".." && parts[1] === "SKILL.md")) {
+    throw new Error("Managed file is outside the adapter skill directory");
+  }
 }
 
 export class AdapterConflictError extends Error {
@@ -85,6 +97,9 @@ export async function planFilesystemAdapter(
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
   const previousManifest = await readPreviousManifest(manifestPath);
+  for (const path of previousManifest?.managedFiles ?? []) {
+    assertManifestPath(agentRoot, path);
+  }
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
 
   const plannedWrites: string[] = [];
@@ -223,6 +238,9 @@ export async function cleanupFilesystemAdapter(
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
   const previousManifest = await readPreviousManifest(manifestPath);
+  for (const path of previousManifest?.managedFiles ?? []) {
+    assertManifestPath(agentRoot, path);
+  }
 
   const filesRemoved: string[] = [];
 
