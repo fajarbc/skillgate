@@ -99,4 +99,22 @@ describe("filesystem adapter manifest boundaries", () => {
     }
   });
 
+  it("does not remove a stale user-owned skill claimed by a manifest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-ownership-"));
+    try {
+      const target = join(root, ".codex", "skills", "personal", "SKILL.md");
+      await mkdir(join(root, ".codex", "skills", "personal"), { recursive: true });
+      await writeFile(target, "personal");
+      await writeFile(join(root, ".codex", "skills.json"), JSON.stringify({
+        managedBy: "skillgate", managedFiles: [target], skills: [],
+      }));
+      const context = { task: "", root, skills: [] };
+      expect((await planFilesystemAdapter("codex", ".codex", context)).conflicts).toContain(target);
+      await expect(cleanupFilesystemAdapter("codex", ".codex", context)).rejects.toThrow();
+      expect(await readFile(target, "utf8")).toBe("personal");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });
