@@ -278,23 +278,35 @@ export async function cleanupFilesystemAdapter(
   const filesRemoved: string[] = [];
 
   if (previousManifest) {
-    for (const filePath of previousManifest.managedFiles) {
+    const managedSkillPaths = previousManifest.managedFiles.filter((path) => path !== manifestPath);
+    // Preflight all targets before removing any file, so a conflict cannot
+    // leave a partially cleaned installation.
+    for (const filePath of managedSkillPaths) {
+      await assertSafeAncestors(filePath);
+      if (await fileExists(filePath) && !await isManagedFile(filePath, previousManifest)) {
+        throw new AdapterConflictError([filePath]);
+      }
+    }
+    for (const filePath of managedSkillPaths) {
+      await assertSafeAncestors(filePath);
       if (await fileExists(filePath)) {
-        const managed = await isManagedFile(filePath, previousManifest);
-        if (!managed) {
+        if (!await isManagedFile(filePath, previousManifest)) {
           throw new AdapterConflictError([filePath]);
         }
-        if (managed) {
-          await assertSafeAncestors(filePath);
-          await rm(filePath, { force: true });
-          filesRemoved.push(filePath);
-          try {
-            await rmdir(dirname(filePath));
-          } catch {
-            // Directory not empty
-          }
+        await rm(filePath, { force: true });
+        filesRemoved.push(filePath);
+        try {
+          await rmdir(dirname(filePath));
+        } catch {
+          // Directory not empty
         }
       }
+    }
+    // The JSON manifest is validated separately and removed last.
+    await assertSafeAncestors(manifestPath);
+    if (await fileExists(manifestPath)) {
+      await rm(manifestPath, { force: true });
+      filesRemoved.push(manifestPath);
     }
   }
 
