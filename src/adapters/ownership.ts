@@ -384,7 +384,9 @@ export async function prepareManagedTargets(agentDir: string, entries: ReadonlyA
     }
     journal.files[key] = { previous: prior, next };
   }
-  await saveReplacementJournal(agentDir, journal);
+  if (Object.keys(journal.files).length > 0) {
+    await saveReplacementJournal(agentDir, journal);
+  }
   await saveOwnership(agentDir, current);
 }
 
@@ -394,6 +396,12 @@ async function saveOwnership(agentDir: string, ownership: OwnershipRecord): Prom
   try {
     const existing = await lstat(manifestPath);
     if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  try {
+    const existing = await readOwnership(agentDir);
+    if (JSON.stringify(existing.files) === JSON.stringify(ownership.files)) return;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
