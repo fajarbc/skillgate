@@ -399,7 +399,10 @@ async function saveOwnership(agentDir: string, ownership: OwnershipRecord): Prom
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  // An absent manifest reads as an empty record; it is not an already
+  // committed empty manifest. Only skip replacement when a real file exists.
   try {
+    await lstat(manifestPath);
     const existing = await readOwnership(agentDir);
     if (JSON.stringify(existing.files) === JSON.stringify(ownership.files)) return;
   } catch (error) {
