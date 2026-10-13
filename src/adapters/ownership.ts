@@ -554,6 +554,12 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
   const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
   await assertSafeParents(agentDir, manifestPath);
   try {
+    // Re-read the manifest through a stable inode before deleting it. A changed
+    // manifest could belong to another operation or have been replaced by a user.
+    const current = await readOwnership(agentDir);
+    if (JSON.stringify(current.files) !== JSON.stringify(ownership.files)) {
+      throw new Error("Ownership manifest changed during cleanup");
+    }
     const manifestStat = await lstat(manifestPath);
     if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error("Unsafe ownership manifest");
     await unlink(manifestPath);
