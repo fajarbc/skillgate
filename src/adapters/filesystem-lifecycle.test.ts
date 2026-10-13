@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -28,4 +28,23 @@ describe("filesystem adapter manifest boundaries", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+  it("rejects symlinked ownership manifests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-"));
+    try {
+      const agentRoot = join(root, ".codex");
+      await mkdir(agentRoot, { recursive: true });
+      const outside = join(root, "user-owned.json");
+      await writeFile(outside, JSON.stringify({ managedBy: "skillgate", managedFiles: [] }));
+      await symlink(outside, join(agentRoot, "skills.json"));
+      const context = { task: "", root, skills: [] };
+      await expect(planFilesystemAdapter("codex", ".codex", context))
+        .rejects.toThrow(/symlinked managed file/);
+      await expect(cleanupFilesystemAdapter("codex", ".codex", context))
+        .rejects.toThrow(/symlinked managed file/);
+      expect(await readFile(outside, "utf8")).toContain("managedBy");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });
