@@ -536,7 +536,14 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
       throw error;
     }
     const key = relativePath(agentDir, path);
-    await verifyManagedFile(path, ownership.files[key]!);
+    try {
+      await verifyManagedFile(path, ownership.files[key]!);
+    } catch (error) {
+      // A previously owned file can disappear after the initial existence check.
+      // Missing files are already cleaned up and must not abort the whole cleanup.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
     await unlink(path);
     removed.push(path);
   }
