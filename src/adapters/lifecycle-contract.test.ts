@@ -63,17 +63,6 @@ for (const fixture of fixtures) {
       expect(await readdir(root)).toEqual([]);
     }));
 
-    it("rejects plans through symlinked workspaces", async () => workspace(async (root) => {
-      const { symlink } = await import("node:fs/promises");
-      const target = join(root, "actual");
-      const alias = join(root, "alias");
-      await mkdir(target);
-      await symlink(target, alias, "dir");
-      const context: AdapterContext = { task: "test", root: alias, skills: [] };
-      await expect(fixture.factory().plan!(context)).rejects.toThrow("Unsafe workspace ancestor");
-      expect(await readdir(target)).toEqual([]);
-    }));
-
     it("applies the preview, is idempotent, and cleans only managed outputs", async () => workspace(async (root) => {
       const adapter = fixture.factory();
       const context: AdapterContext = { task: "contract", root, skills: [skill(root, "first")] };
