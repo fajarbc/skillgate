@@ -77,9 +77,13 @@ for (const fixture of fixtures) {
       const ownershipPath = join(root, fixture.directory, "skillgate-owned.json");
       const ownershipBefore = await readFile(ownershipPath, "utf8");
       const outputBefore = await stat(plan.filesToWrite[0]!);
+      const ownershipStatBefore = await stat(ownershipPath);
       expect((await adapter.apply(context)).filesWritten).toEqual(plan.filesToWrite);
       const ownershipAfter = await readFile(ownershipPath, "utf8");
       const outputAfter = await stat(plan.filesToWrite[0]!);
+      const ownershipStatAfter = await stat(ownershipPath);
+      expect(ownershipStatAfter.ino).toBe(ownershipStatBefore.ino);
+      expect(ownershipStatAfter.mtimeMs).toBe(ownershipStatBefore.mtimeMs);
       expect(ownershipAfter).toBe(ownershipBefore);
       expect(outputAfter.ino).toBe(outputBefore.ino);
       expect(outputAfter.mtimeMs).toBe(outputBefore.mtimeMs);
