@@ -95,12 +95,9 @@ export async function isManagedFile(
   filePath: string,
   previousManifest: ManifestData | null,
 ): Promise<boolean> {
-  if (previousManifest && previousManifest.managedFiles.includes(filePath)) {
-    return true;
-  }
   try {
     const content = await readFile(filePath, "utf8");
-    return content.includes("<!-- Managed by SkillGate");
+    return content.startsWith(OWNERSHIP_HEADER);
   } catch {
     return false;
   }
@@ -150,8 +147,13 @@ export async function planFilesystemAdapter(
   if (previousManifest) {
     for (const prevFile of previousManifest.managedFiles) {
       if (prevFile !== manifestPath && !plannedWrites.includes(prevFile)) {
+        await assertSafeAncestors(prevFile);
         if (await fileExists(prevFile)) {
-          plannedRemovals.push(prevFile);
+          if (await isManagedFile(prevFile, previousManifest)) {
+            plannedRemovals.push(prevFile);
+          } else {
+            conflicts.push(prevFile);
+          }
         }
       }
     }
@@ -213,6 +215,9 @@ export async function applyFilesystemAdapter(
   for (const staleFile of plan.removals) {
     try {
       await assertSafeAncestors(staleFile);
+      if (!await isManagedFile(staleFile, null)) {
+        throw new AdapterConflictError([staleFile]);
+      }
       await rm(staleFile, { force: true });
       filesRemoved.push(staleFile);
       const parentDir = dirname(staleFile);
@@ -264,7 +269,7 @@ export async function cleanupFilesystemAdapter(
 ): Promise<CleanupResult> {
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
-  await assertNoSymlink(manifestPath);
+  await assertSafeAncestors(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath);
   for (const path of previousManifest?.managedFiles ?? []) {
     assertManifestPath(agentRoot, path);
@@ -276,7 +281,10 @@ export async function cleanupFilesystemAdapter(
     for (const filePath of previousManifest.managedFiles) {
       if (await fileExists(filePath)) {
         const managed = await isManagedFile(filePath, previousManifest);
-        if (managed || options?.force) {
+        if (!managed) {
+          throw new AdapterConflictError([filePath]);
+        }
+        if (managed) {
           await assertSafeAncestors(filePath);
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
