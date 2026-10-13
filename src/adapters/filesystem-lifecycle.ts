@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
@@ -37,6 +37,16 @@ function assertManifestPath(agentRoot: string, filePath: string): void {
   if (file !== resolve(agentRoot, "skills.json") &&
       !(parts.length === 2 && parts[0] !== ".." && parts[1] === "SKILL.md")) {
     throw new Error("Managed file is outside the adapter skill directory");
+  }
+}
+
+async function assertNoSymlink(path: string): Promise<void> {
+  try {
+    if ((await lstat(path)).isSymbolicLink()) {
+      throw new Error(`Refusing symlinked managed file: ${path}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 
@@ -96,6 +106,7 @@ export async function planFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
+  await assertNoSymlink(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath);
   for (const path of previousManifest?.managedFiles ?? []) {
     assertManifestPath(agentRoot, path);
@@ -107,6 +118,7 @@ export async function planFilesystemAdapter(
 
   for (const { dirPath } of preparedSkills) {
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
+    await assertNoSymlink(destFile);
     plannedWrites.push(destFile);
 
     if (await fileExists(destFile)) {
@@ -237,6 +249,7 @@ export async function cleanupFilesystemAdapter(
 ): Promise<CleanupResult> {
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
+  await assertNoSymlink(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath);
   for (const path of previousManifest?.managedFiles ?? []) {
     assertManifestPath(agentRoot, path);
@@ -249,6 +262,7 @@ export async function cleanupFilesystemAdapter(
       if (await fileExists(filePath)) {
         const managed = await isManagedFile(filePath, previousManifest);
         if (managed || options?.force) {
+          await assertNoSymlink(filePath);
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
           try {
