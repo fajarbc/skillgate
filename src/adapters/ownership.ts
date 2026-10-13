@@ -309,6 +309,8 @@ async function saveReplacementJournal(agentDir: string, journal: ReplacementJour
   try {
     const stat = await lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Unsafe replacement journal");
+    const previous = await readReplacementJournal(agentDir);
+    if (JSON.stringify(previous.files) === JSON.stringify(journal.files)) return;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
