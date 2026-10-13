@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cleanupFilesystemAdapter, planFilesystemAdapter } from "./filesystem-lifecycle.js";
+import { applyFilesystemAdapter, cleanupFilesystemAdapter, planFilesystemAdapter } from "./filesystem-lifecycle.js";
 
 describe("filesystem adapter manifest boundaries", () => {
   it("refuses cleanup paths outside the managed skills directory", async () => {
@@ -42,6 +42,34 @@ describe("filesystem adapter manifest boundaries", () => {
       await expect(cleanupFilesystemAdapter("codex", ".codex", context))
         .rejects.toThrow(/symlinked managed file/);
       expect(await readFile(outside, "utf8")).toContain("managedBy");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses symlinked destination files before plan or apply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-"));
+    try {
+      const destDir = join(root, ".codex", "skills", "example");
+      const outside = join(root, "user-owned.md");
+      await mkdir(destDir, { recursive: true });
+      await writeFile(outside, "preserve me");
+      await symlink(outside, join(destDir, "SKILL.md"));
+      const context = {
+        task: "test",
+        root,
+        skills: [{
+          path: join(root, "source.md"),
+          metadata: { name: "example", description: "Example" },
+          score: 1,
+          reasons: [],
+        }],
+      };
+      await expect(planFilesystemAdapter("codex", ".codex", context))
+        .rejects.toThrow(/symlinked managed file/);
+      await expect(applyFilesystemAdapter("codex", ".codex", context))
+        .rejects.toThrow(/symlinked managed file/);
+      expect(await readFile(outside, "utf8")).toBe("preserve me");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
