@@ -105,6 +105,7 @@ for (const fixture of fixtures) {
       const plan = await adapter.plan!(reduced);
       expect(plan.filesToRemove).toEqual([stale]);
       expect(plan.conflicts).toEqual([]);
+      expect(JSON.parse(JSON.stringify(plan))).toEqual(plan);
       await adapter.apply(reduced);
       await expect(readFile(stale, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       expect(await readFile(personal, "utf8")).toBe("keep me");
