@@ -98,6 +98,25 @@ for (const fixture of fixtures) {
       expect(await readFile(personal, "utf8")).toBe("not managed");
     }));
 
+    it("creates an ownership manifest even for an initially empty skill set", async () => workspace(async (root) => {
+      const adapter = fixture.factory();
+      const context: AdapterContext = { task: "empty", root, skills: [] };
+      await adapter.apply(context);
+      const ownershipPath = join(root, fixture.directory, "skillgate-owned.json");
+      const record = JSON.parse(await readFile(ownershipPath, "utf8")) as {
+        version: number; files: Record<string, string>;
+      };
+      expect(record.version).toBe(1);
+      expect(Object.keys(record.files)).toContain("skills.json");
+      const before = await stat(ownershipPath);
+      await adapter.apply(context);
+      const after = await stat(ownershipPath);
+      expect(after.ino).toBe(before.ino);
+      expect(after.mtimeMs).toBe(before.mtimeMs);
+      await adapter.cleanup!(context);
+      await expect(readFile(ownershipPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    }));
+
     it("previews stale removal and preserves unrelated files", async () => workspace(async (root) => {
       const adapter = fixture.factory();
       const initial: AdapterContext = { task: "contract", root, skills: [skill(root, "first"), skill(root, "second")] };
