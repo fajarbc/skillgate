@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -74,7 +74,12 @@ for (const fixture of fixtures) {
       expect(typeof applied.summary).toBe("string");
       expect(JSON.parse(JSON.stringify(applied))).toEqual(applied);
       const before = await Promise.all(plan.filesToWrite.map((path) => readFile(path, "utf8")));
+      const ownershipPath = join(root, fixture.directory, "skillgate-owned.json");
+      const ownershipBefore = await stat(ownershipPath);
       expect((await adapter.apply(context)).filesWritten).toEqual(plan.filesToWrite);
+      const ownershipAfter = await stat(ownershipPath);
+      expect(ownershipAfter.ino).toBe(ownershipBefore.ino);
+      expect(ownershipAfter.mtimeMs).toBe(ownershipBefore.mtimeMs);
       expect(await Promise.all(plan.filesToWrite.map((path) => readFile(path, "utf8")))).toEqual(before);
       const personal = join(root, fixture.directory, "personal.txt");
       await writeFile(personal, "not managed");
