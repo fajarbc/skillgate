@@ -544,8 +544,12 @@ export async function cleanupManagedTargets(agentDir: string): Promise<string[]>
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
     }
-    await unlink(path);
-    removed.push(path);
+    try {
+      await unlink(path);
+      removed.push(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
   const manifestPath = resolveSafeSubpath(agentDir, "skillgate-owned.json");
   await assertSafeParents(agentDir, manifestPath);
