@@ -75,4 +75,28 @@ describe("filesystem adapter manifest boundaries", () => {
     }
   });
 
+  it("refuses symlinked ancestor directories during planning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-parent-symlink-"));
+    try {
+      const outside = join(root, "user-owned");
+      await mkdir(outside);
+      await mkdir(join(root, ".codex"));
+      await symlink(outside, join(root, ".codex", "skills"), "dir");
+      const context = {
+        task: "test", root,
+        skills: [{
+          path: join(root, "source.md"),
+          metadata: { name: "example", description: "Example" },
+          score: 1, reasons: [],
+        }],
+      };
+      await expect(planFilesystemAdapter("codex", ".codex", context))
+        .rejects.toThrow(/symlink/i);
+      await expect(applyFilesystemAdapter("codex", ".codex", context))
+        .rejects.toThrow(/symlink/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });
