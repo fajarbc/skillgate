@@ -29,6 +29,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async plan(context: AdapterContext): Promise<AdapterPlan> {
+    // A preview must not traverse an aliased workspace to inspect external ownership metadata.
+    await assertSafeWorkspacePath(context.root);
     const agentDir = resolveSafeSubpath(context.root, ".claude");
     const skillsDir = resolveSafeSubpath(agentDir, "skills");
     const prepared = prepareSafeSkillPaths(context.skills, skillsDir);
