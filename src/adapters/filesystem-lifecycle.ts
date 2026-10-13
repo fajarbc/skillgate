@@ -1,5 +1,5 @@
-import { access, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { access, lstat, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { dirname, parse, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
   AdapterContext,
@@ -26,6 +26,38 @@ export interface ManifestData {
     score: number;
     capabilities: string[];
   }>;
+}
+
+function assertManifestPath(agentRoot: string, filePath: string): void {
+  const file = resolve(filePath);
+  const parts = relative(resolve(agentRoot, "skills"), file).split(sep);
+  if (filePath !== file && filePath !== resolve(agentRoot, "skills.json")) {
+    throw new Error("Invalid managed file path");
+  }
+  if (file !== resolve(agentRoot, "skills.json") &&
+      !(parts.length === 2 && parts[0] !== ".." && parts[1] === "SKILL.md")) {
+    throw new Error("Managed file is outside the adapter skill directory");
+  }
+}
+
+async function assertNoSymlink(path: string): Promise<void> {
+  try {
+    if ((await lstat(path)).isSymbolicLink()) {
+      throw new Error(`Refusing symlinked managed file: ${path}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+async function assertSafeAncestors(path: string): Promise<void> {
+  const absolute = resolve(path);
+  const root = parse(absolute).root;
+  let current = root;
+  for (const segment of relative(root, absolute).split(sep).filter(Boolean)) {
+    current = resolve(current, segment);
+    await assertNoSymlink(current);
+  }
 }
 
 export class AdapterConflictError extends Error {
@@ -63,12 +95,9 @@ export async function isManagedFile(
   filePath: string,
   previousManifest: ManifestData | null,
 ): Promise<boolean> {
-  if (previousManifest && previousManifest.managedFiles.includes(filePath)) {
-    return true;
-  }
   try {
     const content = await readFile(filePath, "utf8");
-    return content.includes("<!-- Managed by SkillGate");
+    return content.startsWith(OWNERSHIP_HEADER);
   } catch {
     return false;
   }
@@ -84,7 +113,11 @@ export async function planFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
+  await assertSafeAncestors(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath);
+  for (const path of previousManifest?.managedFiles ?? []) {
+    assertManifestPath(agentRoot, path);
+  }
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
 
   const plannedWrites: string[] = [];
@@ -92,6 +125,7 @@ export async function planFilesystemAdapter(
 
   for (const { dirPath } of preparedSkills) {
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
+    await assertSafeAncestors(destFile);
     plannedWrites.push(destFile);
 
     if (await fileExists(destFile)) {
@@ -113,8 +147,13 @@ export async function planFilesystemAdapter(
   if (previousManifest) {
     for (const prevFile of previousManifest.managedFiles) {
       if (prevFile !== manifestPath && !plannedWrites.includes(prevFile)) {
+        await assertSafeAncestors(prevFile);
         if (await fileExists(prevFile)) {
-          plannedRemovals.push(prevFile);
+          if (await isManagedFile(prevFile, previousManifest)) {
+            plannedRemovals.push(prevFile);
+          } else {
+            conflicts.push(prevFile);
+          }
         }
       }
     }
@@ -148,12 +187,14 @@ export async function applyFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
+  await assertSafeAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
 
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
   const filesWritten: string[] = [];
 
   for (const { skill, dirPath } of preparedSkills) {
+    await assertSafeAncestors(dirPath);
     await mkdir(dirPath, { recursive: true });
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
 
@@ -165,6 +206,7 @@ export async function applyFilesystemAdapter(
     }
 
     const contentToWrite = `${OWNERSHIP_HEADER}${originalContent}`;
+    await assertSafeAncestors(destFile);
     await writeFile(destFile, contentToWrite, "utf8");
     filesWritten.push(destFile);
   }
@@ -172,6 +214,10 @@ export async function applyFilesystemAdapter(
   const filesRemoved: string[] = [];
   for (const staleFile of plan.removals) {
     try {
+      await assertSafeAncestors(staleFile);
+      if (!await isManagedFile(staleFile, null)) {
+        throw new AdapterConflictError([staleFile]);
+      }
       await rm(staleFile, { force: true });
       filesRemoved.push(staleFile);
       const parentDir = dirname(staleFile);
@@ -202,6 +248,7 @@ export async function applyFilesystemAdapter(
     })),
   };
 
+  await assertSafeAncestors(manifestPath);
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
   filesWritten.push(manifestPath);
 
@@ -222,24 +269,44 @@ export async function cleanupFilesystemAdapter(
 ): Promise<CleanupResult> {
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
+  await assertSafeAncestors(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath);
+  for (const path of previousManifest?.managedFiles ?? []) {
+    assertManifestPath(agentRoot, path);
+  }
 
   const filesRemoved: string[] = [];
 
   if (previousManifest) {
-    for (const filePath of previousManifest.managedFiles) {
+    const managedSkillPaths = previousManifest.managedFiles.filter((path) => path !== manifestPath);
+    // Preflight all targets before removing any file, so a conflict cannot
+    // leave a partially cleaned installation.
+    for (const filePath of managedSkillPaths) {
+      await assertSafeAncestors(filePath);
+      if (await fileExists(filePath) && !await isManagedFile(filePath, previousManifest)) {
+        throw new AdapterConflictError([filePath]);
+      }
+    }
+    for (const filePath of managedSkillPaths) {
+      await assertSafeAncestors(filePath);
       if (await fileExists(filePath)) {
-        const managed = await isManagedFile(filePath, previousManifest);
-        if (managed || options?.force) {
-          await rm(filePath, { force: true });
-          filesRemoved.push(filePath);
-          try {
-            await rmdir(dirname(filePath));
-          } catch {
-            // Directory not empty
-          }
+        if (!await isManagedFile(filePath, previousManifest)) {
+          throw new AdapterConflictError([filePath]);
+        }
+        await rm(filePath, { force: true });
+        filesRemoved.push(filePath);
+        try {
+          await rmdir(dirname(filePath));
+        } catch {
+          // Directory not empty
         }
       }
+    }
+    // The JSON manifest is validated separately and removed last.
+    await assertSafeAncestors(manifestPath);
+    if (await fileExists(manifestPath)) {
+      await rm(manifestPath, { force: true });
+      filesRemoved.push(manifestPath);
     }
   }
 
