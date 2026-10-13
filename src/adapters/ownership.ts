@@ -10,7 +10,7 @@ interface OwnershipRecord {
 }
 
 function isManagedTargetKey(key: string): boolean {
-  return /^(?:skills\/(?!\.{1,2}\/)[a-z0-9.-]+\/SKILL\.md|skills\.json)$/.test(key);
+  return /^(?:skills\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\/SKILL\.md|skills\.json)$/.test(key) && !key.includes("/../") && !key.includes("/./");
 }
 
 function hash(content: string): string {
