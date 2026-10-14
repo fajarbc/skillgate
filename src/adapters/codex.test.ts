@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,43 @@ describe("CodexAdapter", () => {
     expect(formatted).toContain("testing");
     expect(formatted).toContain("Run tests");
     expect(formatted).toContain("Capabilities: exec");
+  });
+
+  it("refuses symlinked adapter directories before planning or writing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-symlink-"));
+    try {
+      const outside = join(root, "outside");
+      await mkdir(outside);
+      await symlink(outside, join(root, ".codex"), "dir");
+      const adapter = new CodexAdapter();
+      const context = { task: "test", root, skills: [] };
+      await expect(adapter.plan(context)).rejects.toThrow(/Unsafe symlinked adapter path/);
+      await expect(adapter.apply(context)).rejects.toThrow(/Unsafe symlinked adapter path/);
+      await expect(readFile(join(outside, "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not delete arbitrary paths from a forged ownership manifest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-forged-"));
+    try {
+      const adapterRoot = join(root, ".codex");
+      await mkdir(adapterRoot);
+      const protectedPath = join(root, "keep.txt");
+      await writeFile(protectedPath, "keep this content");
+      await writeFile(join(adapterRoot, "skills.json"), JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex", task: "test",
+        updatedAt: "", managedFiles: [protectedPath], skills: [],
+      }));
+      const adapter = new CodexAdapter();
+      const result = await adapter.cleanup({ task: "test", root, skills: [] });
+      expect(result.filesRemoved).not.toContain(protectedPath);
+      expect(await readFile(protectedPath, "utf8")).toBe("keep this content");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("applies skills by writing to .codex directory", async () => {
