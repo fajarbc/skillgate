@@ -19,6 +19,9 @@ function hash(content: string): string {
 
 async function assertSafeParents(agentDir: string, path: string): Promise<void> {
   const root = resolve(agentDir);
+  // Reject symlinked workspace ancestors, not just directories below the
+  // adapter root. Otherwise an apparently safe adapter path can escape.
+  await assertSafeWorkspacePath(dirname(root));
   const target = resolve(path);
   const rel = relative(root, target);
   if (rel === ".." || rel.startsWith(`..${sep}`) || rel === "" || rel.startsWith(sep)) {
