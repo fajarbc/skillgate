@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
   AdapterContext,
@@ -48,6 +48,20 @@ export async function readPreviousManifest(manifestPath: string): Promise<Manife
   } catch {
     return null;
   }
+}
+
+/** Never trust deletion targets copied from an on-disk manifest. */
+function isSafeManagedFilePath(agentRoot: string, filePath: string): boolean {
+  if (!isAbsolute(filePath)) return false;
+  const root = resolve(agentRoot);
+  const target = resolve(filePath);
+  const rel = relative(root, target);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith(sep)) return false;
+  if (rel === "skills.json") return true;
+  const segments = rel.split(sep);
+  return segments.length === 3 && segments[0] === "skills" &&
+    /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(segments[1] ?? "") &&
+    segments[2] === "SKILL.md";
 }
 
 export async function fileExists(path: string): Promise<boolean> {
@@ -112,7 +126,7 @@ export async function planFilesystemAdapter(
   const plannedRemovals: string[] = [];
   if (previousManifest) {
     for (const prevFile of previousManifest.managedFiles) {
-      if (prevFile !== manifestPath && !plannedWrites.includes(prevFile)) {
+      if (isSafeManagedFilePath(agentRoot, prevFile) && prevFile !== manifestPath && !plannedWrites.includes(prevFile)) {
         if (await fileExists(prevFile)) {
           plannedRemovals.push(prevFile);
         }
@@ -228,6 +242,7 @@ export async function cleanupFilesystemAdapter(
 
   if (previousManifest) {
     for (const filePath of previousManifest.managedFiles) {
+      if (!isSafeManagedFilePath(agentRoot, filePath)) continue;
       if (await fileExists(filePath)) {
         const managed = await isManagedFile(filePath, previousManifest);
         if (managed || options?.force) {
