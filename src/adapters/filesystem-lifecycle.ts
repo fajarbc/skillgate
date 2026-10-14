@@ -243,6 +243,9 @@ export async function cleanupFilesystemAdapter(
   if (previousManifest) {
     for (const filePath of previousManifest.managedFiles) {
       if (!isSafeManagedFilePath(agentRoot, filePath)) continue;
+      // The manifest is data, not authorization to remove a user-edited file.
+      // A missing ownership marker must not be bypassed by a stale manifest entry.
+      if (filePath !== manifestPath && !(await isManagedFile(filePath, null))) continue;
       if (await fileExists(filePath)) {
         const managed = await isManagedFile(filePath, previousManifest);
         if (managed || options?.force) {
