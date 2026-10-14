@@ -63,6 +63,31 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("preserves a user-edited stale skill when reapplying an empty selection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-stale-"));
+    try {
+      const adapter = new CodexAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "# Managed source");
+      const skill = {
+        path: source,
+        metadata: { name: "example", description: "Example" },
+        score: 1,
+        reasons: [],
+      };
+      await adapter.apply({ task: "initial", root, skills: [skill] });
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      await writeFile(target, "# User edited content");
+      const next = { task: "empty", root, skills: [] };
+      const plan = await adapter.plan(next);
+      expect(plan.removals).not.toContain(target);
+      await adapter.apply(next);
+      expect(await readFile(target, "utf8")).toBe("# User edited content");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
