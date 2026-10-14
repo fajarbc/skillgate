@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
@@ -64,6 +64,22 @@ function isSafeManagedFilePath(agentRoot: string, filePath: string): boolean {
     segments[2] === "SKILL.md";
 }
 
+/** Reject symlinks in managed directories and their existing ancestors. */
+async function assertNoSymlinkAncestors(path: string): Promise<void> {
+  let current = resolve(path);
+  while (true) {
+    try {
+      const info = await lstat(current);
+      if (info.isSymbolicLink()) throw new Error(`Unsafe symlinked adapter path: ${current}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+}
+
 export async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -98,6 +114,8 @@ export async function planFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
+  await assertNoSymlinkAncestors(manifestPath);
+  await assertNoSymlinkAncestors(skillsDir);
   const previousManifest = await readPreviousManifest(manifestPath);
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
 
@@ -107,6 +125,7 @@ export async function planFilesystemAdapter(
   for (const { dirPath } of preparedSkills) {
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
     plannedWrites.push(destFile);
+    await assertNoSymlinkAncestors(destFile);
 
     if (await fileExists(destFile)) {
       const managed = await isManagedFile(destFile, previousManifest);
@@ -127,6 +146,7 @@ export async function planFilesystemAdapter(
   if (previousManifest) {
     for (const prevFile of previousManifest.managedFiles) {
       if (isSafeManagedFilePath(agentRoot, prevFile) && prevFile !== manifestPath && !plannedWrites.includes(prevFile)) {
+        await assertNoSymlinkAncestors(prevFile);
         if (await fileExists(prevFile)) {
           plannedRemovals.push(prevFile);
         }
@@ -162,12 +182,14 @@ export async function applyFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
+  await assertNoSymlinkAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
 
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
   const filesWritten: string[] = [];
 
   for (const { skill, dirPath } of preparedSkills) {
+    await assertNoSymlinkAncestors(dirPath);
     await mkdir(dirPath, { recursive: true });
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
 
@@ -186,6 +208,7 @@ export async function applyFilesystemAdapter(
   const filesRemoved: string[] = [];
   for (const staleFile of plan.removals) {
     try {
+      await assertNoSymlinkAncestors(staleFile);
       await rm(staleFile, { force: true });
       filesRemoved.push(staleFile);
       const parentDir = dirname(staleFile);
@@ -236,6 +259,7 @@ export async function cleanupFilesystemAdapter(
 ): Promise<CleanupResult> {
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
+  await assertNoSymlinkAncestors(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath);
 
   const filesRemoved: string[] = [];
@@ -243,6 +267,7 @@ export async function cleanupFilesystemAdapter(
   if (previousManifest) {
     for (const filePath of previousManifest.managedFiles) {
       if (!isSafeManagedFilePath(agentRoot, filePath)) continue;
+      await assertNoSymlinkAncestors(filePath);
       // The manifest is data, not authorization to remove a user-edited file.
       // A missing ownership marker must not be bypassed by a stale manifest entry.
       if (filePath !== manifestPath && !(await isManagedFile(filePath, null))) continue;
