@@ -63,6 +63,27 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects a forged ownership marker embedded in user content", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-marker-"));
+    try {
+      const adapterRoot = join(root, ".codex");
+      const targetDir = join(adapterRoot, "skills", "example");
+      await mkdir(targetDir, { recursive: true });
+      const target = join(targetDir, "SKILL.md");
+      const original = "# User content\\n<!-- Managed by SkillGate. Do not edit directly. -->";
+      await writeFile(target, original);
+      await writeFile(join(adapterRoot, "skills.json"), JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex", task: "test",
+        updatedAt: "", managedFiles: [target, join(adapterRoot, "skills.json")], skills: [],
+      }));
+      const adapter = new CodexAdapter();
+      await adapter.cleanup({ task: "test", root, skills: [] });
+      expect(await readFile(target, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("preserves a user-edited stale skill when reapplying an empty selection", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-stale-"));
     try {
