@@ -29,6 +29,8 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   async plan(context: AdapterContext): Promise<AdapterPlan> {
+    // Planning is read-only, but must never inspect ownership through a symlinked workspace.
+    await assertSafeWorkspacePath(context.root);
     const agentDir = resolveSafeSubpath(context.root, ".codex");
     const skillsDir = resolveSafeSubpath(agentDir, "skills");
     const prepared = prepareSafeSkillPaths(context.skills, skillsDir);
