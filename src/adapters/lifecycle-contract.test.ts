@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -61,6 +61,18 @@ for (const fixture of fixtures) {
       });
       expect(JSON.parse(JSON.stringify(first))).toEqual(first);
       expect(await readdir(root)).toEqual([]);
+    }));
+
+    it("rejects symlinked workspace ancestors without writing outside the workspace", async () => workspace(async (root) => {
+      const actual = join(root, "actual");
+      const alias = join(root, "alias");
+      await mkdir(actual);
+      await symlink(actual, alias, "dir");
+      const adapter = fixture.factory();
+      const context: AdapterContext = { task: "contract", root: alias, skills: [skill(alias, "first")] };
+      await expect(adapter.apply(context)).rejects.toThrow(/Unsafe workspace ancestor/);
+      await expect(readFile(join(actual, fixture.directory, "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
     }));
 
     it("applies the preview, is idempotent, and cleans only managed outputs", async () => workspace(async (root) => {
