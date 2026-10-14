@@ -88,6 +88,29 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects user-replaced skill files even when the manifest lists them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-replaced-"));
+    try {
+      const adapter = new CodexAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const selected = {
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      };
+      const context = { task: "test", root, skills: [selected] };
+      await adapter.apply(context);
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      await writeFile(target, "# User replacement");
+      const plan = await adapter.plan(context);
+      expect(plan.conflicts).toContain(target);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect(await readFile(target, "utf8")).toBe("# User replacement");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
