@@ -17,8 +17,8 @@ export interface AdapterResult {
 /** A read-only preview of an adapter's intended workspace changes. */
 export interface AdapterPlan {
   agent: string;
-  filesToWrite: string[];
-  filesToRemove: string[];
+  writes: string[];
+  removals: string[];
   conflicts: string[];
 }
 
