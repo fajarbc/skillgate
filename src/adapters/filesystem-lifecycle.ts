@@ -147,7 +147,9 @@ export async function planFilesystemAdapter(
     for (const prevFile of previousManifest.managedFiles) {
       if (isSafeManagedFilePath(agentRoot, prevFile) && prevFile !== manifestPath && !plannedWrites.includes(prevFile)) {
         await assertNoSymlinkAncestors(prevFile);
-        if (await fileExists(prevFile)) {
+        // Do not schedule a stale file for deletion if its managed marker
+        // was removed or altered after the previous apply.
+        if (await fileExists(prevFile) && await isManagedFile(prevFile, null)) {
           plannedRemovals.push(prevFile);
         }
       }
