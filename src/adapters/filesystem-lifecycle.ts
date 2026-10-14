@@ -98,7 +98,7 @@ export async function isManagedFile(
   }
   try {
     const content = await readFile(filePath, "utf8");
-    return content.includes("<!-- Managed by SkillGate");
+    return content.startsWith(OWNERSHIP_HEADER);
   } catch {
     return false;
   }
@@ -267,7 +267,13 @@ export async function cleanupFilesystemAdapter(
   const filesRemoved: string[] = [];
 
   if (previousManifest) {
-    for (const filePath of previousManifest.managedFiles) {
+    // Delete the manifest last so an interrupted cleanup retains ownership
+    // information for files that have not yet been removed.
+    const orderedFiles = [
+      ...previousManifest.managedFiles.filter((filePath) => filePath !== manifestPath),
+      ...(previousManifest.managedFiles.includes(manifestPath) ? [manifestPath] : []),
+    ];
+    for (const filePath of orderedFiles) {
       if (!isSafeManagedFilePath(agentRoot, filePath)) continue;
       await assertNoSymlinkAncestors(filePath);
       // The manifest is data, not authorization to remove a user-edited file.
