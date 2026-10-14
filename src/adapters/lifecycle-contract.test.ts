@@ -70,6 +70,8 @@ for (const fixture of fixtures) {
       await symlink(actual, alias, "dir");
       const adapter = fixture.factory();
       const context: AdapterContext = { task: "contract", root: alias, skills: [skill(alias, "first")] };
+      // Both dry-run and mutation paths must reject the same unsafe root.
+      await expect(adapter.plan!(context)).rejects.toThrow(/Unsafe workspace ancestor/);
       await expect(adapter.apply(context)).rejects.toThrow(/Unsafe workspace ancestor/);
       await expect(readFile(join(actual, fixture.directory, "skills.json"), "utf8"))
         .rejects.toMatchObject({ code: "ENOENT" });
