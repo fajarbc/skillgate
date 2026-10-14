@@ -128,7 +128,8 @@ export async function planFilesystemAdapter(
     await assertNoSymlinkAncestors(destFile);
 
     if (await fileExists(destFile)) {
-      const managed = await isManagedFile(destFile, previousManifest);
+      // A manifest entry alone is not proof that the current bytes are ours.
+      const managed = await isManagedFile(destFile, null);
       if (!managed && !options?.force) {
         conflicts.push(destFile);
       }
