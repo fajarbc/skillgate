@@ -246,6 +246,27 @@ describe("CodexAdapter", () => {
     }
   });
 
+
+  it("preflights later source read failures without mutating earlier destinations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-preflight-"));
+    try {
+      const valid = join(root, "valid.md");
+      await writeFile(valid, "# Valid source");
+      const adapter = new CodexAdapter();
+      const skills = [
+        { path: valid, metadata: { name: "first", description: "First" }, score: 1, reasons: [] },
+        { path: root, metadata: { name: "second", description: "Second" }, score: 1, reasons: [] },
+      ];
+      await expect(adapter.apply({ task: "preflight", root, skills })).rejects.toThrow();
+      await expect(readFile(join(root, ".codex", "skills", "first", "SKILL.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(join(root, ".codex", "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
