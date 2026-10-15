@@ -145,6 +145,31 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+
+  it("preserves user-edited Claude skill and manifest during cleanup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-edited-cleanup-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Original");
+      const adapter = new ClaudeCodeAdapter();
+      const context = { task: "cleanup", root, skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+      await adapter.apply(context);
+      const target = join(root, ".claude", "skills", "example", "SKILL.md");
+      const manifestPath = join(root, ".claude", "skills.json");
+      await writeFile(target, "# User-owned replacement");
+      const result = await adapter.cleanup(context);
+      expect(result.filesRemoved).not.toContain(target);
+      expect(result.filesRemoved).not.toContain(manifestPath);
+      expect(await readFile(target, "utf8")).toBe("# User-owned replacement");
+      expect(JSON.parse(await readFile(manifestPath, "utf8")).managedFiles).toContain(target);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .claude directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-"));
     const skillPath = join(root, "my-skill.md");
