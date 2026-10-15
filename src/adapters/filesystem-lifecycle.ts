@@ -41,7 +41,8 @@ export async function readPreviousManifest(manifestPath: string): Promise<Manife
   try {
     const raw = await readFile(manifestPath, "utf8");
     const parsed = JSON.parse(raw);
-    if (parsed && parsed.managedBy === "skillgate" && Array.isArray(parsed.managedFiles)) {
+    if (parsed && parsed.managedBy === "skillgate" && Array.isArray(parsed.managedFiles) &&
+      parsed.managedFiles.every((file: unknown) => typeof file === "string")) {
       return parsed as ManifestData;
     }
     return null;
