@@ -158,6 +158,30 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("retains ownership records for user-edited stale files after reapply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-retain-"));
+    try {
+      const adapter = new CodexAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const selected = {
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      };
+      await adapter.apply({ task: "first", root, skills: [selected] });
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      await writeFile(target, "# User changed this file");
+      await adapter.apply({ task: "second", root, skills: [] });
+      const manifest = JSON.parse(await readFile(join(root, ".codex", "skills.json"), "utf8"));
+      expect(manifest.managedFiles).toContain(target);
+      const cleanup = await adapter.cleanup({ task: "cleanup", root, skills: [] });
+      expect(cleanup.filesRemoved).not.toContain(target);
+      expect(await readFile(target, "utf8")).toBe("# User changed this file");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
