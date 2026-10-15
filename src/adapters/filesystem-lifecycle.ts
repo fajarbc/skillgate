@@ -40,11 +40,14 @@ export class AdapterConflictError extends Error {
   }
 }
 
-export async function readPreviousManifest(manifestPath: string): Promise<ManifestData | null> {
+export async function readPreviousManifest(manifestPath: string, expectedAgent?: string): Promise<ManifestData | null> {
   try {
     const raw = await readFile(manifestPath, "utf8");
     const parsed = JSON.parse(raw);
-    if (parsed && parsed.managedBy === "skillgate" && Array.isArray(parsed.managedFiles) &&
+    if (parsed && parsed.managedBy === "skillgate" && parsed.version === "1.0" &&
+      typeof parsed.agent === "string" && parsed.agent.length > 0 &&
+      (!expectedAgent || parsed.agent === expectedAgent) &&
+      Array.isArray(parsed.managedFiles) &&
       parsed.managedFiles.every((file: unknown) => typeof file === "string")) {
       return parsed as ManifestData;
     }
@@ -85,7 +88,7 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
 }
 
 /** Stage complete bytes before replacing a managed destination. */
-async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean }): Promise<void> {
+async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string }): Promise<void> {
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
@@ -99,7 +102,7 @@ async function writeManagedFile(path: string, content: string, options?: { force
     }
     await assertNoSymlinkAncestors(path);
     if (await fileExists(path) && !options?.force) {
-      const owned = options?.manifest ? (await readPreviousManifest(path)) !== null : await isManagedFile(path, null);
+      const owned = options?.manifest ? (await readPreviousManifest(path, options.agent)) !== null : await isManagedFile(path, null);
       if (!owned) throw new AdapterConflictError([path]);
     }
     await rename(temporaryPath, path);
@@ -144,7 +147,7 @@ export async function planFilesystemAdapter(
 
   await assertNoSymlinkAncestors(manifestPath);
   await assertNoSymlinkAncestors(skillsDir);
-  const previousManifest = await readPreviousManifest(manifestPath);
+  const previousManifest = await readPreviousManifest(manifestPath, agentName);
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
 
   const plannedWrites: string[] = [];
@@ -229,7 +232,7 @@ export async function applyFilesystemAdapter(
   // recover files from an interrupted apply.
   await assertNoSymlinkAncestors(manifestPath);
   await mkdir(agentRoot, { recursive: true });
-  const prior = await readPreviousManifest(manifestPath);
+  const prior = await readPreviousManifest(manifestPath, agentName);
   const pending: ManifestData = {
     managedBy: "skillgate", version: "1.0", agent: agentName,
     task: context.task, updatedAt: new Date().toISOString(),
@@ -245,7 +248,7 @@ export async function applyFilesystemAdapter(
     })),
   };
   await writeManagedFile(manifestPath, JSON.stringify(pending, null, 2), {
-    force: options?.force, manifest: true,
+    force: options?.force, manifest: true, agent: agentName,
   });
   await assertNoSymlinkAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
@@ -277,7 +280,7 @@ export async function applyFilesystemAdapter(
 
   // Keep references to user-edited stale files so future cleanup can still
   // distinguish them from untracked files after a partial reconciliation.
-  const previousManifest = await readPreviousManifest(manifestPath);
+  const previousManifest = await readPreviousManifest(manifestPath, agentName);
   const retainedFiles = (previousManifest?.managedFiles ?? []).filter(
     (filePath) => isSafeManagedFilePath(agentRoot, filePath) &&
       filePath !== manifestPath &&
@@ -311,7 +314,7 @@ export async function applyFilesystemAdapter(
       JSON.stringify(existingManifest.skills) === JSON.stringify(manifest.skills)) {
     manifest.updatedAt = existingManifest.updatedAt;
   }
-  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), { force: options?.force, manifest: true });
+  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), { force: options?.force, manifest: true, agent: agentName });
   filesWritten.push(manifestPath);
 
   return {
@@ -332,7 +335,7 @@ export async function cleanupFilesystemAdapter(
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
   await assertNoSymlinkAncestors(manifestPath);
-  const previousManifest = await readPreviousManifest(manifestPath);
+  const previousManifest = await readPreviousManifest(manifestPath, agentName);
 
   const filesRemoved: string[] = [];
 
