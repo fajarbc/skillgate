@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readPreviousManifest } from "./filesystem-lifecycle.js";
+import { readPreviousManifest, OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
+import { CodexAdapter } from "./codex.js";
 
 describe("adapter ownership manifest validation", () => {
   it.each([
@@ -29,4 +30,30 @@ describe("adapter ownership manifest validation", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+  it("does not trust another adapter manifest to remove Codex files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-foreign-"));
+    try {
+      const dir = join(root, ".codex", "skills", "example");
+      await mkdir(dir, { recursive: true });
+      const target = join(dir, "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      await writeFile(target, OWNERSHIP_HEADER + "# User");
+      const manifest = JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "claude-code",
+        task: "old", updatedAt: "2026-01-01",
+        managedFiles: [target, manifestPath], skills: [],
+      });
+      await writeFile(manifestPath, manifest);
+      const adapter = new CodexAdapter();
+      const context = { task: "new", root, skills: [] };
+      expect((await adapter.plan(context)).conflicts).toContain(manifestPath);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect((await adapter.cleanup(context)).filesRemoved).toEqual([]);
+      expect(await readFile(target, "utf8")).toBe(OWNERSHIP_HEADER + "# User");
+      expect(await readFile(manifestPath, "utf8")).toBe(manifest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });
