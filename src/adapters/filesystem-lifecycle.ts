@@ -213,10 +213,42 @@ export async function applyFilesystemAdapter(
   const skillsDir = resolveSafeSubpath(agentRoot, "skills");
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
 
+  const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
+  // Read every source before creating directories or changing managed files.
+  // A missing or unreadable later source must not leave a partial apply.
+  const preparedContents = await Promise.all(preparedSkills.map(async ({ skill }) => {
+    try {
+      return await readFile(skill.path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
+    }
+  }));
+
+  // Persist intended ownership before mutating skill files so cleanup can
+  // recover files from an interrupted apply.
+  await assertNoSymlinkAncestors(manifestPath);
+  await mkdir(agentRoot, { recursive: true });
+  const prior = await readPreviousManifest(manifestPath);
+  const pending: ManifestData = {
+    managedBy: "skillgate", version: "1.0", agent: agentName,
+    task: context.task, updatedAt: new Date().toISOString(),
+    managedFiles: [...new Set([
+      ...(prior?.managedFiles ?? []).filter((p) => isSafeManagedFilePath(agentRoot, p)),
+      ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
+      manifestPath,
+    ])],
+    skills: preparedSkills.map(({ skill, safeId }) => ({
+      name: skill.metadata.name, identifier: safeId,
+      description: skill.metadata.description, path: skill.path,
+      score: skill.score, capabilities: skill.metadata.capabilities ?? [],
+    })),
+  };
+  await writeManagedFile(manifestPath, JSON.stringify(pending, null, 2), {
+    force: options?.force, manifest: true,
+  });
   await assertNoSymlinkAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
-
-  const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
   const filesWritten: string[] = [];
 
   for (const { skill, dirPath } of preparedSkills) {
@@ -224,15 +256,7 @@ export async function applyFilesystemAdapter(
     await mkdir(dirPath, { recursive: true });
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
 
-    let originalContent = "";
-    try {
-      originalContent = await readFile(skill.path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      originalContent = `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
-    }
-
-    const contentToWrite = `${OWNERSHIP_HEADER}${originalContent}`;
+    const contentToWrite = `${OWNERSHIP_HEADER}${preparedContents[filesWritten.length]}`;
     await writeManagedFile(destFile, contentToWrite, { force: options?.force });
     filesWritten.push(destFile);
   }
