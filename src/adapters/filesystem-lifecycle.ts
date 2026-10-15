@@ -1,4 +1,6 @@
-import { access, lstat, mkdir, open, readFile, rm, rmdir } from "node:fs/promises";
+import { access, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
@@ -82,16 +84,27 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
   }
 }
 
-/** Refuse to follow a symlink introduced between planning and opening a file. */
-async function writeManagedFile(path: string, content: string): Promise<void> {
+/** Stage complete bytes before replacing a managed destination. */
+async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean }): Promise<void> {
   await assertNoSymlinkAncestors(path);
-  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC |
-    (constants.O_NOFOLLOW ?? 0);
-  const handle = await open(path, flags, 0o600);
+  const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
   try {
-    await handle.writeFile(content, "utf8");
+    const handle = await open(temporaryPath, flags, 0o600);
+    try {
+      await handle.writeFile(content, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertNoSymlinkAncestors(path);
+    if (await fileExists(path) && !options?.force) {
+      const owned = options?.manifest ? (await readPreviousManifest(path)) !== null : await isManagedFile(path, null);
+      if (!owned) throw new AdapterConflictError([path]);
+    }
+    await rename(temporaryPath, path);
   } finally {
-    await handle.close();
+    await rm(temporaryPath, { force: true });
   }
 }
 
@@ -219,7 +232,7 @@ export async function applyFilesystemAdapter(
     }
 
     const contentToWrite = `${OWNERSHIP_HEADER}${originalContent}`;
-    await writeManagedFile(destFile, contentToWrite);
+    await writeManagedFile(destFile, contentToWrite, { force: options?.force });
     filesWritten.push(destFile);
   }
 
@@ -264,7 +277,7 @@ export async function applyFilesystemAdapter(
     })),
   };
 
-  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2));
+  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), { force: options?.force, manifest: true });
   filesWritten.push(manifestPath);
 
   return {
