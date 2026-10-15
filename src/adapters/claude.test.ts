@@ -30,6 +30,31 @@ describe("ClaudeCodeAdapter", () => {
     expect(formatted).toContain("Capabilities: network");
   });
 
+  it("preflights source reads before changing existing Claude state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-preflight-"));
+    try {
+      const adapter = new ClaudeCodeAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "# Initial");
+      const select = (path: string, name: string) => ({
+        path, metadata: { name, description: name }, score: 1, reasons: [],
+      });
+      await adapter.apply({ task: "initial", root, skills: [select(source, "first")] });
+      const target = join(root, ".claude", "skills", "first", "SKILL.md");
+      const manifest = join(root, ".claude", "skills.json");
+      const oldTarget = await readFile(target, "utf8");
+      const oldManifest = await readFile(manifest, "utf8");
+      await writeFile(source, "# Changed");
+      await expect(adapter.apply({
+        task: "next", root, skills: [select(source, "first"), select(root, "second")],
+      })).rejects.toThrow();
+      expect(await readFile(target, "utf8")).toBe(oldTarget);
+      expect(await readFile(manifest, "utf8")).toBe(oldManifest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .claude directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-"));
     const skillPath = join(root, "my-skill.md");
