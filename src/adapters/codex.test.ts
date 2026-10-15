@@ -132,6 +132,32 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("rejects malformed manifest path entries without deleting user files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-invalid-manifest-"));
+    try {
+      const agentRoot = join(root, ".codex");
+      await mkdir(agentRoot);
+      const manifestPath = join(agentRoot, "skills.json");
+      const protectedFile = join(root, "keep.txt");
+      await writeFile(protectedFile, "preserve me");
+      await writeFile(manifestPath, JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex", task: "test",
+        updatedAt: "", managedFiles: [null, { path: protectedFile }, protectedFile],
+        skills: [],
+      }));
+      const adapter = new CodexAdapter();
+      const context = { task: "test", root, skills: [] };
+      const plan = await adapter.plan(context);
+      expect(plan.conflicts).toContain(manifestPath);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      const cleanup = await adapter.cleanup(context);
+      expect(cleanup.filesRemoved).toEqual([]);
+      expect(await readFile(protectedFile, "utf8")).toBe("preserve me");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
