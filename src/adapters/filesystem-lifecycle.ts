@@ -211,20 +211,27 @@ export async function applyFilesystemAdapter(
 
   const filesRemoved: string[] = [];
   for (const staleFile of plan.removals) {
+    await assertNoSymlinkAncestors(staleFile);
+    // Recheck ownership before deleting: the file may have changed since plan().
+    if (!(await isManagedFile(staleFile, null))) continue;
+    await rm(staleFile, { force: true });
+    filesRemoved.push(staleFile);
     try {
-      await assertNoSymlinkAncestors(staleFile);
-      await rm(staleFile, { force: true });
-      filesRemoved.push(staleFile);
-      const parentDir = dirname(staleFile);
-      try {
-        await rmdir(parentDir);
-      } catch {
-        // Directory not empty
-      }
+      await rmdir(dirname(staleFile));
     } catch {
-      // Ignore
+      // Parent may contain other files.
     }
   }
+
+  // Keep references to user-edited stale files so future cleanup can still
+  // distinguish them from untracked files after a partial reconciliation.
+  const previousManifest = await readPreviousManifest(manifestPath);
+  const retainedFiles = (previousManifest?.managedFiles ?? []).filter(
+    (filePath) => isSafeManagedFilePath(agentRoot, filePath) &&
+      filePath !== manifestPath &&
+      !filesWritten.includes(filePath) &&
+      !filesRemoved.includes(filePath),
+  );
 
   const manifest: ManifestData = {
     managedBy: "skillgate",
@@ -232,7 +239,7 @@ export async function applyFilesystemAdapter(
     agent: agentName,
     task: context.task,
     updatedAt: new Date().toISOString(),
-    managedFiles: [...filesWritten, manifestPath],
+    managedFiles: [...filesWritten, ...retainedFiles, manifestPath],
     skills: preparedSkills.map(({ skill, safeId }) => ({
       name: skill.metadata.name,
       identifier: safeId,
