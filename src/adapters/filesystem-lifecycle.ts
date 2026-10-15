@@ -1,4 +1,7 @@
-import { access, lstat, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
@@ -78,6 +81,30 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
     const parent = dirname(current);
     if (parent === current) break;
     current = parent;
+  }
+}
+
+/** Stage complete bytes before replacing a managed destination. */
+async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean }): Promise<void> {
+  await assertNoSymlinkAncestors(path);
+  const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
+  try {
+    const handle = await open(temporaryPath, flags, 0o600);
+    try {
+      await handle.writeFile(content, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertNoSymlinkAncestors(path);
+    if (await fileExists(path) && !options?.force) {
+      const owned = options?.manifest ? (await readPreviousManifest(path)) !== null : await isManagedFile(path, null);
+      if (!owned) throw new AdapterConflictError([path]);
+    }
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
   }
 }
 
@@ -200,12 +227,13 @@ export async function applyFilesystemAdapter(
     let originalContent = "";
     try {
       originalContent = await readFile(skill.path, "utf8");
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       originalContent = `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
     }
 
     const contentToWrite = `${OWNERSHIP_HEADER}${originalContent}`;
-    await writeFile(destFile, contentToWrite, "utf8");
+    await writeManagedFile(destFile, contentToWrite, { force: options?.force });
     filesWritten.push(destFile);
   }
 
@@ -250,7 +278,7 @@ export async function applyFilesystemAdapter(
     })),
   };
 
-  await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), { force: options?.force, manifest: true });
   filesWritten.push(manifestPath);
 
   return {

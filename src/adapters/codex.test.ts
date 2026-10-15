@@ -43,6 +43,45 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("refuses symlinked skill destination files without touching their targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-file-link-"));
+    try {
+      const outside = join(root, "outside.md");
+      const source = join(root, "source.md");
+      await writeFile(outside, "# Protected");
+      await writeFile(source, "# Source");
+      const destDir = join(root, ".codex", "skills", "example");
+      await mkdir(destDir, { recursive: true });
+      await symlink(outside, join(destDir, "SKILL.md"), "file");
+      const adapter = new CodexAdapter();
+      const context = { task: "test", root, skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+      await expect(adapter.plan(context)).rejects.toThrow(/Unsafe symlinked adapter path/);
+      await expect(adapter.apply(context, { force: true })).rejects.toThrow(/Unsafe symlinked adapter path/);
+      expect(await readFile(outside, "utf8")).toBe("# Protected");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses symlinked manifest files even with force", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-manifest-link-"));
+    try {
+      const outside = join(root, "outside.json");
+      await writeFile(outside, "protected");
+      await mkdir(join(root, ".codex"));
+      await symlink(outside, join(root, ".codex", "skills.json"), "file");
+      const adapter = new CodexAdapter();
+      await expect(adapter.apply({ task: "test", root, skills: [] }, { force: true }))
+        .rejects.toThrow(/Unsafe symlinked adapter path/);
+      expect(await readFile(outside, "utf8")).toBe("protected");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not delete arbitrary paths from a forged ownership manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-forged-"));
     try {
