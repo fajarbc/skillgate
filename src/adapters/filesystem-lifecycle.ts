@@ -225,6 +225,28 @@ export async function applyFilesystemAdapter(
     }
   }));
 
+  // Persist intended ownership before mutating skill files so cleanup can
+  // recover files from an interrupted apply.
+  await assertNoSymlinkAncestors(manifestPath);
+  await mkdir(agentRoot, { recursive: true });
+  const prior = await readPreviousManifest(manifestPath);
+  const pending: ManifestData = {
+    managedBy: "skillgate", version: "1.0", agent: agentName,
+    task: context.task, updatedAt: new Date().toISOString(),
+    managedFiles: [...new Set([
+      ...(prior?.managedFiles ?? []).filter((p) => isSafeManagedFilePath(agentRoot, p)),
+      ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
+      manifestPath,
+    ])],
+    skills: preparedSkills.map(({ skill, safeId }) => ({
+      name: skill.metadata.name, identifier: safeId,
+      description: skill.metadata.description, path: skill.path,
+      score: skill.score, capabilities: skill.metadata.capabilities ?? [],
+    })),
+  };
+  await writeManagedFile(manifestPath, JSON.stringify(pending, null, 2), {
+    force: options?.force, manifest: true,
+  });
   await assertNoSymlinkAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
   const filesWritten: string[] = [];
