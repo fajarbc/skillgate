@@ -182,6 +182,31 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("retains manifest on cleanup while a user-edited tracked skill remains", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-cleanup-recovery-"));
+    try {
+      const adapter = new CodexAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const selected = {
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      };
+      const context = { task: "test", root, skills: [selected] };
+      await adapter.apply(context);
+      const target = join(root, ".codex", "skills", "example", "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      await writeFile(target, "# User-owned modification");
+      const cleanup = await adapter.cleanup(context);
+      expect(cleanup.filesRemoved).not.toContain(target);
+      expect(cleanup.filesRemoved).not.toContain(manifestPath);
+      expect(JSON.parse(await readFile(manifestPath, "utf8")).managedFiles).toContain(target);
+      expect(await readFile(target, "utf8")).toBe("# User-owned modification");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
