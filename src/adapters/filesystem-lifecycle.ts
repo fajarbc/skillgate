@@ -1,4 +1,5 @@
-import { access, lstat, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, open, readFile, rm, rmdir } from "node:fs/promises";
+import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
 import type {
@@ -78,6 +79,19 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
     const parent = dirname(current);
     if (parent === current) break;
     current = parent;
+  }
+}
+
+/** Refuse to follow a symlink introduced between planning and opening a file. */
+async function writeManagedFile(path: string, content: string): Promise<void> {
+  await assertNoSymlinkAncestors(path);
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC |
+    (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(path, flags, 0o600);
+  try {
+    await handle.writeFile(content, "utf8");
+  } finally {
+    await handle.close();
   }
 }
 
@@ -205,7 +219,7 @@ export async function applyFilesystemAdapter(
     }
 
     const contentToWrite = `${OWNERSHIP_HEADER}${originalContent}`;
-    await writeFile(destFile, contentToWrite, "utf8");
+    await writeManagedFile(destFile, contentToWrite);
     filesWritten.push(destFile);
   }
 
@@ -250,7 +264,7 @@ export async function applyFilesystemAdapter(
     })),
   };
 
-  await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2));
   filesWritten.push(manifestPath);
 
   return {
