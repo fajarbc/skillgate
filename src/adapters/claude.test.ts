@@ -124,6 +124,27 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+
+  it("planning is deterministic and does not write Claude files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-plan-only-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const adapter = new ClaudeCodeAdapter();
+      const context = { task: "plan only", root, skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+      const first = await adapter.plan(context);
+      expect(await adapter.plan(context)).toEqual(first);
+      expect(first.writes).toContain(join(root, ".claude", "skills", "example", "SKILL.md"));
+      await expect(readFile(join(root, ".claude", "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .claude directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-"));
     const skillPath = join(root, "my-skill.md");
