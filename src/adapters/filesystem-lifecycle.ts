@@ -285,6 +285,19 @@ export async function cleanupFilesystemAdapter(
     for (const filePath of orderedFiles) {
       if (!isSafeManagedFilePath(agentRoot, filePath)) continue;
       await assertNoSymlinkAncestors(filePath);
+      // Preserve the manifest when any owned skill file remains (including
+      // user-edited files), so a later cleanup can safely recover.
+      if (filePath === manifestPath) {
+        const remaining = await Promise.all(
+          previousManifest.managedFiles
+            .filter((candidate) => candidate !== manifestPath && isSafeManagedFilePath(agentRoot, candidate))
+            .map(async (candidate) => {
+              await assertNoSymlinkAncestors(candidate);
+              return fileExists(candidate);
+            }),
+        );
+        if (remaining.some(Boolean)) continue;
+      }
       // The manifest is data, not authorization to remove a user-edited file.
       // A missing ownership marker must not be bypassed by a stale manifest entry.
       if (filePath !== manifestPath && !(await isManagedFile(filePath, null))) continue;
