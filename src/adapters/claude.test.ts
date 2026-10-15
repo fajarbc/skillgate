@@ -103,6 +103,27 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+  it("rejects a user-owned Claude skill without force", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-conflict-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const adapter = new ClaudeCodeAdapter();
+      const selected = { path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [] };
+      const context = { task: "test", root, skills: [selected] };
+      await adapter.apply(context);
+      const target = join(root, ".claude", "skills", "example", "SKILL.md");
+      await writeFile(target, "# User replacement");
+      const plan = await adapter.plan(context);
+      expect(plan.conflicts).toContain(target);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect(await readFile(target, "utf8")).toBe("# User replacement");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .claude directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-"));
     const skillPath = join(root, "my-skill.md");
