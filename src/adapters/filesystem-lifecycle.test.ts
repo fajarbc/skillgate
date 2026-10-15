@@ -56,4 +56,28 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("recovers managed files from an interrupted apply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-recovery-"));
+    try {
+      const dir = join(root, ".codex", "skills", "existing");
+      await mkdir(dir, { recursive: true });
+      const target = join(dir, "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      const missing = join(root, ".codex", "skills", "pending", "SKILL.md");
+      await writeFile(target, OWNERSHIP_HEADER + "# Managed");
+      await writeFile(manifestPath, JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "interrupted", updatedAt: "2026-01-01",
+        managedFiles: [target, missing, manifestPath], skills: [],
+      }));
+      const result = await new CodexAdapter().cleanup({ task: "recover", root, skills: [] });
+      expect(result.filesRemoved).toContain(target);
+      expect(result.filesRemoved).toContain(manifestPath);
+      expect(result.filesRemoved).not.toContain(missing);
+      await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(manifestPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
