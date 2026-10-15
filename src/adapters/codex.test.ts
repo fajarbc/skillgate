@@ -299,6 +299,27 @@ describe("CodexAdapter", () => {
     }
   });
 
+
+  it("keeps ownership manifest stable across identical applies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-idempotent-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const adapter = new CodexAdapter();
+      const context = { task: "repeat", root, skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+      await adapter.apply(context);
+      const manifestPath = join(root, ".codex", "skills.json");
+      const first = await readFile(manifestPath, "utf8");
+      await adapter.apply(context);
+      expect(await readFile(manifestPath, "utf8")).toBe(first);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");

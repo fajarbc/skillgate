@@ -302,6 +302,15 @@ export async function applyFilesystemAdapter(
     })),
   };
 
+  // Reapplying an unchanged selection must not churn the ownership manifest.
+  // Compare semantic fields rather than timestamps, which are intentionally volatile.
+  const existingManifest = prior;
+  if (existingManifest && existingManifest.agent === manifest.agent &&
+      existingManifest.task === manifest.task &&
+      JSON.stringify(existingManifest.managedFiles) === JSON.stringify(manifest.managedFiles) &&
+      JSON.stringify(existingManifest.skills) === JSON.stringify(manifest.skills)) {
+    manifest.updatedAt = existingManifest.updatedAt;
+  }
   await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), { force: options?.force, manifest: true });
   filesWritten.push(manifestPath);
 
