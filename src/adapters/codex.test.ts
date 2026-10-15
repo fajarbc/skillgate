@@ -267,6 +267,38 @@ describe("CodexAdapter", () => {
     }
   });
 
+  it("retains a recovery manifest after an interrupted multi-skill apply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-partial-"));
+    try {
+      const adapter = new CodexAdapter();
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const blocked = join(root, ".codex", "skills", "second", "SKILL.md");
+      await mkdir(blocked, { recursive: true });
+      const select = (name: string) => ({
+        path: source, metadata: { name, description: name }, score: 1, reasons: [],
+      });
+      const context = {
+        task: "partial", root, skills: [select("first"), select("second")],
+      };
+      await expect(adapter.apply(context, { force: true })).rejects.toThrow();
+      const first = join(root, ".codex", "skills", "first", "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      expect(await readFile(first, "utf8")).toContain("# Source");
+      const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+      expect(manifest.managedFiles).toContain(first);
+      expect(manifest.managedFiles).toContain(blocked);
+      await adapter.cleanup(context);
+      await expect(readFile(first, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(manifestPath, "utf8")).toContain("managedFiles");
+      await rm(blocked, { recursive: true });
+      await adapter.cleanup(context);
+      await expect(readFile(manifestPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .codex directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
