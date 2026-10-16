@@ -1,5 +1,5 @@
 import { access, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -21,6 +21,8 @@ export interface ManifestData {
   task: string;
   updatedAt: string;
   managedFiles: string[];
+  /** SHA-256 of managed skill file bytes; missing entries support older manifests. */
+  fileDigests?: Record<string, string>;
   skills: Array<{
     name: string;
     identifier: string;
@@ -120,6 +122,10 @@ export async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+function digest(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
 export async function isManagedFile(
   filePath: string,
   previousManifest: ManifestData | null,
@@ -127,7 +133,8 @@ export async function isManagedFile(
     try {
     const content = await readFile(filePath, "utf8");
     return content.startsWith(OWNERSHIP_HEADER) &&
-      (previousManifest === null || previousManifest.managedFiles.includes(filePath));
+      (previousManifest === null || (previousManifest.managedFiles.includes(filePath) &&
+        (!previousManifest.fileDigests?.[filePath] || previousManifest.fileDigests[filePath] === digest(content))));
   } catch {
     return false;
   }
@@ -158,7 +165,7 @@ export async function planFilesystemAdapter(
 
     if (await fileExists(destFile)) {
       // A manifest entry alone is not proof that the current bytes are ours.
-      const managed = await isManagedFile(destFile, null);
+      const managed = await isManagedFile(destFile, previousManifest);
       if (!managed && !options?.force) {
         conflicts.push(destFile);
       }
@@ -179,7 +186,7 @@ export async function planFilesystemAdapter(
         await assertNoSymlinkAncestors(prevFile);
         // Do not schedule a stale file for deletion if its managed marker
         // was removed or altered after the previous apply.
-        if (await fileExists(prevFile) && await isManagedFile(prevFile, null)) {
+        if (await fileExists(prevFile) && await isManagedFile(prevFile, previousManifest)) {
           plannedRemovals.push(prevFile);
         }
       }
@@ -239,6 +246,7 @@ export async function applyFilesystemAdapter(
       ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
       manifestPath,
     ])],
+    fileDigests: { ...(prior?.fileDigests ?? {}) },
     skills: preparedSkills.map(({ skill, safeId }) => ({
       name: skill.metadata.name, identifier: safeId,
       description: skill.metadata.description, path: skill.path,
@@ -251,6 +259,7 @@ export async function applyFilesystemAdapter(
   await assertNoSymlinkAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
   const filesWritten: string[] = [];
+  const fileDigests: Record<string, string> = { ...(prior?.fileDigests ?? {}) };
 
   for (const { skill, dirPath } of preparedSkills) {
     await assertNoSymlinkAncestors(dirPath);
@@ -260,15 +269,17 @@ export async function applyFilesystemAdapter(
     const contentToWrite = `${OWNERSHIP_HEADER}${preparedContents[filesWritten.length]}`;
     await writeManagedFile(destFile, contentToWrite, { force: options?.force });
     filesWritten.push(destFile);
+    fileDigests[destFile] = digest(contentToWrite);
   }
 
   const filesRemoved: string[] = [];
   for (const staleFile of plan.removals) {
     await assertNoSymlinkAncestors(staleFile);
     // Recheck ownership before deleting: the file may have changed since plan().
-    if (!(await isManagedFile(staleFile, null))) continue;
+    if (!(await isManagedFile(staleFile, prior))) continue;
     await rm(staleFile, { force: true });
     filesRemoved.push(staleFile);
+    delete fileDigests[staleFile];
     try {
       await rmdir(dirname(staleFile));
     } catch {
@@ -293,6 +304,7 @@ export async function applyFilesystemAdapter(
     task: context.task,
     updatedAt: new Date().toISOString(),
     managedFiles: [...filesWritten, ...retainedFiles, manifestPath],
+    fileDigests,
     skills: preparedSkills.map(({ skill, safeId }) => ({
       name: skill.metadata.name,
       identifier: safeId,
@@ -309,7 +321,8 @@ export async function applyFilesystemAdapter(
   if (existingManifest && existingManifest.agent === manifest.agent &&
       existingManifest.task === manifest.task &&
       JSON.stringify(existingManifest.managedFiles) === JSON.stringify(manifest.managedFiles) &&
-      JSON.stringify(existingManifest.skills) === JSON.stringify(manifest.skills)) {
+      JSON.stringify(existingManifest.skills) === JSON.stringify(manifest.skills) &&
+      JSON.stringify(existingManifest.fileDigests ?? {}) === JSON.stringify(manifest.fileDigests ?? {})) {
     manifest.updatedAt = existingManifest.updatedAt;
   }
   await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), { force: options?.force, manifest: true, agent: agentName });
@@ -362,7 +375,7 @@ export async function cleanupFilesystemAdapter(
       }
       // The manifest is data, not authorization to remove a user-edited file.
       // A missing ownership marker must not be bypassed by a stale manifest entry.
-      if (filePath !== manifestPath && !(await isManagedFile(filePath, null))) continue;
+      if (filePath !== manifestPath && !(await isManagedFile(filePath, previousManifest))) continue;
       if (await fileExists(filePath)) {
         const managed = filePath === manifestPath
           ? (await readPreviousManifest(filePath, agentName)) !== null
