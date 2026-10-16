@@ -124,12 +124,10 @@ export async function isManagedFile(
   filePath: string,
   previousManifest: ManifestData | null,
 ): Promise<boolean> {
-  if (previousManifest && previousManifest.managedFiles.includes(filePath)) {
-    return true;
-  }
-  try {
+    try {
     const content = await readFile(filePath, "utf8");
-    return content.startsWith(OWNERSHIP_HEADER);
+    return content.startsWith(OWNERSHIP_HEADER) &&
+      (previousManifest === null || previousManifest.managedFiles.includes(filePath));
   } catch {
     return false;
   }
@@ -366,7 +364,9 @@ export async function cleanupFilesystemAdapter(
       // A missing ownership marker must not be bypassed by a stale manifest entry.
       if (filePath !== manifestPath && !(await isManagedFile(filePath, null))) continue;
       if (await fileExists(filePath)) {
-        const managed = await isManagedFile(filePath, previousManifest);
+        const managed = filePath === manifestPath
+          ? (await readPreviousManifest(filePath, agentName)) !== null
+          : await isManagedFile(filePath, previousManifest);
         if (managed || options?.force) {
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);

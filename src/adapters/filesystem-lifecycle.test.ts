@@ -2,10 +2,26 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readPreviousManifest, OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
+import { readPreviousManifest, isManagedFile, OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
 import { CodexAdapter } from "./codex.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("requires an ownership header even for a manifest-listed file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-ownership-"));
+    try {
+      const path = join(root, "SKILL.md");
+      await writeFile(path, "# User-authored content");
+      const manifest = { managedBy: "skillgate" as const, version: "1.0" as const,
+        agent: "codex", task: "test", updatedAt: "2026-01-01",
+        managedFiles: [path], skills: [] };
+      expect(await isManagedFile(path, manifest)).toBe(false);
+      await writeFile(path, OWNERSHIP_HEADER + "# Managed");
+      expect(await isManagedFile(path, manifest)).toBe(true);
+      expect(await isManagedFile(path, { ...manifest, managedFiles: [] })).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it.each([
     { agent: "claude-code", version: "1.0", expected: "codex" },
     { agent: "codex", version: "2.0", expected: "codex" },
