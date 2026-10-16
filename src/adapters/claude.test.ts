@@ -55,6 +55,121 @@ describe("ClaudeCodeAdapter", () => {
     }
   });
 
+
+  it("keeps the Claude ownership manifest unchanged on equivalent reapply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-idempotent-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Instructions");
+      const adapter = new ClaudeCodeAdapter();
+      const context = { task: "repeat", root, skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+      const plan = await adapter.plan(context);
+      expect(plan.writes).toContain(join(root, ".claude", "skills", "example", "SKILL.md"));
+      const first = await adapter.apply(context);
+      expect(first.filesWritten).toEqual(plan.writes);
+      const manifestPath = join(root, ".claude", "skills.json");
+      const original = await readFile(manifestPath, "utf8");
+      await adapter.apply(context);
+      expect(await readFile(manifestPath, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans up stale Claude-managed skills without deleting unrelated user files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-cleanup-"));
+    try {
+      const source = join(root, "source.md");
+      const userFile = join(root, "keep.md");
+      await writeFile(source, "# Managed");
+      await writeFile(userFile, "# User");
+      const adapter = new ClaudeCodeAdapter();
+      const selected = { path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [] };
+      await adapter.apply({ task: "first", root, skills: [selected] });
+      const target = join(root, ".claude", "skills", "example", "SKILL.md");
+      const empty = { task: "second", root, skills: [] };
+      const plan = await adapter.plan(empty);
+      expect(plan.removals).toContain(target);
+      const result = await adapter.apply(empty);
+      expect(result.filesRemoved).toContain(target);
+      await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(userFile, "utf8")).toBe("# User");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a user-owned Claude skill without force", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-conflict-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const adapter = new ClaudeCodeAdapter();
+      const selected = { path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [] };
+      const context = { task: "test", root, skills: [selected] };
+      await adapter.apply(context);
+      const target = join(root, ".claude", "skills", "example", "SKILL.md");
+      await writeFile(target, "# User replacement");
+      const plan = await adapter.plan(context);
+      expect(plan.conflicts).toContain(target);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect(await readFile(target, "utf8")).toBe("# User replacement");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
+  it("planning is deterministic and does not write Claude files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-plan-only-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const adapter = new ClaudeCodeAdapter();
+      const context = { task: "plan only", root, skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+      const first = await adapter.plan(context);
+      expect(await adapter.plan(context)).toEqual(first);
+      expect(first.writes).toContain(join(root, ".claude", "skills", "example", "SKILL.md"));
+      await expect(readFile(join(root, ".claude", "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
+  it("preserves user-edited Claude skill and manifest during cleanup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-edited-cleanup-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Original");
+      const adapter = new ClaudeCodeAdapter();
+      const context = { task: "cleanup", root, skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+      await adapter.apply(context);
+      const target = join(root, ".claude", "skills", "example", "SKILL.md");
+      const manifestPath = join(root, ".claude", "skills.json");
+      await writeFile(target, "# User-owned replacement");
+      const result = await adapter.cleanup(context);
+      expect(result.filesRemoved).not.toContain(target);
+      expect(result.filesRemoved).not.toContain(manifestPath);
+      expect(await readFile(target, "utf8")).toBe("# User-owned replacement");
+      expect(JSON.parse(await readFile(manifestPath, "utf8")).managedFiles).toContain(target);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("applies skills by writing to .claude directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-"));
     const skillPath = join(root, "my-skill.md");
