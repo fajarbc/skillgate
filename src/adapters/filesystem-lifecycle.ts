@@ -1,5 +1,5 @@
 import { access, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -21,6 +21,8 @@ export interface ManifestData {
   task: string;
   updatedAt: string;
   managedFiles: string[];
+  managedHashes?: Record<string, string>;
+  previousHashes?: Record<string, string>;
   skills: Array<{
     name: string;
     identifier: string;
@@ -126,8 +128,13 @@ export async function isManagedFile(
 ): Promise<boolean> {
     try {
     const content = await readFile(filePath, "utf8");
-    return content.startsWith(OWNERSHIP_HEADER) &&
-      (previousManifest === null || previousManifest.managedFiles.includes(filePath));
+    if (!content.startsWith(OWNERSHIP_HEADER) ||
+      (previousManifest && !previousManifest.managedFiles.includes(filePath))) return false;
+    const expected = previousManifest?.managedHashes?.[filePath];
+    const previous = previousManifest?.previousHashes?.[filePath];
+    if (!expected && !previous) return true;
+    const actual = createHash("sha256").update(content).digest("hex");
+    return actual === expected || actual === previous;
   } catch {
     return false;
   }
