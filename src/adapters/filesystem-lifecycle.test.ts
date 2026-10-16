@@ -6,6 +6,26 @@ import { readPreviousManifest, isManagedFile, OWNERSHIP_HEADER } from "./filesys
 import { CodexAdapter } from "./codex.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("preserves edited managed files with intact ownership markers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-digest-"));
+    try {
+      const dir = join(root, ".codex", "skills", "sample");
+      await mkdir(dir, { recursive: true });
+      const source = join(root, "source.md");
+      await writeFile(source, "# Original");
+      const adapter = new CodexAdapter();
+      const context = { task: "digest", root, skills: [{ path: source, score: 1, metadata: { name: "sample", description: "sample", capabilities: [] } }] };
+      await adapter.apply(context);
+      const target = join(dir, "SKILL.md");
+      await writeFile(target, OWNERSHIP_HEADER + "# User edited");
+      expect((await adapter.plan(context)).conflicts).toContain(target);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      await adapter.cleanup(context);
+      expect(await readFile(target, "utf8")).toBe(OWNERSHIP_HEADER + "# User edited");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("requires an ownership header even for a manifest-listed file", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-ownership-"));
     try {
