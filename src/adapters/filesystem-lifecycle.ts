@@ -124,12 +124,10 @@ export async function isManagedFile(
   filePath: string,
   previousManifest: ManifestData | null,
 ): Promise<boolean> {
-  if (previousManifest && previousManifest.managedFiles.includes(filePath)) {
-    return true;
-  }
-  try {
+    try {
     const content = await readFile(filePath, "utf8");
-    return content.startsWith(OWNERSHIP_HEADER);
+    return content.startsWith(OWNERSHIP_HEADER) &&
+      (previousManifest === null || previousManifest.managedFiles.includes(filePath));
   } catch {
     return false;
   }
