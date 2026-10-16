@@ -14,7 +14,7 @@ describe("adapter ownership manifest validation", () => {
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
       const adapter = new CodexAdapter();
-      const context = { task: "digest", root, skills: [{ path: source, score: 1, metadata: { name: "sample", description: "sample", capabilities: [] } }] };
+      const context = { task: "digest", root, skills: [{ path: source, score: 1, reasons: [], metadata: { name: "sample", description: "sample", capabilities: [] } }] };
       await adapter.apply(context);
       const target = join(dir, "SKILL.md");
       await writeFile(target, OWNERSHIP_HEADER + "# User edited");
