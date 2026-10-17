@@ -127,7 +127,7 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
 }
 
 /** Stage complete bytes before replacing a managed destination. */
-async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null }): Promise<void> {
+async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string }): Promise<void> {
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
@@ -142,8 +142,18 @@ async function writeManagedFile(path: string, content: string, options?: { force
     await assertNoSymlinkAncestors(path);
     const exists = await fileExists(path);
     if (exists && !options?.force) {
-      const owned = options?.manifest ? (await readPreviousManifest(path, options.agent)) !== null : (options?.expectedManifest ? await isManagedFile(path, options.expectedManifest) : false);
+      const owned = options?.manifest
+        ? (await readPreviousManifest(path, options.agent)) !== null
+        : (options?.expectedManifest ? await isManagedFile(path, options.expectedManifest) : false);
       if (!owned) throw new AdapterConflictError([path]);
+      // A valid manifest is not proof its bytes are unchanged. Do not silently
+      // replace an independently edited manifest after we read it.
+      if (options?.manifest && options.expectedManifestDigest) {
+        const current = await readFile(path, "utf8");
+        if (digest(current) !== options.expectedManifestDigest) {
+          throw new AdapterConflictError([path]);
+        }
+      }
     }
     if (exists) {
       // Replacing an existing owned file still requires stronger concurrency coordination.
@@ -294,6 +304,7 @@ async function applyFilesystemAdapterUnlocked(
   await assertNoSymlinkAncestors(manifestPath);
   await mkdir(agentRoot, { recursive: true });
   const prior = await readPreviousManifest(manifestPath, agentName);
+  const priorManifestDigest = prior ? digest(await readFile(manifestPath, "utf8")) : undefined;
   const plannedDigests = Object.fromEntries(preparedSkills.map(({ dirPath }, index) => [
     resolveSafeSubpath(dirPath, "SKILL.md"),
     digest(`${OWNERSHIP_HEADER}${preparedContents[index]}`),
@@ -315,6 +326,7 @@ async function applyFilesystemAdapterUnlocked(
   };
   await writeManagedFile(manifestPath, JSON.stringify(pending, null, 2), {
     force: options?.force, manifest: true, agent: agentName,
+    expectedManifestDigest: priorManifestDigest,
   });
   await assertNoSymlinkAncestors(skillsDir);
   await mkdir(skillsDir, { recursive: true });
@@ -385,7 +397,10 @@ async function applyFilesystemAdapterUnlocked(
       JSON.stringify(existingManifest.fileDigests ?? {}) === JSON.stringify(manifest.fileDigests ?? {})) {
     manifest.updatedAt = existingManifest.updatedAt;
   }
-  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), { force: options?.force, manifest: true, agent: agentName });
+  await writeManagedFile(manifestPath, JSON.stringify(manifest, null, 2), {
+    force: options?.force, manifest: true, agent: agentName,
+    expectedManifestDigest: digest(JSON.stringify(pending, null, 2)),
+  });
   filesWritten.push(manifestPath);
 
   return {
