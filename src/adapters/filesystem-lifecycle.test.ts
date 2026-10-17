@@ -155,6 +155,29 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("refuses to overwrite an untracked file even when it carries the ownership header", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-untracked-destination-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const destination = join(root, ".codex", "skills", "sample", "SKILL.md");
+      await mkdir(join(root, ".codex", "skills", "sample"), { recursive: true });
+      const userContent = OWNERSHIP_HEADER + "# User-owned";
+      await writeFile(destination, userContent);
+      const context = {
+        task: "untracked", root,
+        skills: [{ path: source, score: 1, reasons: [],
+          metadata: { name: "sample", description: "sample", capabilities: [] } }],
+      };
+      const adapter = new CodexAdapter();
+      expect((await adapter.plan(context)).conflicts).toContain(destination);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect(await readFile(destination, "utf8")).toBe(userContent);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not trust an untracked file merely because it has an ownership marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-untracked-marker-"));
     try {
