@@ -90,7 +90,7 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
 }
 
 /** Stage complete bytes before replacing a managed destination. */
-async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string }): Promise<void> {
+async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null }): Promise<void> {
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
@@ -104,7 +104,7 @@ async function writeManagedFile(path: string, content: string, options?: { force
     }
     await assertNoSymlinkAncestors(path);
     if (await fileExists(path) && !options?.force) {
-      const owned = options?.manifest ? (await readPreviousManifest(path, options.agent)) !== null : await isManagedFile(path, null);
+      const owned = options?.manifest ? (await readPreviousManifest(path, options.agent)) !== null : (options?.expectedManifest ? await isManagedFile(path, options.expectedManifest) : false);
       if (!owned) throw new AdapterConflictError([path]);
     }
     await rename(temporaryPath, path);
@@ -267,7 +267,7 @@ export async function applyFilesystemAdapter(
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
 
     const contentToWrite = `${OWNERSHIP_HEADER}${preparedContents[filesWritten.length]}`;
-    await writeManagedFile(destFile, contentToWrite, { force: options?.force });
+    await writeManagedFile(destFile, contentToWrite, { force: options?.force, expectedManifest: prior });
     filesWritten.push(destFile);
     fileDigests[destFile] = digest(contentToWrite);
   }
