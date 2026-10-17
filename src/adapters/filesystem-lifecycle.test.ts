@@ -226,6 +226,60 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("recovers the previous managed bytes after an interrupted update", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-previous-"));
+    try {
+      const dir = join(root, ".codex", "skills", "sample");
+      await mkdir(dir, { recursive: true });
+      const target = join(dir, "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      const oldContent = OWNERSHIP_HEADER + "# Old";
+      const hash = (content: string) => createHash("sha256").update(content).digest("hex");
+      await writeFile(target, oldContent);
+      await writeFile(manifestPath, JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex", task: "interrupted",
+        updatedAt: "2026-01-01", managedFiles: [target, manifestPath],
+        fileDigests: { [target]: hash(OWNERSHIP_HEADER + "# New") },
+        previousFileDigests: { [target]: hash(oldContent) }, phase: "pending", skills: [],
+      }));
+      const result = await new CodexAdapter().cleanup({ task: "cleanup", root, skills: [] });
+      expect(result.filesRemoved).toContain(target);
+      expect(result.filesRemoved).toContain(manifestPath);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves user edits and ignores previous digests in final manifests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-edited-"));
+    try {
+      const dir = join(root, ".codex", "skills", "sample");
+      await mkdir(dir, { recursive: true });
+      const target = join(dir, "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      const hash = (content: string) => createHash("sha256").update(content).digest("hex");
+      const oldContent = OWNERSHIP_HEADER + "# Old";
+      const edited = OWNERSHIP_HEADER + "# User changed";
+      const pending = {
+        managedBy: "skillgate" as const, version: "1.0" as const, agent: "codex",
+        task: "interrupted", updatedAt: "2026-01-01", managedFiles: [target, manifestPath],
+        fileDigests: { [target]: hash(OWNERSHIP_HEADER + "# New") },
+        previousFileDigests: { [target]: hash(oldContent) }, phase: "pending" as const,
+        skills: [],
+      };
+      await writeFile(target, edited);
+      await writeFile(manifestPath, JSON.stringify(pending));
+      expect(await isManagedFile(target, pending)).toBe(false);
+      const result = await new CodexAdapter().cleanup({ task: "cleanup", root, skills: [] });
+      expect(result.filesRemoved).not.toContain(target);
+      expect(await readFile(target, "utf8")).toBe(edited);
+      await writeFile(target, oldContent);
+      expect(await isManagedFile(target, { ...pending, phase: undefined })).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects malformed digest metadata rather than treating it as a legacy manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-digest-"));
     try {

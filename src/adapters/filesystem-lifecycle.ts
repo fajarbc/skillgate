@@ -55,6 +55,9 @@ export interface ManifestData {
   managedFiles: string[];
   /** SHA-256 of managed skill file bytes; missing entries support older manifests. */
   fileDigests?: Record<string, string>;
+  /** Previously verified digests while an apply is pending. */
+  previousFileDigests?: Record<string, string>;
+  phase?: "pending";
   skills: Array<{
     name: string;
     identifier: string;
@@ -87,7 +90,14 @@ export async function readPreviousManifest(manifestPath: string, expectedAgent?:
         (parsed.fileDigests !== null && typeof parsed.fileDigests === "object" &&
           !Array.isArray(parsed.fileDigests) &&
           Object.values(parsed.fileDigests).every((value) =>
-            typeof value === "string" && /^[a-f0-9]{64}$/.test(value))))) {
+            typeof value === "string" && /^[a-f0-9]{64}$/.test(value)))) &&
+      (parsed.phase === undefined || parsed.phase === "pending") &&
+      (parsed.previousFileDigests === undefined ||
+        (parsed.phase === "pending" && parsed.previousFileDigests !== null &&
+          typeof parsed.previousFileDigests === "object" &&
+          !Array.isArray(parsed.previousFileDigests) &&
+          Object.values(parsed.previousFileDigests).every((value) =>
+            typeof value === "string" && /^[a-f0-9]{64}$/.test(value)))) {
       return parsed as ManifestData;
     }
     return null;
@@ -200,7 +210,10 @@ export async function isManagedFile(
     // Older manifests without fileDigests retain legacy marker compatibility.
     if (previousManifest.fileDigests === undefined) return true;
     const expected = previousManifest.fileDigests[filePath];
-    return typeof expected === "string" && expected === digest(content);
+    const actual = digest(content);
+    if (typeof expected === "string" && expected === actual) return true;
+    return previousManifest.phase === "pending" &&
+      previousManifest.previousFileDigests?.[filePath] === actual;
   } catch {
     return false;
   }
@@ -305,6 +318,25 @@ async function applyFilesystemAdapterUnlocked(
   await mkdir(agentRoot, { recursive: true });
   const prior = await readPreviousManifest(manifestPath, agentName);
   const priorManifestDigest = prior ? digest(await readFile(manifestPath, "utf8")) : undefined;
+  // Record only current, verified owned bytes before advertising replacements.
+  const previousVerifiedDigests: Record<string, string> = {};
+  if (prior) {
+    for (const filePath of prior.managedFiles) {
+      if (!isSafeManagedFilePath(agentRoot, filePath) || filePath === manifestPath) continue;
+      await assertNoSymlinkAncestors(filePath);
+      try {
+        const current = await readFile(filePath, "utf8");
+        if (!current.startsWith(OWNERSHIP_HEADER)) continue;
+        const currentDigest = digest(current);
+        const verified = prior.fileDigests === undefined ||
+          prior.fileDigests[filePath] === currentDigest ||
+          (prior.phase === "pending" && prior.previousFileDigests?.[filePath] === currentDigest);
+        if (verified) previousVerifiedDigests[filePath] = currentDigest;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+  }
   const plannedDigests = Object.fromEntries(preparedSkills.map(({ dirPath }, index) => [
     resolveSafeSubpath(dirPath, "SKILL.md"),
     digest(`${OWNERSHIP_HEADER}${preparedContents[index]}`),
@@ -318,6 +350,8 @@ async function applyFilesystemAdapterUnlocked(
       manifestPath,
     ])],
     fileDigests: { ...(prior?.fileDigests ?? {}), ...plannedDigests },
+    phase: "pending",
+    previousFileDigests: previousVerifiedDigests,
     skills: preparedSkills.map(({ skill, safeId }) => ({
       name: skill.metadata.name, identifier: safeId,
       description: skill.metadata.description, path: skill.path,
