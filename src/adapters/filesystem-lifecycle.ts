@@ -150,7 +150,18 @@ async function writeManagedFile(path: string, content: string, options?: { force
       await handle.close();
     }
     await assertNoSymlinkAncestors(path);
-    const exists = await fileExists(path);
+    // access() follows symlinks and treats dangling symlinks as missing.
+    // lstat() detects the directory entry itself, preventing unsafe writes.
+    let exists = false;
+    try {
+      const entry = await lstat(path);
+      if (entry.isSymbolicLink() || !entry.isFile()) {
+        throw new AdapterConflictError([path]);
+      }
+      exists = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     if (exists && !options?.force) {
       const owned = options?.manifest
         ? (await readPreviousManifest(path, options.agent)) !== null
