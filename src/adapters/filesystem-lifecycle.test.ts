@@ -322,6 +322,20 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("detects dangling symlinks as existing directory entries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-file-exists-link-"));
+    try {
+      const { symlink } = await import("node:fs/promises");
+      const { fileExists } = await import("./filesystem-lifecycle.js");
+      const dangling = join(root, "dangling.md");
+      await symlink(join(root, "missing.md"), dangling);
+      expect(await fileExists(dangling)).toBe(true);
+      expect(await fileExists(join(root, "absent.md"))).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects malformed digest metadata rather than treating it as a legacy manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-digest-"));
     try {
