@@ -280,7 +280,7 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
-  it("preserves a changed manifest during cleanup even when force is enabled", async () => {
+  it("removes an unchanged owned manifest during cleanup", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cleanup-manifest-"));
     try {
       const manifestPath = join(root, ".codex", "skills.json");
