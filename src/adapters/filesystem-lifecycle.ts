@@ -456,6 +456,11 @@ async function cleanupFilesystemAdapterUnlocked(
   const manifestPath = resolveSafeSubpath(agentRoot, "skills.json");
   await assertNoSymlinkAncestors(manifestPath);
   const previousManifest = await readPreviousManifest(manifestPath, agentName);
+  // Capture the exact manifest bytes used to authorize cleanup. A different
+  // valid manifest must not be removed just because its agent name matches.
+  const expectedManifestDigest = previousManifest
+    ? digest(await readFile(manifestPath, "utf8"))
+    : undefined;
 
   const filesRemoved: string[] = [];
 
@@ -487,9 +492,12 @@ async function cleanupFilesystemAdapterUnlocked(
       if (filePath !== manifestPath && !(await isManagedFile(filePath, previousManifest))) continue;
       if (await fileExists(filePath)) {
         const managed = filePath === manifestPath
-          ? (await readPreviousManifest(filePath, agentName)) !== null
+          ? (await readPreviousManifest(filePath, agentName)) !== null &&
+            digest(await readFile(filePath, "utf8")) === expectedManifestDigest
           : await isManagedFile(filePath, previousManifest);
-        if (managed || options?.force) {
+        // Force may remove an explicitly selected skill, but must not erase
+        // a different manifest created during this cleanup operation.
+        if (managed || (options?.force && filePath !== manifestPath)) {
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
           try {
