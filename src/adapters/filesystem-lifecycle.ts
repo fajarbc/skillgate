@@ -162,18 +162,20 @@ async function writeManagedFile(path: string, content: string, options?: { force
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    if (exists && !options?.force) {
-      const owned = options?.manifest
-        ? (await readPreviousManifest(path, options.agent)) !== null
-        : (options?.expectedManifest ? await isManagedFile(path, options.expectedManifest) : false);
-      if (!owned) throw new AdapterConflictError([path]);
-      // A valid manifest is not proof its bytes are unchanged. Do not silently
-      // replace an independently edited manifest after we read it.
+    if (exists) {
+      // Force permits an intentional overwrite, not replacement of a manifest
+      // changed after this apply read its previous ownership state.
       if (options?.manifest && options.expectedManifestDigest) {
         const current = await readFile(path, "utf8");
         if (digest(current) !== options.expectedManifestDigest) {
           throw new AdapterConflictError([path]);
         }
+      }
+      if (!options?.force) {
+        const owned = options?.manifest
+          ? (await readPreviousManifest(path, options.agent)) !== null
+          : (options?.expectedManifest ? await isManagedFile(path, options.expectedManifest) : false);
+        if (!owned) throw new AdapterConflictError([path]);
       }
     }
     if (exists) {
