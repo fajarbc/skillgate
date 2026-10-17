@@ -280,6 +280,26 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("preserves a changed manifest during cleanup even when force is enabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cleanup-manifest-"));
+    try {
+      const manifestPath = join(root, ".codex", "skills.json");
+      await mkdir(join(root, ".codex"), { recursive: true });
+      const manifest = {
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "original", updatedAt: "2026-01-01",
+        managedFiles: [manifestPath], skills: [],
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest));
+      const adapter = new CodexAdapter();
+      // Cleanup of an unchanged manifest remains supported.
+      const result = await adapter.cleanup({ task: "cleanup", root, skills: [] });
+      expect(result.filesRemoved).toContain(manifestPath);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects malformed digest metadata rather than treating it as a legacy manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-digest-"));
     try {
