@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,43 @@ import { readPreviousManifest, isManagedFile, OWNERSHIP_HEADER } from "./filesys
 import { CodexAdapter } from "./codex.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("serializes parallel applies targeting the same adapter root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-locked-apply-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Managed");
+      const context = { task: "locked", root, skills: [{ path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] } }] };
+      const adapter = new CodexAdapter();
+      const results = await Promise.all(Array.from({ length: 4 }, () => adapter.apply(context)));
+      expect(results).toHaveLength(4);
+      expect(results.every((result) => result.filesWritten.length > 0)).toBe(true);
+      expect(await readPreviousManifest(join(root, ".codex", "skills.json"), "codex")).not.toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("waits for an existing adapter lock before touching the workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-locked-wait-"));
+    const lockPath = join(tmpdir(), `skillgate-adapter-${createHash("sha256").update(join(root, ".codex")).digest("hex")}.lock`);
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Managed");
+      const context = { task: "locked", root, skills: [{ path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] } }] };
+      await mkdir(lockPath);
+      const apply = new CodexAdapter().apply(context);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      expect(await readPreviousManifest(join(root, ".codex", "skills.json"), "codex")).toBeNull();
+      await rmdir(lockPath);
+      expect((await apply).filesWritten.length).toBeGreaterThan(0);
+    } finally {
+      await rm(lockPath, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("preserves edited managed files with intact ownership markers", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-digest-"));
     try {

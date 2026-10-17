@@ -1,5 +1,7 @@
 import { access, link, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -13,6 +15,36 @@ import type {
 } from "./types.js";
 
 export const OWNERSHIP_HEADER = "<!-- Managed by SkillGate. Do not edit directly. -->\n";
+/**
+ * Serialize mutations by cooperating SkillGate processes targeting one adapter root.
+ * The lock lives outside the workspace so cleanup never creates a missing root.
+ * Crashed-process locks require manual inspection; external writers are not protected.
+ */
+async function withAdapterMutationLock<T>(agentRoot: string, work: () => Promise<T>): Promise<T> {
+  const lockPath = join(tmpdir(), `skillgate-adapter-${digest(agentRoot)}.lock`);
+  const startedAt = Date.now();
+  await assertNoSymlinkAncestors(lockPath);
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await assertNoSymlinkAncestors(lockPath);
+      if (Date.now() - startedAt >= 30_000) {
+        throw new Error(`Timed out waiting for SkillGate adapter lock: ${lockPath}`);
+      }
+      await delay(50);
+    }
+  }
+  try {
+    return await work();
+  } finally {
+    // Never recursively remove a lock directory whose contents we do not own.
+    await rmdir(lockPath);
+  }
+}
+
 
 export interface ManifestData {
   managedBy: "skillgate";
@@ -229,7 +261,7 @@ export async function planFilesystemAdapter(
   };
 }
 
-export async function applyFilesystemAdapter(
+async function applyFilesystemAdapterUnlocked(
   agentName: string,
   managedDirName: string,
   context: AdapterContext,
@@ -365,7 +397,7 @@ export async function applyFilesystemAdapter(
   };
 }
 
-export async function cleanupFilesystemAdapter(
+async function cleanupFilesystemAdapterUnlocked(
   agentName: string,
   managedDirName: string,
   context: AdapterContext,
@@ -426,4 +458,27 @@ export async function cleanupFilesystemAdapter(
     filesRemoved,
     summary: `Cleaned up ${filesRemoved.length} SkillGate-managed file(s) from ${managedDirName}/`,
   };
+}
+
+/** Mutating lifecycle operations for the same adapter root are serialized. */
+export async function applyFilesystemAdapter(
+  agentName: string,
+  managedDirName: string,
+  context: AdapterContext,
+  options?: LifecycleOptions,
+): Promise<AdapterResult> {
+  const agentRoot = resolveSafeSubpath(context.root, managedDirName);
+  return withAdapterMutationLock(agentRoot, () =>
+    applyFilesystemAdapterUnlocked(agentName, managedDirName, context, options));
+}
+
+export async function cleanupFilesystemAdapter(
+  agentName: string,
+  managedDirName: string,
+  context: AdapterContext,
+  options?: LifecycleOptions,
+): Promise<CleanupResult> {
+  const agentRoot = resolveSafeSubpath(context.root, managedDirName);
+  return withAdapterMutationLock(agentRoot, () =>
+    cleanupFilesystemAdapterUnlocked(agentName, managedDirName, context, options));
 }
