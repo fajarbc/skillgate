@@ -165,10 +165,17 @@ async function writeManagedFile(path: string, content: string, options?: { force
     if (exists) {
       // Force permits an intentional overwrite, not replacement of a manifest
       // changed after this apply read its previous ownership state.
-      if (options?.manifest && options.expectedManifestDigest) {
-        const current = await readFile(path, "utf8");
-        if (digest(current) !== options.expectedManifestDigest) {
+      if (options?.manifest) {
+        // A manifest created after planning is not automatically ours.
+        // Without a recorded digest, only an explicit force may replace it.
+        if (!options.expectedManifestDigest && !options.force) {
           throw new AdapterConflictError([path]);
+        }
+        if (options.expectedManifestDigest) {
+          const current = await readFile(path, "utf8");
+          if (digest(current) !== options.expectedManifestDigest) {
+            throw new AdapterConflictError([path]);
+          }
         }
       }
       if (!options?.force) {
