@@ -336,6 +336,28 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("preserves user-edited managed files during forced cleanup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-force-cleanup-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Original");
+      const context = { task: "force-cleanup", root, skills: [{
+        path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] },
+      }] };
+      const adapter = new CodexAdapter();
+      await adapter.apply(context);
+      const destination = join(root, ".codex", "skills", "sample", "SKILL.md");
+      const edited = OWNERSHIP_HEADER + "# User edited";
+      await writeFile(destination, edited);
+      const result = await adapter.cleanup(context, { force: true });
+      expect(result.filesRemoved).not.toContain(destination);
+      expect(await readFile(destination, "utf8")).toBe(edited);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects malformed digest metadata rather than treating it as a legacy manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-digest-"));
     try {
