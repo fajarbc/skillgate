@@ -340,6 +340,11 @@ async function applyFilesystemAdapterUnlocked(
   await assertNoSymlinkAncestors(manifestPath);
   await mkdir(agentRoot, { recursive: true });
   const prior = await readPreviousManifest(manifestPath, agentName);
+  // Do not proceed if an unrecognized or foreign manifest appeared after plan().
+  // A missing manifest is the only safe no-digest starting state.
+  if (!prior && await fileExists(manifestPath) && !options?.force) {
+    throw new AdapterConflictError([manifestPath]);
+  }
   const priorManifestDigest = prior ? digest(await readFile(manifestPath, "utf8")) : undefined;
   // Record only current, verified owned bytes before advertising replacements.
   const previousVerifiedDigests: Record<string, string> = {};
