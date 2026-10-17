@@ -300,6 +300,28 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("rejects a dangling symlink at a managed destination", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-dangling-link-"));
+    try {
+      const { symlink } = await import("node:fs/promises");
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const dir = join(root, ".codex", "skills", "sample");
+      await mkdir(dir, { recursive: true });
+      const destination = join(dir, "SKILL.md");
+      await symlink(join(root, "missing-target.md"), destination);
+      const context = { task: "symlink", root, skills: [{
+        path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] },
+      }] };
+      await expect(new CodexAdapter().apply(context)).rejects.toThrow();
+      const { lstat } = await import("node:fs/promises");
+      expect((await lstat(destination)).isSymbolicLink()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects malformed digest metadata rather than treating it as a legacy manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-digest-"));
     try {
