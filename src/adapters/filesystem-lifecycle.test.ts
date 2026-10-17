@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -116,4 +117,70 @@ describe("adapter ownership manifest validation", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("does not trust an untracked file merely because it has an ownership marker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-untracked-marker-"));
+    try {
+      const path = join(root, "SKILL.md");
+      await writeFile(path, OWNERSHIP_HEADER + "# User-created");
+      expect(await isManagedFile(path, null)).toBe(false);
+      const manifest = {
+        managedBy: "skillgate" as const, version: "1.0" as const,
+        agent: "codex", task: "test", updatedAt: "2026-01-01",
+        managedFiles: [path], fileDigests: {}, skills: [],
+      };
+      expect(await isManagedFile(path, manifest)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers a completed pending write only when its expected digest matches", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-digest-"));
+    try {
+      const dir = join(root, ".codex", "skills", "pending");
+      await mkdir(dir, { recursive: true });
+      const target = join(dir, "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      const original = OWNERSHIP_HEADER + "# Managed";
+      const expectedDigest = createHash("sha256").update(original).digest("hex");
+      const manifest = {
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "interrupted", updatedAt: "2026-01-01",
+        managedFiles: [target, manifestPath],
+        fileDigests: { [target]: expectedDigest }, skills: [],
+      };
+      await writeFile(target, OWNERSHIP_HEADER + "# User changed");
+      await writeFile(manifestPath, JSON.stringify(manifest));
+      const adapter = new CodexAdapter();
+      const context = { task: "recover", root, skills: [] };
+      const first = await adapter.cleanup(context);
+      expect(first.filesRemoved).not.toContain(target);
+      expect(await readFile(target, "utf8")).toBe(OWNERSHIP_HEADER + "# User changed");
+      await writeFile(target, original);
+      const second = await adapter.cleanup(context);
+      expect(second.filesRemoved).toContain(target);
+      expect(second.filesRemoved).toContain(manifestPath);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed digest metadata rather than treating it as a legacy manifest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-digest-"));
+    try {
+      const path = join(root, "skills.json");
+      const base = {
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "test", updatedAt: "2026-01-01", managedFiles: [path], skills: [],
+      };
+      for (const fileDigests of [null, [], { [path]: "not-a-digest" }]) {
+        await writeFile(path, JSON.stringify({ ...base, fileDigests }));
+        expect(await readPreviousManifest(path, "codex")).toBeNull();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });

@@ -1,4 +1,4 @@
-import { access, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { access, link, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { constants } from "node:fs";
@@ -50,7 +50,12 @@ export async function readPreviousManifest(manifestPath: string, expectedAgent?:
       typeof parsed.agent === "string" && parsed.agent.length > 0 &&
       (!expectedAgent || parsed.agent === expectedAgent) &&
       Array.isArray(parsed.managedFiles) &&
-      parsed.managedFiles.every((file: unknown) => typeof file === "string")) {
+      parsed.managedFiles.every((file: unknown) => typeof file === "string") &&
+      (parsed.fileDigests === undefined ||
+        (parsed.fileDigests !== null && typeof parsed.fileDigests === "object" &&
+          !Array.isArray(parsed.fileDigests) &&
+          Object.values(parsed.fileDigests).every((value) =>
+            typeof value === "string" && /^[a-f0-9]{64}$/.test(value))))) {
       return parsed as ManifestData;
     }
     return null;
@@ -103,11 +108,26 @@ async function writeManagedFile(path: string, content: string, options?: { force
       await handle.close();
     }
     await assertNoSymlinkAncestors(path);
-    if (await fileExists(path) && !options?.force) {
+    const exists = await fileExists(path);
+    if (exists && !options?.force) {
       const owned = options?.manifest ? (await readPreviousManifest(path, options.agent)) !== null : (options?.expectedManifest ? await isManagedFile(path, options.expectedManifest) : false);
       if (!owned) throw new AdapterConflictError([path]);
     }
-    await rename(temporaryPath, path);
+    if (exists) {
+      // Replacing an existing owned file still requires stronger concurrency coordination.
+      await rename(temporaryPath, path);
+    } else {
+      // A hard link creates the destination atomically without replacing a file
+      // another process might have created after the existence check.
+      try {
+        await link(temporaryPath, path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new AdapterConflictError([path]);
+        }
+        throw error;
+      }
+    }
   } finally {
     await rm(temporaryPath, { force: true });
   }
@@ -130,11 +150,15 @@ export async function isManagedFile(
   filePath: string,
   previousManifest: ManifestData | null,
 ): Promise<boolean> {
-    try {
+  if (!previousManifest || !previousManifest.managedFiles.includes(filePath)) return false;
+  try {
     const content = await readFile(filePath, "utf8");
-    return content.startsWith(OWNERSHIP_HEADER) &&
-      (previousManifest === null || (previousManifest.managedFiles.includes(filePath) &&
-        (!previousManifest.fileDigests?.[filePath] || previousManifest.fileDigests[filePath] === digest(content))));
+    if (!content.startsWith(OWNERSHIP_HEADER)) return false;
+    // A digest-aware manifest must prove ownership for this exact file.
+    // Older manifests without fileDigests retain legacy marker compatibility.
+    if (previousManifest.fileDigests === undefined) return true;
+    const expected = previousManifest.fileDigests[filePath];
+    return typeof expected === "string" && expected === digest(content);
   } catch {
     return false;
   }
@@ -238,6 +262,10 @@ export async function applyFilesystemAdapter(
   await assertNoSymlinkAncestors(manifestPath);
   await mkdir(agentRoot, { recursive: true });
   const prior = await readPreviousManifest(manifestPath, agentName);
+  const plannedDigests = Object.fromEntries(preparedSkills.map(({ dirPath }, index) => [
+    resolveSafeSubpath(dirPath, "SKILL.md"),
+    digest(`${OWNERSHIP_HEADER}${preparedContents[index]}`),
+  ]));
   const pending: ManifestData = {
     managedBy: "skillgate", version: "1.0", agent: agentName,
     task: context.task, updatedAt: new Date().toISOString(),
@@ -246,7 +274,7 @@ export async function applyFilesystemAdapter(
       ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
       manifestPath,
     ])],
-    fileDigests: { ...(prior?.fileDigests ?? {}) },
+    fileDigests: { ...(prior?.fileDigests ?? {}), ...plannedDigests },
     skills: preparedSkills.map(({ skill, safeId }) => ({
       name: skill.metadata.name, identifier: safeId,
       description: skill.metadata.description, path: skill.path,
