@@ -511,9 +511,9 @@ async function cleanupFilesystemAdapterUnlocked(
           ? (await readPreviousManifest(filePath, agentName)) !== null &&
             digest(await readFile(filePath, "utf8")) === expectedManifestDigest
           : await isManagedFile(filePath, previousManifest);
-        // Force may remove an explicitly selected skill, but must not erase
-        // a different manifest created during this cleanup operation.
-        if (managed || (options?.force && filePath !== manifestPath)) {
+        // Cleanup only removes bytes verified against the previous manifest.
+        // Force does not authorize deletion of independently edited files.
+        if (managed) {
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
           try {
