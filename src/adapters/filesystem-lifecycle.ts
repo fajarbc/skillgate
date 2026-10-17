@@ -1,4 +1,4 @@
-import { access, link, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -198,10 +198,13 @@ async function writeManagedFile(path: string, content: string, options?: { force
 
 export async function fileExists(path: string): Promise<boolean> {
   try {
-    await access(path);
+    // Inspect the directory entry itself: a dangling symlink is not absent.
+    await lstat(path);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    // Permission and I/O errors must never be interpreted as an empty path.
+    throw error;
   }
 }
 
