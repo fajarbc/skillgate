@@ -348,8 +348,14 @@ async function applyFilesystemAdapterUnlocked(
   const priorManifestRaw = prior ? await readFile(manifestPath, "utf8") : undefined;
   // The parsed manifest and digest must describe the same snapshot. Otherwise
   // an external writer could change ownership between our two reads.
-  if (priorManifestRaw && JSON.stringify(JSON.parse(priorManifestRaw)) !== JSON.stringify(prior)) {
-    throw new AdapterConflictError([manifestPath]);
+  if (priorManifestRaw) {
+    try {
+      if (JSON.stringify(JSON.parse(priorManifestRaw)) !== JSON.stringify(prior)) {
+        throw new AdapterConflictError([manifestPath]);
+      }
+    } catch {
+      throw new AdapterConflictError([manifestPath]);
+    }
   }
   const priorManifestDigest = priorManifestRaw === undefined ? undefined : digest(priorManifestRaw);
   // Record only current, verified owned bytes before advertising replacements.
@@ -493,8 +499,14 @@ async function cleanupFilesystemAdapterUnlocked(
   // Capture the exact manifest bytes used to authorize cleanup. A different
   // valid manifest must not be removed just because its agent name matches.
   const manifestRaw = previousManifest ? await readFile(manifestPath, "utf8") : undefined;
-  if (manifestRaw && JSON.stringify(JSON.parse(manifestRaw)) !== JSON.stringify(previousManifest)) {
-    throw new AdapterConflictError([manifestPath]);
+  if (manifestRaw) {
+    try {
+      if (JSON.stringify(JSON.parse(manifestRaw)) !== JSON.stringify(previousManifest)) {
+        throw new AdapterConflictError([manifestPath]);
+      }
+    } catch {
+      throw new AdapterConflictError([manifestPath]);
+    }
   }
   const expectedManifestDigest = manifestRaw === undefined ? undefined : digest(manifestRaw);
 
