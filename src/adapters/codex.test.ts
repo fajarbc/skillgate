@@ -1,8 +1,20 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, type TestContext } from "vitest";
 import { CodexAdapter } from "./codex.js";
+
+async function createTestSymlink(context: TestContext, target: string, path: string, type: "dir" | "file") {
+  try {
+    await symlink(target, path, type);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (process.platform === "win32" && (code === "EPERM" || code === "EACCES" || code === "ENOSYS")) {
+      context.skip(`Symlink creation unavailable on this Windows account (${code})`);
+    }
+    throw error;
+  }
+}
 
 describe("CodexAdapter", () => {
   it("formats skills into Markdown instructions", async () => {
@@ -26,12 +38,12 @@ describe("CodexAdapter", () => {
     expect(formatted).toContain("Capabilities: exec");
   });
 
-  it("refuses symlinked adapter directories before planning or writing", async () => {
+  it("refuses symlinked adapter directories before planning or writing", async (test) => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-symlink-"));
     try {
       const outside = join(root, "outside");
       await mkdir(outside);
-      await symlink(outside, join(root, ".codex"), "dir");
+      await createTestSymlink(test, outside, join(root, ".codex"), "dir");
       const adapter = new CodexAdapter();
       const context = { task: "test", root, skills: [] };
       await expect(adapter.plan(context)).rejects.toThrow(/Unsafe symlinked adapter path/);
@@ -43,7 +55,7 @@ describe("CodexAdapter", () => {
     }
   });
 
-  it("refuses symlinked skill destination files without touching their targets", async () => {
+  it("refuses symlinked skill destination files without touching their targets", async (test) => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-file-link-"));
     try {
       const outside = join(root, "outside.md");
@@ -52,7 +64,7 @@ describe("CodexAdapter", () => {
       await writeFile(source, "# Source");
       const destDir = join(root, ".codex", "skills", "example");
       await mkdir(destDir, { recursive: true });
-      await symlink(outside, join(destDir, "SKILL.md"), "file");
+      await createTestSymlink(test, outside, join(destDir, "SKILL.md"), "file");
       const adapter = new CodexAdapter();
       const context = { task: "test", root, skills: [{
         path: source, metadata: { name: "example", description: "Example" },
@@ -66,13 +78,13 @@ describe("CodexAdapter", () => {
     }
   });
 
-  it("refuses symlinked manifest files even with force", async () => {
+  it("refuses symlinked manifest files even with force", async (test) => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-codex-manifest-link-"));
     try {
       const outside = join(root, "outside.json");
       await writeFile(outside, "protected");
       await mkdir(join(root, ".codex"));
-      await symlink(outside, join(root, ".codex", "skills.json"), "file");
+      await createTestSymlink(test, outside, join(root, ".codex", "skills.json"), "file");
       const adapter = new CodexAdapter();
       await expect(adapter.apply({ task: "test", root, skills: [] }, { force: true }))
         .rejects.toThrow(/Unsafe symlinked adapter path/);
