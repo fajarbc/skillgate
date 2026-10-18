@@ -375,4 +375,22 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("keeps manifest bytes stable across identical applies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-idempotent-manifest-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Stable");
+      const context = { task: "stable", root, skills: [{ path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] } }] };
+      const adapter = new CodexAdapter();
+      await adapter.apply(context);
+      const manifestPath = join(root, ".codex", "skills.json");
+      const first = await readFile(manifestPath, "utf8");
+      await adapter.apply(context);
+      expect(await readFile(manifestPath, "utf8")).toBe(first);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });
