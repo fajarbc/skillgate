@@ -512,6 +512,7 @@ async function cleanupFilesystemAdapterUnlocked(
 
   const filesRemoved: string[] = [];
 
+  // Manifest ownership is revalidated before each cleanup deletion.
   if (previousManifest) {
     // Delete the manifest last so an interrupted cleanup retains ownership
     // information for files that have not yet been removed.
