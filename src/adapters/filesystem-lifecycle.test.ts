@@ -376,7 +376,7 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
-  it("rejects ownership manifests containing paths outside the managed layout", async () => {
+  it("never removes outside paths listed in legacy ownership manifests", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-invalid-ownership-"));
     try {
       const agentRoot = join(root, ".codex");
@@ -397,11 +397,11 @@ describe("adapter ownership manifest validation", () => {
 
       const adapter = new CodexAdapter();
       const context = { task: "invalid", root, skills: [] };
-      expect((await adapter.plan(context)).conflicts).toContain(manifestPath);
-      await expect(adapter.apply(context)).rejects.toThrow();
-      expect((await adapter.cleanup(context)).filesRemoved).toEqual([]);
+      expect((await adapter.plan(context)).removals).not.toContain(outside);
+      await adapter.apply(context);
+      expect((await adapter.cleanup(context)).filesRemoved).not.toContain(outside);
       expect(await readFile(outside, "utf8")).toBe(content);
-      expect(JSON.parse(await readFile(manifestPath, "utf8"))).toEqual(manifest);
+      await expect(readFile(manifestPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
