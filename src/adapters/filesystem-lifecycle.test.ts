@@ -376,6 +376,37 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("rejects ownership manifests containing paths outside the managed layout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-invalid-ownership-"));
+    try {
+      const agentRoot = join(root, ".codex");
+      await mkdir(agentRoot, { recursive: true });
+      const manifestPath = join(agentRoot, "skills.json");
+      const outside = join(root, "user-owned.md");
+      const content = OWNERSHIP_HEADER + "# User file";
+      await writeFile(outside, content);
+      const manifest = {
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "invalid", updatedAt: "2026-01-01",
+        managedFiles: [outside, manifestPath],
+        fileDigests: { [outside]: createHash("sha256").update(content).digest("hex") },
+        skills: [],
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest));
+      expect(await readPreviousManifest(manifestPath, "codex")).toBeNull();
+
+      const adapter = new CodexAdapter();
+      const context = { task: "invalid", root, skills: [] };
+      expect((await adapter.plan(context)).conflicts).toContain(manifestPath);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect((await adapter.cleanup(context)).filesRemoved).toEqual([]);
+      expect(await readFile(outside, "utf8")).toBe(content);
+      expect(JSON.parse(await readFile(manifestPath, "utf8"))).toEqual(manifest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("retains user-edited stale files during reconciliation and cleanup", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-stale-edited-"));
     try {
