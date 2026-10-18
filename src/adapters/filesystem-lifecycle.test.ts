@@ -375,6 +375,36 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("retains user-edited stale files during reconciliation and cleanup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-stale-edited-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Original");
+      const adapter = new CodexAdapter();
+      const skill = { path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] } };
+      const initial = { task: "stale", root, skills: [skill] };
+      await adapter.apply(initial);
+      const target = join(root, ".codex", "skills", "sample", "SKILL.md");
+      const edited = OWNERSHIP_HEADER + "# User edit";
+      await writeFile(target, edited);
+
+      const empty = { task: "stale", root, skills: [] };
+      expect((await adapter.plan(empty)).removals).not.toContain(target);
+      const result = await adapter.apply(empty);
+      expect(result.filesRemoved).not.toContain(target);
+      expect(await readFile(target, "utf8")).toBe(edited);
+      const manifest = await readPreviousManifest(join(root, ".codex", "skills.json"), "codex");
+      expect(manifest?.managedFiles).toContain(target);
+
+      const cleanup = await adapter.cleanup(empty);
+      expect(cleanup.filesRemoved).not.toContain(target);
+      expect(await readFile(target, "utf8")).toBe(edited);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps manifest bytes stable across identical applies", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-idempotent-manifest-"));
     try {
