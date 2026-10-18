@@ -405,6 +405,26 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("plans deterministically without writing managed files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-plan-readonly-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Planned");
+      const context = { task: "plan-only", root, skills: [{ path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] } }] };
+      const adapter = new CodexAdapter();
+      const first = await adapter.plan(context);
+      expect(await adapter.plan(context)).toEqual(first);
+      expect(first.conflicts).toEqual([]);
+      await expect(readFile(join(root, ".codex", "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps manifest bytes stable across identical applies", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-idempotent-manifest-"));
     try {
