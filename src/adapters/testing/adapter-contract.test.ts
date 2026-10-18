@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -61,6 +61,26 @@ async function filesUnder(root: string): Promise<Map<string, string>> {
   return result;
 }
 
+async function snapshotTree(root: string): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  async function visit(directory: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        result.set(path, `symlink:${await readlink(path)}`);
+      } else if (entry.isDirectory()) {
+        result.set(path, "directory");
+        await visit(path);
+      } else {
+        result.set(path, `file:${(await readFile(path)).toString("hex")}`);
+      }
+    }
+  }
+  await visit(root);
+  return result;
+}
+
 export function runAdapterContractSuite(config: AdapterContractConfig): void {
   describe(`${config.label} adapter contract`, () => {
     let root: string;
@@ -79,33 +99,36 @@ export function runAdapterContractSuite(config: AdapterContractConfig): void {
       return { task, root, skills };
     }
 
-    it("formats deterministically without mutating existing output", async () => {
+    it("formats deterministically without mutating the fixture tree", async () => {
       const skill = makeSkill(root, "format-skill");
       await writeSkill(skill);
-      const outputRoot = join(root, config.managedDirectory);
+      const initial = await snapshotTree(root);
       const first = await adapter.format(context([skill]));
+      expect(await snapshotTree(root)).toEqual(initial);
       const second = await adapter.format(context([skill]));
+      expect(await snapshotTree(root)).toEqual(initial);
       expect(second).toBe(first);
       expect(first).toContain(skill.metadata.name);
-      expect(await filesUnder(outputRoot)).toEqual(new Map());
       await adapter.apply(context([skill]));
-      const before = await filesUnder(outputRoot);
+      const before = await snapshotTree(root);
       expect(await adapter.format(context([skill]))).toBe(first);
-      expect(await filesUnder(outputRoot)).toEqual(before);
+      expect(await snapshotTree(root)).toEqual(before);
     });
 
-    it("plans deterministically without mutating existing output snapshots", async () => {
+    it("plans deterministically without mutating the fixture tree", async () => {
       const skill = makeSkill(root, "planned");
       await writeSkill(skill);
       const selected = context([skill]);
+      const initial = await snapshotTree(root);
       const firstPlan = await adapter.plan(selected);
-      expect(await filesUnder(join(root, config.managedDirectory))).toEqual(new Map());
+      expect(await snapshotTree(root)).toEqual(initial);
       await adapter.apply(selected);
-      const before = await filesUnder(join(root, config.managedDirectory));
+      const before = await snapshotTree(root);
       const secondPlan = await adapter.plan(selected);
+      expect(await snapshotTree(root)).toEqual(before);
       const thirdPlan = await adapter.plan(selected);
       expect(secondPlan).toEqual(thirdPlan);
-      expect(await filesUnder(join(root, config.managedDirectory))).toEqual(before);
+      expect(await snapshotTree(root)).toEqual(before);
       expect(firstPlan.writes).toEqual(secondPlan.writes);
       expect(firstPlan.removals).toEqual([]);
     });
