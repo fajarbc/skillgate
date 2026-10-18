@@ -186,6 +186,9 @@ async function writeManagedFile(path: string, content: string, options?: { force
       }
     }
     // Recheck after staging and ownership inspection, immediately before installation.
+    if (exists && options?.manifest && options.expectedManifestDigest) {
+      await assertManifestDigest(path, options.expectedManifestDigest);
+    }
     if (options?.ownershipManifestPath && options.ownershipManifestDigest) {
       await assertManifestDigest(options.ownershipManifestPath, options.ownershipManifestDigest);
     }
