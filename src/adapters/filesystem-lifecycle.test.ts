@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readPreviousManifest, isManagedFile, OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
 import { CodexAdapter } from "./codex.js";
+import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
   it("serializes parallel applies targeting the same adapter root", async () => {
@@ -438,6 +439,50 @@ describe("adapter ownership manifest validation", () => {
       const first = await readFile(manifestPath, "utf8");
       await adapter.apply(context);
       expect(await readFile(manifestPath, "utf8")).toBe(first);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reconciles and cleans up Claude Code skills without touching source files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-lifecycle-"));
+    try {
+      const firstSource = join(root, "first.md");
+      const secondSource = join(root, "second.md");
+      await writeFile(firstSource, "# First");
+      await writeFile(secondSource, "# Second");
+      const makeSkill = (path: string, name: string) => ({
+        path, score: 1, reasons: [],
+        metadata: { name, description: name, capabilities: [] },
+      });
+      const first = makeSkill(firstSource, "first");
+      const second = makeSkill(secondSource, "second");
+      const initial = { task: "claude-lifecycle", root, skills: [first, second] };
+      const adapter = new ClaudeCodeAdapter();
+      const manifestPath = join(root, ".claude", "skills.json");
+      const firstTarget = join(root, ".claude", "skills", "first", "SKILL.md");
+      const secondTarget = join(root, ".claude", "skills", "second", "SKILL.md");
+
+      await adapter.apply(initial);
+      expect(await readFile(firstTarget, "utf8")).toBe(OWNERSHIP_HEADER + "# First");
+      expect(await readFile(secondTarget, "utf8")).toBe(OWNERSHIP_HEADER + "# Second");
+      const originalManifest = await readFile(manifestPath, "utf8");
+      await adapter.apply(initial);
+      expect(await readFile(manifestPath, "utf8")).toBe(originalManifest);
+
+      const reduced = { ...initial, skills: [first] };
+      expect((await adapter.plan(reduced)).removals).toContain(secondTarget);
+      const reconciled = await adapter.apply(reduced);
+      expect(reconciled.filesRemoved).toContain(secondTarget);
+      await expect(readFile(secondTarget, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(firstTarget, "utf8")).toBe(OWNERSHIP_HEADER + "# First");
+
+      const cleaned = await adapter.cleanup(reduced);
+      expect(cleaned.filesRemoved).toContain(firstTarget);
+      expect(cleaned.filesRemoved).toContain(manifestPath);
+      await expect(readFile(firstTarget, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(firstSource, "utf8")).toBe("# First");
+      expect(await readFile(secondSource, "utf8")).toBe("# Second");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
