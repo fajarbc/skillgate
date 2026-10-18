@@ -85,7 +85,7 @@ export async function readPreviousManifest(manifestPath: string, expectedAgent?:
       typeof parsed.agent === "string" && parsed.agent.length > 0 &&
       (!expectedAgent || parsed.agent === expectedAgent) &&
       Array.isArray(parsed.managedFiles) &&
-      parsed.managedFiles.every((file: unknown) => typeof file === "string" && isSafeManagedFilePath(dirname(manifestPath), file)) &&
+      parsed.managedFiles.every((file: unknown) => typeof file === "string") &&
       (parsed.fileDigests === undefined ||
         (parsed.fileDigests !== null && typeof parsed.fileDigests === "object" &&
           !Array.isArray(parsed.fileDigests) &&
