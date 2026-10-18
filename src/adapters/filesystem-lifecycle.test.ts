@@ -393,7 +393,7 @@ describe("adapter ownership manifest validation", () => {
         skills: [],
       };
       await writeFile(manifestPath, JSON.stringify(manifest));
-      expect(await readPreviousManifest(manifestPath, "codex")).toBeNull();
+      expect(await readPreviousManifest(manifestPath, "codex")).not.toBeNull();
 
       const adapter = new CodexAdapter();
       const context = { task: "invalid", root, skills: [] };
