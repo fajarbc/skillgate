@@ -221,6 +221,17 @@ function digest(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+/** Fail closed if ownership metadata changes while a mutation is in progress. */
+async function assertManifestDigest(manifestPath: string, expectedDigest: string): Promise<void> {
+  await assertNoSymlinkAncestors(manifestPath);
+  try {
+    if (digest(await readFile(manifestPath, "utf8")) === expectedDigest) return;
+  } catch {
+    // Missing or unreadable ownership metadata cannot authorize mutations.
+  }
+  throw new AdapterConflictError([manifestPath]);
+}
+
 export async function isManagedFile(
   filePath: string,
   previousManifest: ManifestData | null,
@@ -398,6 +409,7 @@ async function applyFilesystemAdapterUnlocked(
       score: skill.score, capabilities: skill.metadata.capabilities ?? [],
     })),
   };
+  const pendingDigest = digest(JSON.stringify(pending, null, 2));
   await writeManagedFile(manifestPath, JSON.stringify(pending, null, 2), {
     force: options?.force, manifest: true, agent: agentName,
     expectedManifestDigest: priorManifestDigest,
@@ -413,6 +425,7 @@ async function applyFilesystemAdapterUnlocked(
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
 
     const contentToWrite = `${OWNERSHIP_HEADER}${preparedContents[filesWritten.length]}`;
+    await assertManifestDigest(manifestPath, pendingDigest);
     await writeManagedFile(destFile, contentToWrite, { force: options?.force, expectedManifest: prior });
     filesWritten.push(destFile);
     fileDigests[destFile] = digest(contentToWrite);
@@ -423,6 +436,7 @@ async function applyFilesystemAdapterUnlocked(
     await assertNoSymlinkAncestors(staleFile);
     // Recheck ownership before deleting: the file may have changed since plan().
     if (!(await isManagedFile(staleFile, prior))) continue;
+    await assertManifestDigest(manifestPath, pendingDigest);
     await rm(staleFile, { force: true });
     filesRemoved.push(staleFile);
     delete fileDigests[staleFile];
@@ -547,6 +561,7 @@ async function cleanupFilesystemAdapterUnlocked(
         // Cleanup only removes bytes verified against the previous manifest.
         // Force does not authorize deletion of independently edited files.
         if (managed) {
+          if (expectedManifestDigest) await assertManifestDigest(manifestPath, expectedManifestDigest);
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
           try {
