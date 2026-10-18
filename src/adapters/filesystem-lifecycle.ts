@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { prepareSafeSkillPaths, resolveSafeSubpath } from "./safe-path.js";
+import { prepareSafeSkillPaths, resolveSafeSubpath, toSafeSkillIdentifier } from "./safe-path.js";
 import type {
   AdapterContext,
   AdapterPlan,
@@ -115,9 +115,14 @@ function isSafeManagedFilePath(agentRoot: string, filePath: string): boolean {
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith(sep)) return false;
   if (rel === "skills.json") return true;
   const segments = rel.split(sep);
-  return segments.length === 3 && segments[0] === "skills" &&
-    /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(segments[1] ?? "") &&
-    segments[2] === "SKILL.md";
+  if (segments.length !== 3 || segments[0] !== "skills" || segments[2] !== "SKILL.md") return false;
+  // Accept exactly the identifiers that the writer can generate, including Unicode.
+  // Never authorize arbitrary paths or identifiers that normalize differently.
+  try {
+    return toSafeSkillIdentifier(segments[1] ?? "") === segments[1];
+  } catch {
+    return false;
+  }
 }
 
 /** Reject symlinks in managed directories and their existing ancestors. */
