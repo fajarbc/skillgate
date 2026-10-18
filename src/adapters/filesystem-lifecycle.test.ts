@@ -406,6 +406,28 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("rejects duplicate skill destinations before creating ownership state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-duplicate-destination-"));
+    try {
+      const first = join(root, "first.md");
+      const second = join(root, "second.md");
+      await writeFile(first, "# First");
+      await writeFile(second, "# Second");
+      const makeSkill = (path: string) => ({
+        path, score: 1, reasons: [],
+        metadata: { name: "same-name", description: "Duplicate", capabilities: [] },
+      });
+      const context = { task: "duplicate", root, skills: [makeSkill(first), makeSkill(second)] };
+      await expect(new CodexAdapter().apply(context)).rejects.toThrow(/Skill name collision/);
+      await expect(readFile(join(root, ".codex", "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(join(root, ".codex", "skills", "same-name", "SKILL.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("plans deterministically without writing managed files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-plan-readonly-"));
     try {
