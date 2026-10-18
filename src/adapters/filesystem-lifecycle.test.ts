@@ -463,6 +463,10 @@ describe("adapter ownership manifest validation", () => {
       const firstTarget = join(root, ".claude", "skills", "first", "SKILL.md");
       const secondTarget = join(root, ".claude", "skills", "second", "SKILL.md");
 
+      const plan = await adapter.plan(initial);
+      expect(await adapter.plan(initial)).toEqual(plan);
+      expect(plan.writes).toEqual([firstTarget, secondTarget, manifestPath]);
+      await expect(readFile(manifestPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       await adapter.apply(initial);
       expect(await readFile(firstTarget, "utf8")).toBe(OWNERSHIP_HEADER + "# First");
       expect(await readFile(secondTarget, "utf8")).toBe(OWNERSHIP_HEADER + "# Second");
