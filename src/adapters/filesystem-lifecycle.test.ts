@@ -444,6 +444,31 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
+  it("rejects a symlinked managed directory without changing its external target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-dir-link-"));
+    const outside = await mkdtemp(join(tmpdir(), "skillgate-dir-link-outside-"));
+    try {
+      const { symlink } = await import("node:fs/promises");
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const externalFile = join(outside, "SKILL.md");
+      await writeFile(externalFile, "# External user file");
+      await mkdir(join(root, ".codex", "skills"), { recursive: true });
+      await symlink(outside, join(root, ".codex", "skills", "sample"), "dir");
+      const context = { task: "symlink-dir", root, skills: [{ path: source, score: 1,
+        reasons: [], metadata: { name: "sample", description: "sample", capabilities: [] } }] };
+      const adapter = new CodexAdapter();
+      await expect(adapter.plan(context)).rejects.toThrow();
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect(await readFile(externalFile, "utf8")).toBe("# External user file");
+      await expect(readFile(join(root, ".codex", "skills.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("reconciles and cleans up Claude Code skills without touching source files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-lifecycle-"));
     try {
