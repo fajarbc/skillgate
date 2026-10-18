@@ -49,6 +49,11 @@ describe("safe-path", () => {
     );
   });
 
+  it("rejects duplicate skill names", () => {
+    const skill = { path: "/skills/one", metadata: { name: "same-skill", description: "First" }, score: 1, reasons: [] };
+    expect(() => prepareSafeSkillPaths([skill, { ...skill, path: "/skills/two" }], "/tmp/managed")).toThrow(/Skill name collision/);
+  });
+
   it("prevents subpaths from escaping the root directory", () => {
     expect(() => resolveSafeSubpath("/tmp/root", "/etc/passwd")).toThrow(
       /absolute paths are not permitted/,
