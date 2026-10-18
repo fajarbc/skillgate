@@ -137,7 +137,7 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
 }
 
 /** Stage complete bytes before replacing a managed destination. */
-async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string }): Promise<void> {
+async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string; ownershipManifestPath?: string; ownershipManifestDigest?: string }): Promise<void> {
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
@@ -184,6 +184,14 @@ async function writeManagedFile(path: string, content: string, options?: { force
           : (options?.expectedManifest ? await isManagedFile(path, options.expectedManifest) : false);
         if (!owned) throw new AdapterConflictError([path]);
       }
+    }
+    // Recheck after staging and ownership inspection, immediately before installation.
+    if (options?.ownershipManifestPath && options.ownershipManifestDigest) {
+      await assertManifestDigest(options.ownershipManifestPath, options.ownershipManifestDigest);
+    }
+    if (exists && !options?.manifest && !options?.force &&
+        !(await isManagedFile(path, options?.expectedManifest ?? null))) {
+      throw new AdapterConflictError([path]);
     }
     if (exists) {
       // Replacing an existing owned file still requires stronger concurrency coordination.
@@ -426,7 +434,10 @@ async function applyFilesystemAdapterUnlocked(
 
     const contentToWrite = `${OWNERSHIP_HEADER}${preparedContents[filesWritten.length]}`;
     await assertManifestDigest(manifestPath, pendingDigest);
-    await writeManagedFile(destFile, contentToWrite, { force: options?.force, expectedManifest: prior });
+    await writeManagedFile(destFile, contentToWrite, {
+      force: options?.force, expectedManifest: prior,
+      ownershipManifestPath: manifestPath, ownershipManifestDigest: pendingDigest,
+    });
     filesWritten.push(destFile);
     fileDigests[destFile] = digest(contentToWrite);
   }
