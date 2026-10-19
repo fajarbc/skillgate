@@ -423,7 +423,7 @@ async function applyFilesystemAdapterUnlocked(
       if (!isSafeManagedFilePath(agentRoot, filePath) || filePath === manifestPath) continue;
       await assertNoSymlinkAncestors(filePath);
       try {
-        const current = await readFile(filePath);
+        const current = await readOwnershipSnapshot(filePath);
         if (!current.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) continue;
         const currentDigest = digest(current);
         const verified = prior.fileDigests === undefined ||
