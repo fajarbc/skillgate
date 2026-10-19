@@ -87,6 +87,19 @@ export async function readPreviousManifest(manifestPath: string, expectedAgent?:
     if (parsed && parsed.managedBy === "skillgate" && parsed.version === "1.0" &&
       typeof parsed.agent === "string" && parsed.agent.length > 0 &&
       (!expectedAgent || parsed.agent === expectedAgent) &&
+      typeof parsed.task === "string" &&
+      typeof parsed.updatedAt === "string" &&
+      Array.isArray(parsed.skills) &&
+      parsed.skills.every((skill: unknown) =>
+        skill !== null && typeof skill === "object" && !Array.isArray(skill) &&
+        typeof (skill as { name?: unknown }).name === "string" &&
+        typeof (skill as { identifier?: unknown }).identifier === "string" &&
+        typeof (skill as { description?: unknown }).description === "string" &&
+        typeof (skill as { path?: unknown }).path === "string" &&
+        typeof (skill as { score?: unknown }).score === "number" &&
+        Number.isFinite((skill as { score: number }).score) &&
+        Array.isArray((skill as { capabilities?: unknown }).capabilities) &&
+        (skill as { capabilities: unknown[] }).capabilities.every((capability) => typeof capability === "string")) &&
       Array.isArray(parsed.managedFiles) &&
       parsed.managedFiles.every((file: unknown) => typeof file === "string") &&
       (parsed.fileDigests === undefined ||

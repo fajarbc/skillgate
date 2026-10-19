@@ -8,6 +8,35 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects structurally incomplete ownership manifests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-shape-"));
+    try {
+      const manifestPath = join(root, "skills.json");
+      const valid = {
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "test", updatedAt: "2026-10-19", managedFiles: [],
+        skills: [],
+      };
+      const invalid = [
+        { ...valid, skills: undefined },
+        { ...valid, skills: [null] },
+        { ...valid, skills: [{ name: "partial" }] },
+        { ...valid, task: null },
+        { ...valid, updatedAt: 123 },
+        { ...valid, skills: [{ name: "ok", identifier: "ok",
+          description: "ok", path: "ok", score: "invalid", capabilities: [] }] },
+      ];
+      for (const manifest of invalid) {
+        await writeFile(manifestPath, JSON.stringify(manifest));
+        expect(await readPreviousManifest(manifestPath, "codex")).toBeNull();
+      }
+      await writeFile(manifestPath, JSON.stringify(valid));
+      expect(await readPreviousManifest(manifestPath, "codex")).not.toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not accept ownership metadata through a symlink", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-manifest-"));
     try {
