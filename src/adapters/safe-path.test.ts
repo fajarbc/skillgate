@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   prepareSafeSkillPaths,
@@ -21,11 +23,10 @@ describe("safe-path", () => {
     expect(toSafeSkillIdentifier("   spaced   ")).toBe("spaced");
   });
 
-  it("rejects Windows reserved device names", () => {
-    expect(() => toSafeSkillIdentifier("CON")).toThrow(/reserved device name/);
-    expect(() => toSafeSkillIdentifier("aux.txt")).toThrow(/reserved device name/);
-    expect(() => toSafeSkillIdentifier("nul")).toThrow(/reserved device name/);
-    expect(() => toSafeSkillIdentifier("com1")).toThrow(/reserved device name/);
+  it.each([
+    "CON", "prn", "aux.txt", "nul", "COM1", "com9.md", "LPT1", "lpt9.txt",
+  ])("rejects Windows reserved device name %s on every OS", (name) => {
+    expect(() => toSafeSkillIdentifier(name)).toThrow(/reserved device name/);
   });
 
   it("detects and rejects collisions between names normalizing to the same identifier", () => {
@@ -44,18 +45,34 @@ describe("safe-path", () => {
       },
     ];
 
-    expect(() => prepareSafeSkillPaths(skills, "/tmp/managed")).toThrow(
+    expect(() => prepareSafeSkillPaths(skills, join(tmpdir(), "managed"))).toThrow(
       /Skill name collision/,
     );
   });
 
   it("prevents subpaths from escaping the root directory", () => {
-    expect(() => resolveSafeSubpath("/tmp/root", "/etc/passwd")).toThrow(
+    const root = join(tmpdir(), "skillgate-safe-root");
+    expect(() => resolveSafeSubpath(root, join(tmpdir(), "outside"))).toThrow(
       /absolute paths are not permitted/,
     );
-    expect(() => resolveSafeSubpath("/tmp/root", "../escape")).toThrow(
+    expect(() => resolveSafeSubpath(root, "../escape")).toThrow(
       /resolves outside root/,
     );
-    expect(resolveSafeSubpath("/tmp/root", "safe/subpath")).toBe("/tmp/root/safe/subpath");
+    expect(resolveSafeSubpath(root, "safe/subpath")).toBe(join(root, "safe", "subpath"));
+  });
+
+  it.each(["C:\\outside", "C:/outside", "\\\\server\\share\\skill", "\\outside"])(
+    "rejects Windows absolute path %s on every OS", (subpath) => {
+      expect(() => resolveSafeSubpath(join(tmpdir(), "root"), subpath)).toThrow(
+        /absolute paths are not permitted/,
+      );
+    },
+  );
+
+  it.runIf(process.platform === "win32")("rejects backslash and mixed-separator traversal on Windows", () => {
+    const root = join(tmpdir(), "skillgate-safe-root");
+    for (const subpath of ["..\\escape", "safe\\..\\..\\escape", "safe/..\\..\\escape"]) {
+      expect(() => resolveSafeSubpath(root, subpath)).toThrow(/resolves outside root/);
+    }
   });
 });

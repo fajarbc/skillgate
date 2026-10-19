@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { cwd } from "node:process";
+import { pathToFileURL } from "node:url";
 import { resolveConfiguration, sanitizeConfiguration, ConfigurationError } from "./config/index.js";
 import { parseArgs } from "node:util";
 import { getAdapter, listAdapters } from "./adapters/index.js";
@@ -246,6 +247,6 @@ export async function run(argv: string[]): Promise<number> {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await run(process.argv.slice(2));
 }

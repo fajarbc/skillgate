@@ -31,8 +31,8 @@ describe("discoverSkills", () => {
     const skills = await discoverSkills({ roots: [root] });
 
     expect(skills).toHaveLength(2);
-    expect(skills.find((skill) => skill.path.includes("/bad/"))?.error).toContain("frontmatter");
-    expect(skills.find((skill) => skill.path.includes("/good/"))?.metadata?.name).toBe("good");
+    expect(skills.find((skill) => skill.path === join(root, "bad", "SKILL.md"))?.error).toContain("frontmatter");
+    expect(skills.find((skill) => skill.path === join(root, "good", "SKILL.md"))?.metadata?.name).toBe("good");
   });
 
   it("does not traverse default ignored directories", async () => {
