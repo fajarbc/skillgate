@@ -81,6 +81,7 @@ export class AdapterConflictError extends Error {
 
 export async function readPreviousManifest(manifestPath: string, expectedAgent?: string): Promise<ManifestData | null> {
   try {
+    await assertNoSymlinkAncestors(manifestPath);
     const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(manifestPath));
     const parsed = JSON.parse(raw);
     if (parsed && parsed.managedBy === "skillgate" && parsed.version === "1.0" &&
@@ -256,6 +257,7 @@ export async function isManagedFile(
 ): Promise<boolean> {
   if (!previousManifest || !previousManifest.managedFiles.includes(filePath)) return false;
   try {
+    await assertNoSymlinkAncestors(filePath);
     const content = await readFile(filePath);
     if (!content.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) return false;
     // A digest-aware manifest must prove ownership for this exact file.
