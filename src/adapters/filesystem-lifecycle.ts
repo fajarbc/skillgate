@@ -26,7 +26,9 @@ async function withAdapterMutationLock<T>(agentRoot: string, work: () => Promise
   await assertNoSymlinkAncestors(lockPath);
   while (true) {
     try {
-      await mkdir(lockPath);
+      // Keep lock ownership private: other local users must not populate or
+      // interfere with a lock directory before its owner releases it.
+      await mkdir(lockPath, { mode: 0o700 });
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
