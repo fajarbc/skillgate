@@ -8,6 +8,28 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects a managed file whose invalid UTF-8 bytes replace a replacement character", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-byte-ownership-"));
+    try {
+      const target = join(root, "SKILL.md");
+      const original = Buffer.from(OWNERSHIP_HEADER + "\uFFFD");
+      await writeFile(target, original);
+      const manifest = {
+        managedBy: "skillgate" as const, version: "1.0" as const,
+        agent: "codex", task: "bytes", updatedAt: new Date().toISOString(),
+        managedFiles: [target], fileDigests: {
+          [target]: createHash("sha256").update(original).digest("hex"),
+        }, skills: [],
+      };
+      expect(await isManagedFile(target, manifest)).toBe(true);
+      await writeFile(target, Buffer.concat([Buffer.from(OWNERSHIP_HEADER), Buffer.from([0xff])]));
+      expect(await readFile(target, "utf8")).toBe(OWNERSHIP_HEADER + "\uFFFD");
+      expect(await isManagedFile(target, manifest)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("serializes parallel applies targeting the same adapter root", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-locked-apply-"));
     try {
