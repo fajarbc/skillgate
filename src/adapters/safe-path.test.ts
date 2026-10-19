@@ -50,6 +50,11 @@ describe("safe-path", () => {
     );
   });
 
+  it("rejects duplicate skill names", () => {
+    const skill = { path: "/skills/one", metadata: { name: "same-skill", description: "First" }, score: 1, reasons: [] };
+    expect(() => prepareSafeSkillPaths([skill, { ...skill, path: "/skills/two" }], "/tmp/managed")).toThrow(/Skill name collision/);
+  });
+
   it("prevents subpaths from escaping the root directory", () => {
     const root = join(tmpdir(), "skillgate-safe-root");
     expect(() => resolveSafeSubpath(root, join(tmpdir(), "outside"))).toThrow(

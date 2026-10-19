@@ -96,7 +96,7 @@ export function prepareSafeSkillPaths(
     const safeId = toSafeSkillIdentifier(originalName);
 
     const existing = seen.get(safeId);
-    if (existing && existing !== originalName) {
+    if (existing !== undefined) {
       throw new Error(
         `Skill name collision: '${originalName}' and '${existing}' normalize to the same identifier '${safeId}'`,
       );
