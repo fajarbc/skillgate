@@ -8,6 +8,34 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects ownership evidence through a symlinked parent directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-parent-symlink-"));
+    try {
+      const real = join(root, "real");
+      const alias = join(root, "alias");
+      await mkdir(real);
+      await symlink(real, alias, "dir");
+      const manifest = {
+        managedBy: "skillgate" as const, version: "1.0" as const,
+        agent: "codex", managedFiles: [], skills: [],
+      };
+      await writeFile(join(real, "skills.json"), JSON.stringify(manifest));
+      expect(await readPreviousManifest(join(real, "skills.json"), "codex")).toEqual(manifest);
+      expect(await readPreviousManifest(join(alias, "skills.json"), "codex")).toBeNull();
+
+      const content = OWNERSHIP_HEADER + "# owned";
+      await writeFile(join(real, "SKILL.md"), content);
+      const ownedPath = join(alias, "SKILL.md");
+      expect(await isManagedFile(ownedPath, {
+        ...manifest,
+        managedFiles: [ownedPath],
+        fileDigests: { [ownedPath]: createHash("sha256").update(content).digest("hex") },
+      })).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not accept ownership metadata through a symlink", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-manifest-"));
     try {
