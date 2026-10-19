@@ -55,4 +55,22 @@ describe("doctor diagnostics", () => {
 
     await rm(root, { recursive: true, force: true });
   });
+
+  it("warns about uninterpreted extensions without leaking their values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-doc-"));
+    try {
+      const path = join(root, "SKILL.md");
+      await writeFile(path, "---\nname: testing\ndescription: Test skills\nlicense: MIT\nhost-setting: private-value\n---\n");
+      const report = await runDiagnostics({ root, nodeVersion: "v20.0.0" });
+      expect(report.checks.find((c) => c.name === "skill-discovery")?.status).toBe("ok");
+      expect(report.checks.find((c) => c.name === "skill-metadata-extensions")).toMatchObject({
+        status: "warn",
+        detail: { skills: [{ path, fields: ["host-setting"] }] },
+      });
+      expect(JSON.stringify(report)).not.toContain("private-value");
+      expect(formatDoctorReport(report)).toContain("preserved but not interpreted");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

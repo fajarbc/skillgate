@@ -97,6 +97,18 @@ export async function runDiagnostics(options: DoctorOptions): Promise<DoctorRepo
         message: `Discovered ${valid.length} valid skill(s)`,
       });
     }
+    const extensionSkills = valid.flatMap((skill) => {
+      const fields = Object.keys(skill.metadata?.extensions ?? {}).sort();
+      return fields.length > 0 ? [{ path: skill.path, fields }] : [];
+    });
+    if (extensionSkills.length > 0) {
+      checks.push({
+        name: "skill-metadata-extensions",
+        status: "warn",
+        message: `${extensionSkills.length} skill(s) contain extension fields preserved but not interpreted by SkillGate`,
+        detail: { skills: extensionSkills },
+      });
+    }
   } catch (err: unknown) {
     checks.push({
       name: "skill-discovery",
