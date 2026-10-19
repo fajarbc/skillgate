@@ -8,6 +8,23 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects a regular file occupying the adapter lock path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-lock-file-"));
+    const agentRoot = join(root, ".codex");
+    const lockPath = join(tmpdir(),
+      `skillgate-adapter-${createHash("sha256").update(agentRoot).digest("hex")}.lock`);
+    try {
+      await writeFile(lockPath, "not a lock directory");
+      const adapter = new CodexAdapter();
+      await expect(adapter.apply({ task: "lock", root, skills: [] }))
+        .rejects.toThrow(/Unsafe SkillGate adapter lock entry/);
+      expect(await readFile(lockPath, "utf8")).toBe("not a lock directory");
+    } finally {
+      await rm(lockPath, { force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects structurally incomplete ownership manifests", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-shape-"));
     try {
