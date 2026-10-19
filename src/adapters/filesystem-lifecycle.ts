@@ -82,7 +82,7 @@ export class AdapterConflictError extends Error {
 export async function readPreviousManifest(manifestPath: string, expectedAgent?: string): Promise<ManifestData | null> {
   try {
     await assertNoSymlinkAncestors(manifestPath);
-    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(manifestPath));
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readOwnershipSnapshot(manifestPath));
     const parsed = JSON.parse(raw);
     if (parsed && parsed.managedBy === "skillgate" && parsed.version === "1.0" &&
       typeof parsed.agent === "string" && parsed.agent.length > 0 &&
@@ -144,6 +144,31 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
   }
 }
 
+/** Read ownership evidence through a stable regular-file handle, not a path-following read. */
+async function readOwnershipSnapshot(path: string): Promise<Buffer> {
+  await assertNoSymlinkAncestors(path);
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(path, flags);
+  try {
+    const before = await handle.stat();
+    if (!before.isFile()) throw new Error(`Unsafe ownership file: ${path}`);
+    const content = await handle.readFile();
+    const after = await handle.stat();
+    await assertNoSymlinkAncestors(path);
+    const entry = await lstat(path);
+    if (!entry.isFile() ||
+        before.dev !== entry.dev || before.ino !== entry.ino ||
+        before.dev !== after.dev || before.ino !== after.ino ||
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+      throw new Error(`Ownership file changed during read: ${path}`);
+    }
+    return content;
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Stage complete bytes before replacing a managed destination. */
 async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string; ownershipManifestPath?: string; ownershipManifestDigest?: string }): Promise<void> {
   await assertNoSymlinkAncestors(path);
@@ -180,7 +205,7 @@ async function writeManagedFile(path: string, content: string, options?: { force
           throw new AdapterConflictError([path]);
         }
         if (options.expectedManifestDigest) {
-          const current = await readFile(path);
+          const current = await readOwnershipSnapshot(path);
           if (digest(current) !== options.expectedManifestDigest) {
             throw new AdapterConflictError([path]);
           }
@@ -244,7 +269,7 @@ function digest(content: string | Buffer): string {
 async function assertManifestDigest(manifestPath: string, expectedDigest: string): Promise<void> {
   await assertNoSymlinkAncestors(manifestPath);
   try {
-    if (digest(await readFile(manifestPath)) === expectedDigest) return;
+    if (digest(await readOwnershipSnapshot(manifestPath)) === expectedDigest) return;
   } catch {
     // Missing or unreadable ownership metadata cannot authorize mutations.
   }
@@ -258,7 +283,7 @@ export async function isManagedFile(
   if (!previousManifest || !previousManifest.managedFiles.includes(filePath)) return false;
   try {
     await assertNoSymlinkAncestors(filePath);
-    const content = await readFile(filePath);
+    const content = await readOwnershipSnapshot(filePath);
     if (!content.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) return false;
     // A digest-aware manifest must prove ownership for this exact file.
     // Older manifests without fileDigests retain legacy marker compatibility.
@@ -376,7 +401,7 @@ async function applyFilesystemAdapterUnlocked(
   if (!prior && await fileExists(manifestPath) && !options?.force) {
     throw new AdapterConflictError([manifestPath]);
   }
-  const priorManifestBytes = prior ? await readFile(manifestPath) : undefined;
+  const priorManifestBytes = prior ? await readOwnershipSnapshot(manifestPath) : undefined;
   const priorManifestRaw = priorManifestBytes === undefined ? undefined :
     new TextDecoder("utf-8", { fatal: true }).decode(priorManifestBytes);
   // The parsed manifest and digest must describe the same snapshot. Otherwise
@@ -537,7 +562,7 @@ async function cleanupFilesystemAdapterUnlocked(
   const previousManifest = await readPreviousManifest(manifestPath, agentName);
   // Capture the exact manifest bytes used to authorize cleanup. A different
   // valid manifest must not be removed just because its agent name matches.
-  const manifestBytes = previousManifest ? await readFile(manifestPath) : undefined;
+  const manifestBytes = previousManifest ? await readOwnershipSnapshot(manifestPath) : undefined;
   const manifestRaw = manifestBytes === undefined ? undefined :
     new TextDecoder("utf-8", { fatal: true }).decode(manifestBytes);
   if (manifestRaw) {
@@ -583,7 +608,7 @@ async function cleanupFilesystemAdapterUnlocked(
       if (await fileExists(filePath)) {
         const managed = filePath === manifestPath
           ? (await readPreviousManifest(filePath, agentName)) !== null &&
-            digest(await readFile(filePath)) === expectedManifestDigest
+            digest(await readOwnershipSnapshot(filePath)) === expectedManifestDigest
           : await isManagedFile(filePath, previousManifest);
         // Cleanup only removes bytes verified against the previous manifest.
         // Force does not authorize deletion of independently edited files.
