@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,40 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("does not accept ownership metadata through a symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-manifest-"));
+    try {
+      const target = join(root, "real.json");
+      const alias = join(root, "skills.json");
+      await writeFile(target, JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        managedFiles: [], skills: [],
+      }));
+      await symlink(target, alias);
+      expect(await readPreviousManifest(alias, "codex")).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not accept managed files through a symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-file-"));
+    try {
+      const target = join(root, "real.md");
+      const alias = join(root, "SKILL.md");
+      const content = OWNERSHIP_HEADER + "# managed";
+      await writeFile(target, content);
+      await symlink(target, alias);
+      expect(await isManagedFile(alias, {
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        managedFiles: [alias], skills: [],
+        fileDigests: { [alias]: createHash("sha256").update(content).digest("hex") },
+      })).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects malformed UTF-8 in an otherwise valid ownership manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-utf8-"));
     try {
