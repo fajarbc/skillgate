@@ -17,7 +17,7 @@ describe("adapter ownership manifest validation", () => {
       await symlink(real, alias, "dir");
       const manifest = {
         managedBy: "skillgate" as const, version: "1.0" as const,
-        agent: "codex", managedFiles: [], skills: [],
+        agent: "codex", task: "test", updatedAt: "2026-10-19", managedFiles: [], skills: [],
       };
       await writeFile(join(real, "skills.json"), JSON.stringify(manifest));
       expect(await readPreviousManifest(join(real, "skills.json"), "codex")).toEqual(manifest);
