@@ -33,6 +33,13 @@ async function withAdapterMutationLock<T>(agentRoot: string, work: () => Promise
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       await assertNoSymlinkAncestors(lockPath);
+      // EEXIST may be a regular file or a directory owned by another user.
+      // Neither is a cooperative lock: reject immediately instead of waiting.
+      const entry = await lstat(lockPath);
+      if (!entry.isDirectory() || (typeof process.getuid === "function" &&
+          entry.uid !== process.getuid())) {
+        throw new Error(`Unsafe SkillGate adapter lock entry: ${lockPath}`);
+      }
       if (Date.now() - startedAt >= 30_000) {
         throw new Error(`Timed out waiting for SkillGate adapter lock: ${lockPath}`);
       }
