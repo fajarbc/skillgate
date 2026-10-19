@@ -97,7 +97,7 @@ export async function readPreviousManifest(manifestPath: string, expectedAgent?:
           typeof parsed.previousFileDigests === "object" &&
           !Array.isArray(parsed.previousFileDigests) &&
           Object.values(parsed.previousFileDigests).every((value) =>
-            typeof value === "string" && /^[a-f0-9]{64}$/.test(value)))) {
+            typeof value === "string" && /^[a-f0-9]{64}$/.test(value))))) {
       return parsed as ManifestData;
     }
     return null;
