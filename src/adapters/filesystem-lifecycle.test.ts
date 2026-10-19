@@ -8,6 +8,24 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects malformed UTF-8 in an otherwise valid ownership manifest", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-utf8-"));
+    try {
+      const manifestPath = join(root, "skills.json");
+      const valid = {
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "unicode", updatedAt: "2026-10-19T00:00:00.000Z",
+        managedFiles: [], skills: [],
+      };
+      const bytes = Buffer.from(JSON.stringify(valid));
+      await writeFile(manifestPath, Buffer.concat([bytes.subarray(0, bytes.length - 1),
+        Buffer.from([0xff]), bytes.subarray(bytes.length - 1)]));
+      expect(await readPreviousManifest(manifestPath, "codex")).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a managed file whose invalid UTF-8 bytes replace a replacement character", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-byte-ownership-"));
     try {
