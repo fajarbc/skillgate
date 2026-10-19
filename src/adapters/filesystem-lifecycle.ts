@@ -79,7 +79,7 @@ export class AdapterConflictError extends Error {
 
 export async function readPreviousManifest(manifestPath: string, expectedAgent?: string): Promise<ManifestData | null> {
   try {
-    const raw = await readFile(manifestPath, "utf8");
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(manifestPath));
     const parsed = JSON.parse(raw);
     if (parsed && parsed.managedBy === "skillgate" && parsed.version === "1.0" &&
       typeof parsed.agent === "string" && parsed.agent.length > 0 &&
@@ -373,7 +373,8 @@ async function applyFilesystemAdapterUnlocked(
     throw new AdapterConflictError([manifestPath]);
   }
   const priorManifestBytes = prior ? await readFile(manifestPath) : undefined;
-  const priorManifestRaw = priorManifestBytes?.toString("utf8");
+  const priorManifestRaw = priorManifestBytes === undefined ? undefined :
+    new TextDecoder("utf-8", { fatal: true }).decode(priorManifestBytes);
   // The parsed manifest and digest must describe the same snapshot. Otherwise
   // an external writer could change ownership between our two reads.
   if (priorManifestRaw) {
@@ -533,7 +534,8 @@ async function cleanupFilesystemAdapterUnlocked(
   // Capture the exact manifest bytes used to authorize cleanup. A different
   // valid manifest must not be removed just because its agent name matches.
   const manifestBytes = previousManifest ? await readFile(manifestPath) : undefined;
-  const manifestRaw = manifestBytes?.toString("utf8");
+  const manifestRaw = manifestBytes === undefined ? undefined :
+    new TextDecoder("utf-8", { fatal: true }).decode(manifestBytes);
   if (manifestRaw) {
     try {
       if (JSON.stringify(JSON.parse(manifestRaw)) !== JSON.stringify(previousManifest)) {
