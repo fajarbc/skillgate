@@ -372,7 +372,8 @@ async function applyFilesystemAdapterUnlocked(
   if (!prior && await fileExists(manifestPath) && !options?.force) {
     throw new AdapterConflictError([manifestPath]);
   }
-  const priorManifestRaw = prior ? await readFile(manifestPath, "utf8") : undefined;
+  const priorManifestBytes = prior ? await readFile(manifestPath) : undefined;
+  const priorManifestRaw = priorManifestBytes?.toString("utf8");
   // The parsed manifest and digest must describe the same snapshot. Otherwise
   // an external writer could change ownership between our two reads.
   if (priorManifestRaw) {
@@ -384,7 +385,7 @@ async function applyFilesystemAdapterUnlocked(
       throw new AdapterConflictError([manifestPath]);
     }
   }
-  const priorManifestDigest = priorManifestRaw === undefined ? undefined : digest(priorManifestRaw);
+  const priorManifestDigest = priorManifestBytes === undefined ? undefined : digest(priorManifestBytes);
   // Record only current, verified owned bytes before advertising replacements.
   const previousVerifiedDigests: Record<string, string> = {};
   if (prior) {
@@ -531,7 +532,8 @@ async function cleanupFilesystemAdapterUnlocked(
   const previousManifest = await readPreviousManifest(manifestPath, agentName);
   // Capture the exact manifest bytes used to authorize cleanup. A different
   // valid manifest must not be removed just because its agent name matches.
-  const manifestRaw = previousManifest ? await readFile(manifestPath, "utf8") : undefined;
+  const manifestBytes = previousManifest ? await readFile(manifestPath) : undefined;
+  const manifestRaw = manifestBytes?.toString("utf8");
   if (manifestRaw) {
     try {
       if (JSON.stringify(JSON.parse(manifestRaw)) !== JSON.stringify(previousManifest)) {
@@ -541,7 +543,7 @@ async function cleanupFilesystemAdapterUnlocked(
       throw new AdapterConflictError([manifestPath]);
     }
   }
-  const expectedManifestDigest = manifestRaw === undefined ? undefined : digest(manifestRaw);
+  const expectedManifestDigest = manifestBytes === undefined ? undefined : digest(manifestBytes);
 
   const filesRemoved: string[] = [];
 
