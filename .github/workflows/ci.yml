@@ -19,6 +19,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Adapter compatibility contracts
+        run: npm run test:adapters
       - run: npm run check
       - run: npm run build
       - run: npm run inspect:pack
