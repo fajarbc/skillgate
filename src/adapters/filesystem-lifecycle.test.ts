@@ -8,6 +8,23 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects a writable-by-others existing mutation lock", async () => {
+    if (process.platform === "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "skillgate-lock-mode-"));
+    const lockPath = join(tmpdir(),
+      `skillgate-adapter-${createHash("sha256").update(join(root, ".codex")).digest("hex")}.lock`);
+    try {
+      await mkdir(lockPath, { mode: 0o777 });
+      const { chmod } = await import("node:fs/promises");
+      await chmod(lockPath, 0o777);
+      await expect(new CodexAdapter().apply({ task: "lock", root, skills: [] }))
+        .rejects.toThrow(/Unsafe SkillGate adapter lock entry/);
+    } finally {
+      await rm(lockPath, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a regular file occupying the adapter lock path", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-lock-file-"));
     const agentRoot = join(root, ".codex");
