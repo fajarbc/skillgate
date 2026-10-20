@@ -35,7 +35,15 @@ async function withAdapterMutationLock<T>(agentRoot: string, work: () => Promise
       await assertNoSymlinkAncestors(lockPath);
       // EEXIST may be a regular file or a directory owned by another user.
       // Neither is a cooperative lock: reject immediately instead of waiting.
-      const entry = await lstat(lockPath);
+      let entry;
+      try {
+        entry = await lstat(lockPath);
+      } catch (statError) {
+        // The current holder may release its lock between mkdir(EEXIST)
+        // and lstat(). Retry acquisition rather than failing spuriously.
+        if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw statError;
+      }
       if (!entry.isDirectory() || (typeof process.getuid === "function" &&
           entry.uid !== process.getuid())) {
         throw new Error(`Unsafe SkillGate adapter lock entry: ${lockPath}`);
