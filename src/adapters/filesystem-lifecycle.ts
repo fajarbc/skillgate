@@ -45,7 +45,10 @@ async function withAdapterMutationLock<T>(agentRoot: string, work: () => Promise
         throw statError;
       }
       if (!entry.isDirectory() || (typeof process.getuid === "function" &&
-          entry.uid !== process.getuid())) {
+          entry.uid !== process.getuid()) ||
+          // A pre-existing lock with group/world write access cannot be
+          // trusted: other local users may change its contents.
+          (entry.mode & 0o022) !== 0) {
         throw new Error(`Unsafe SkillGate adapter lock entry: ${lockPath}`);
       }
       if (Date.now() - startedAt >= 30_000) {
