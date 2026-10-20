@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, rename, rm, rmdir, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -322,12 +322,20 @@ export async function planFilesystemAdapter(
   const plannedWrites: string[] = [];
   const conflicts: string[] = [];
 
-  for (const { dirPath } of preparedSkills) {
+  for (const { skill, dirPath } of preparedSkills) {
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
     plannedWrites.push(destFile);
     await assertNoSymlinkAncestors(destFile);
-
+    if (resolve(skill.path) === destFile) throw new Error(`Self-referential skill source: ${skill.path}`);
     if (await fileExists(destFile)) {
+      try {
+        const [src, dst] = await Promise.all([stat(skill.path), stat(destFile)]);
+        if (src.dev === dst.dev && src.ino !== 0 && src.ino === dst.ino) {
+          throw new Error(`Self-referential skill source: ${skill.path}`);
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
       // A manifest entry alone is not proof that the current bytes are ours.
       const managed = await isManagedFile(destFile, previousManifest);
       if (!managed && !options?.force) {
