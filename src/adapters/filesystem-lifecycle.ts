@@ -292,9 +292,9 @@ export async function isManagedFile(
     const content = await readFile(filePath);
     if (!content.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) return false;
     // A digest-aware manifest must prove ownership for this exact file.
-    // Older manifests without fileDigests retain legacy marker compatibility.
-    if (previousManifest.fileDigests === undefined) return true;
-    const expected = previousManifest.fileDigests[filePath];
+    // Legacy marker-only manifests remain readable, but do not authorize
+    // replacement or deletion: their file bytes were never authenticated.
+    const expected = previousManifest.fileDigests?.[filePath];
     const actual = digest(content);
     if (typeof expected === "string" && expected === actual) return true;
     return previousManifest.phase === "pending" &&
@@ -432,8 +432,9 @@ async function applyFilesystemAdapterUnlocked(
         const current = await readFile(filePath);
         if (!current.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) continue;
         const currentDigest = digest(current);
-        const verified = prior.fileDigests === undefined ||
-          prior.fileDigests[filePath] === currentDigest ||
+        // A legacy manifest without digests cannot prove ownership. Do not
+        // convert a marker-only file into trusted pending recovery metadata.
+        const verified = prior.fileDigests?.[filePath] === currentDigest ||
           (prior.phase === "pending" && prior.previousFileDigests?.[filePath] === currentDigest);
         if (verified) previousVerifiedDigests[filePath] = currentDigest;
       } catch (error) {
