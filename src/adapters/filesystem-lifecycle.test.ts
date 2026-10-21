@@ -212,7 +212,9 @@ describe("adapter ownership manifest validation", () => {
         managedFiles: [path], skills: [] };
       expect(await isManagedFile(path, manifest)).toBe(false);
       await writeFile(path, OWNERSHIP_HEADER + "# Managed");
-      expect(await isManagedFile(path, manifest)).toBe(true);
+      expect(await isManagedFile(path, manifest)).toBe(false);
+      const digest = createHash("sha256").update(OWNERSHIP_HEADER + "# Managed").digest("hex");
+      expect(await isManagedFile(path, { ...manifest, fileDigests: { [path]: digest } })).toBe(true);
       expect(await isManagedFile(path, { ...manifest, managedFiles: [] })).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -268,7 +270,7 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
-  it("recovers managed files from an interrupted apply", async () => {
+  it("preserves legacy marker-only files during interrupted cleanup", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-recovery-"));
     try {
       const dir = join(root, ".codex", "skills", "existing");
@@ -283,11 +285,42 @@ describe("adapter ownership manifest validation", () => {
         managedFiles: [target, missing, manifestPath], skills: [],
       }));
       const result = await new CodexAdapter().cleanup({ task: "recover", root, skills: [] });
-      expect(result.filesRemoved).toContain(target);
-      expect(result.filesRemoved).toContain(manifestPath);
+      expect(result.filesRemoved).not.toContain(target);
+      expect(result.filesRemoved).not.toContain(manifestPath);
       expect(result.filesRemoved).not.toContain(missing);
-      await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(readFile(manifestPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(target, "utf8")).toBe(OWNERSHIP_HEADER + "# Managed");
+      expect((await readPreviousManifest(manifestPath, "codex"))?.managedFiles).toContain(target);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects replacing legacy marker-only content without force", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-legacy-apply-"));
+    try {
+      const dir = join(root, ".codex", "skills", "sample");
+      await mkdir(dir, { recursive: true });
+      const target = join(dir, "SKILL.md");
+      const manifestPath = join(root, ".codex", "skills.json");
+      const source = join(root, "source.md");
+      const original = OWNERSHIP_HEADER + "# Legacy content";
+      await writeFile(target, original);
+      await writeFile(source, "# New content");
+      const legacyManifest = JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "old", updatedAt: "2026-01-01",
+        managedFiles: [target, manifestPath], skills: [],
+      });
+      await writeFile(manifestPath, legacyManifest);
+      const adapter = new CodexAdapter();
+      const context = { task: "new", root, skills: [{
+        path: source, score: 1, reasons: [],
+        metadata: { name: "sample", description: "sample", capabilities: [] },
+      }] };
+      expect((await adapter.plan(context)).conflicts).toContain(target);
+      await expect(adapter.apply(context)).rejects.toThrow();
+      expect(await readFile(target, "utf8")).toBe(original);
+      expect(await readFile(manifestPath, "utf8")).toBe(legacyManifest);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
