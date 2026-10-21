@@ -182,7 +182,7 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
  */
 export async function readStableOwnershipFile(path: string): Promise<Buffer> {
   await assertNoSymlinkAncestors(path);
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const before = await handle.stat();
     if (!before.isFile()) throw new AdapterConflictError([path]);
