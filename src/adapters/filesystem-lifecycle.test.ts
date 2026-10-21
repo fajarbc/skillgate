@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, rmdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +11,7 @@ describe("adapter ownership manifest validation", () => {
   it("rejects a writable-by-others existing mutation lock", async () => {
     if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "skillgate-lock-mode-"));
-    const lockPath = join(tmpdir(),
+    const lockPath = join(await realpath(tmpdir()),
       `skillgate-adapter-${createHash("sha256").update(join(root, ".codex")).digest("hex")}.lock`);
     try {
       await mkdir(lockPath, { mode: 0o777 });
@@ -28,7 +28,7 @@ describe("adapter ownership manifest validation", () => {
   it("rejects a regular file occupying the adapter lock path", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-lock-file-"));
     const agentRoot = join(root, ".codex");
-    const lockPath = join(tmpdir(),
+    const lockPath = join(await realpath(tmpdir()),
       `skillgate-adapter-${createHash("sha256").update(agentRoot).digest("hex")}.lock`);
     try {
       await writeFile(lockPath, "not a lock directory");
@@ -164,7 +164,7 @@ describe("adapter ownership manifest validation", () => {
 
   it("waits for an existing adapter lock before touching the workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-locked-wait-"));
-    const lockPath = join(tmpdir(), `skillgate-adapter-${createHash("sha256").update(join(root, ".codex")).digest("hex")}.lock`);
+    const lockPath = join(await realpath(tmpdir()), `skillgate-adapter-${createHash("sha256").update(join(root, ".codex")).digest("hex")}.lock`);
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Managed");

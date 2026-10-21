@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, realpath, rename, rm, rmdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -21,7 +21,7 @@ export const OWNERSHIP_HEADER = "<!-- Managed by SkillGate. Do not edit directly
  * Crashed-process locks require manual inspection; external writers are not protected.
  */
 async function withAdapterMutationLock<T>(agentRoot: string, work: () => Promise<T>): Promise<T> {
-  const lockPath = join(tmpdir(), `skillgate-adapter-${digest(agentRoot)}.lock`);
+  const lockPath = join(await realpath(tmpdir()), `skillgate-adapter-${digest(agentRoot)}.lock`);
   const startedAt = Date.now();
   await assertNoSymlinkAncestors(lockPath);
   while (true) {
