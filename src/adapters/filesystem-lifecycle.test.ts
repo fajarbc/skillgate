@@ -3,11 +3,28 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readPreviousManifest, isManagedFile, OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
+import { readPreviousManifest, readStableOwnershipFile, isManagedFile, OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
 import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("reads ownership bytes from a regular file and rejects symlink/directory evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-stable-read-"));
+    try {
+      const target = join(root, "SKILL.md");
+      const alias = join(root, "alias.md");
+      const content = Buffer.from(OWNERSHIP_HEADER + "# Verified");
+      await writeFile(target, content);
+      expect(await readStableOwnershipFile(target)).toEqual(content);
+      await symlink(target, alias);
+      await expect(readStableOwnershipFile(alias)).rejects.toThrow();
+      await expect(readStableOwnershipFile(root)).rejects.toThrow();
+      expect(await readFile(target)).toEqual(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a writable-by-others existing mutation lock", async () => {
     if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "skillgate-lock-mode-"));
