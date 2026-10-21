@@ -4,11 +4,25 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readPreviousManifest, readStableOwnershipFile, isManagedFile, OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
+import { AdapterConflictError, readPreviousManifest, readStableOwnershipFile, isManagedFile, OWNERSHIP_HEADER, writeManagedFile } from "./filesystem-lifecycle.js";
 import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it.each([false, true])("rejects a missing previously-owned manifest (force=%s)", async (force) => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-missing-manifest-"));
+    try {
+      const manifestPath = join(root, "skills.json");
+      const expectedManifestDigest = createHash("sha256").update("previous manifest").digest("hex");
+      await expect(writeManagedFile(manifestPath, "new manifest", {
+        manifest: true, force, expectedManifestDigest,
+      })).rejects.toBeInstanceOf(AdapterConflictError);
+      await expect(readFile(manifestPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.platform === "win32")("rejects FIFO ownership evidence without blocking", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-fifo-ownership-"));
     try {

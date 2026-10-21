@@ -206,7 +206,8 @@ export async function readStableOwnershipFile(path: string): Promise<Buffer> {
 }
 
 /** Stage complete bytes before replacing a managed destination. */
-async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string; ownershipManifestPath?: string; ownershipManifestDigest?: string }): Promise<void> {
+/** @internal: exposed for focused filesystem safety regression tests. */
+export async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string; ownershipManifestPath?: string; ownershipManifestDigest?: string }): Promise<void> {
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
@@ -230,6 +231,11 @@ async function writeManagedFile(path: string, content: string, options?: { force
       exists = true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    // Losing a previously verified manifest revokes permission to install a new one.
+    // Force cannot bypass an ownership snapshot disappearing mid-apply.
+    if (options?.manifest && options.expectedManifestDigest && !exists) {
+      throw new AdapterConflictError([path]);
     }
     if (exists) {
       // Force permits an intentional overwrite, not replacement of a manifest
