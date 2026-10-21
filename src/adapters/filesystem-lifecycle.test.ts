@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +9,20 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it.skipIf(process.platform === "win32")("rejects FIFO ownership evidence without blocking", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-fifo-ownership-"));
+    try {
+      const fifo = join(root, "skills.json");
+      const created = spawnSync("mkfifo", [fifo], { timeout: 3000 });
+      if ((created.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
+      expect(created.status).toBe(0);
+      await expect(readStableOwnershipFile(fifo)).rejects.toThrow();
+      expect(await readPreviousManifest(fifo, "codex")).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads ownership bytes from a regular file and rejects symlink/directory evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-stable-read-"));
     try {
