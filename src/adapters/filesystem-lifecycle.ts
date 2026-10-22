@@ -16,6 +16,7 @@ import type {
 
 export const OWNERSHIP_HEADER = "<!-- Managed by SkillGate. Do not edit directly. -->\n";
 const MAX_OWNERSHIP_FILE_BYTES = 32 * 1024 * 1024;
+const MAX_SKILL_SOURCE_BYTES = 32 * 1024 * 1024;
 /**
  * Serialize mutations by cooperating SkillGate processes targeting one adapter root.
  * The lock lives outside the workspace so cleanup never creates a missing root.
@@ -451,8 +452,28 @@ async function applyFilesystemAdapterUnlocked(
       return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
     }
     try {
-      if (!(await source.stat()).isFile()) throw new AdapterConflictError([skill.path]);
-      return await source.readFile({ encoding: "utf8" });
+      const before = await source.stat();
+      if (!before.isFile() || before.size > MAX_SKILL_SOURCE_BYTES) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      // Bound reads even if the source grows after stat(), before mutation.
+      const chunks: Buffer[] = [];
+      let total = 0;
+      while (true) {
+        const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_SKILL_SOURCE_BYTES + 1 - total));
+        const { bytesRead } = await source.read(chunk, 0, chunk.length, null);
+        if (bytesRead === 0) break;
+        total += bytesRead;
+        if (total > MAX_SKILL_SOURCE_BYTES) throw new AdapterConflictError([skill.path]);
+        chunks.push(chunk.subarray(0, bytesRead));
+      }
+      const after = await source.stat();
+      if (total !== before.size || before.dev !== after.dev || before.ino !== after.ino ||
+          before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+          before.ctimeMs !== after.ctimeMs) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      return Buffer.concat(chunks, total).toString("utf8");
     } finally {
       await source.close();
     }
