@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, truncate, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -9,6 +9,19 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects oversized ownership evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-oversized-ownership-"));
+    try {
+      const target = join(root, "skills.json");
+      await writeFile(target, "x");
+      await truncate(target, 32 * 1024 * 1024 + 1);
+      await expect(readStableOwnershipFile(target)).rejects.toBeInstanceOf(AdapterConflictError);
+      expect(await readPreviousManifest(target, "codex")).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([false, true])("rejects a missing previously-owned manifest (force=%s)", async (force) => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-missing-manifest-"));
     try {

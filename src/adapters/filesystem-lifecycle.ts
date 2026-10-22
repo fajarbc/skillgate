@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 
 export const OWNERSHIP_HEADER = "<!-- Managed by SkillGate. Do not edit directly. -->\n";
+const MAX_OWNERSHIP_FILE_BYTES = 32 * 1024 * 1024;
 /**
  * Serialize mutations by cooperating SkillGate processes targeting one adapter root.
  * The lock lives outside the workspace so cleanup never creates a missing root.
@@ -185,8 +186,18 @@ export async function readStableOwnershipFile(path: string): Promise<Buffer> {
   const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const before = await handle.stat();
-    if (!before.isFile()) throw new AdapterConflictError([path]);
-    const bytes = await handle.readFile();
+    if (!before.isFile() || before.size > MAX_OWNERSHIP_FILE_BYTES) throw new AdapterConflictError([path]);
+    const chunks: Buffer[] = [];
+    let length = 0;
+    while (true) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_OWNERSHIP_FILE_BYTES + 1 - length));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+      if (length > MAX_OWNERSHIP_FILE_BYTES) throw new AdapterConflictError([path]);
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    const bytes = Buffer.concat(chunks, length);
     const after = await handle.stat();
     await assertNoSymlinkAncestors(path);
     const current = await lstat(path);
