@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, truncate, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, truncate, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -9,6 +9,29 @@ import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter ownership manifest validation", () => {
+  it("rejects hard-linked ownership evidence that can be edited through an alias", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-hardlink-ownership-"));
+    try {
+      const target = join(root, "SKILL.md");
+      const alias = join(root, "alias.md");
+      const content = OWNERSHIP_HEADER + "# Managed";
+      await writeFile(target, content);
+      await link(target, alias);
+      await expect(readStableOwnershipFile(target)).rejects.toBeInstanceOf(AdapterConflictError);
+      const manifest = {
+        managedBy: "skillgate" as const, version: "1.0" as const,
+        agent: "codex", task: "hardlink", updatedAt: new Date().toISOString(),
+        managedFiles: [target],
+        fileDigests: { [target]: createHash("sha256").update(content).digest("hex") },
+        skills: [],
+      };
+      expect(await isManagedFile(target, manifest)).toBe(false);
+      expect(await readFile(alias, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects oversized ownership evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-oversized-ownership-"));
     try {
