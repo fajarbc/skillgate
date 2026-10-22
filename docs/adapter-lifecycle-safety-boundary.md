@@ -6,7 +6,7 @@ SkillGate's Codex and Claude Code adapters expose skills through a plan/apply/cl
 
 - `plan` is read-only and reports prospective writes, stale removals, and conflicts.
 - `apply` records a pending manifest before changing managed files. SHA-256 digests identify bytes that SkillGate previously wrote or verified, including recovery after an interrupted apply.
-- A legacy manifest that has only an ownership marker is readable for migration, but its marker alone does **not** authorize replacement or deletion.
+- A legacy manifest that has only an ownership marker is readable for migration, but its marker alone does **not** authorize replacement or deletion. Cleanup retains even an empty legacy manifest without digest metadata for manual review.
 - `cleanup` checks recorded ownership before removal. A user-edited managed file with different bytes must be retained, even when it still has the SkillGate header.
 - Explicit `force` is an intentional overwrite option; it is not a substitute for validating ownership during ordinary cleanup.
 

@@ -510,7 +510,26 @@ describe("adapter ownership manifest validation", () => {
     }
   });
 
-  it("removes an unchanged owned manifest during cleanup", async () => {
+  it("preserves an empty legacy manifest without digest evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-legacy-empty-manifest-"));
+    try {
+      const manifestPath = join(root, ".codex", "skills.json");
+      await mkdir(join(root, ".codex"), { recursive: true });
+      const legacy = JSON.stringify({
+        managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "original", updatedAt: "2026-01-01",
+        managedFiles: [manifestPath], skills: [],
+      });
+      await writeFile(manifestPath, legacy);
+      const result = await new CodexAdapter().cleanup({ task: "cleanup", root, skills: [] });
+      expect(result.filesRemoved).not.toContain(manifestPath);
+      expect(await readFile(manifestPath, "utf8")).toBe(legacy);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes an unchanged digest-aware owned manifest during cleanup", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cleanup-manifest-"));
     try {
       const manifestPath = join(root, ".codex", "skills.json");
@@ -518,7 +537,7 @@ describe("adapter ownership manifest validation", () => {
       const manifest = {
         managedBy: "skillgate", version: "1.0", agent: "codex",
         task: "original", updatedAt: "2026-01-01",
-        managedFiles: [manifestPath], skills: [],
+        managedFiles: [manifestPath], fileDigests: {}, skills: [],
       };
       await writeFile(manifestPath, JSON.stringify(manifest));
       const adapter = new CodexAdapter();

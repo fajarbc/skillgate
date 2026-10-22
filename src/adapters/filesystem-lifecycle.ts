@@ -646,6 +646,10 @@ async function cleanupFilesystemAdapterUnlocked(
       // Preserve the manifest when any owned skill file remains (including
       // user-edited files), so a later cleanup can safely recover.
       if (filePath === manifestPath) {
+        // A legacy marker-only manifest is self-asserted ownership evidence.
+        // Without digest metadata it must not authorize deletion of itself,
+        // even if every listed skill file is already missing.
+        if (previousManifest.fileDigests === undefined) continue;
         const remaining = await Promise.all(
           previousManifest.managedFiles
             .filter((candidate) => candidate !== manifestPath && isSafeManagedFilePath(agentRoot, candidate))
