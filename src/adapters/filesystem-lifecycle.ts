@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, open, readFile, realpath, rename, rm, rmdir } from "node:fs/promises";
+import { link, lstat, mkdir, open, realpath, rename, rm, rmdir } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -441,11 +441,20 @@ async function applyFilesystemAdapterUnlocked(
   // Read every source before creating directories or changing managed files.
   // A missing or unreadable later source must not leave a partial apply.
   const preparedContents = await Promise.all(preparedSkills.map(async ({ skill }) => {
+    // A FIFO or device can block readFile() indefinitely before apply begins.
+    // Open nonblocking and reject non-regular sources before reading bytes.
+    let source;
     try {
-      return await readFile(skill.path, "utf8");
+      source = await open(skill.path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
+    }
+    try {
+      if (!(await source.stat()).isFile()) throw new AdapterConflictError([skill.path]);
+      return await source.readFile({ encoding: "utf8" });
+    } finally {
+      await source.close();
     }
   }));
 
