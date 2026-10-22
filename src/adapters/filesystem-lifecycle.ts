@@ -186,7 +186,11 @@ export async function readStableOwnershipFile(path: string): Promise<Buffer> {
   const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const before = await handle.stat();
-    if (!before.isFile() || before.size > MAX_OWNERSHIP_FILE_BYTES) throw new AdapterConflictError([path]);
+    // Hard-linked ownership evidence can be changed through another pathname,
+    // bypassing the managed destination's path checks and cooperative lock.
+    if (!before.isFile() || before.nlink !== 1 || before.size > MAX_OWNERSHIP_FILE_BYTES) {
+      throw new AdapterConflictError([path]);
+    }
     const chunks: Buffer[] = [];
     let length = 0;
     while (true) {
@@ -203,6 +207,7 @@ export async function readStableOwnershipFile(path: string): Promise<Buffer> {
     const current = await lstat(path);
     if (!current.isFile() || bytes.length !== before.size ||
         before.dev !== after.dev || before.ino !== after.ino ||
+        after.nlink !== 1 || current.nlink !== 1 ||
         before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
         before.ctimeMs !== after.ctimeMs ||
         current.dev !== after.dev || current.ino !== after.ino ||
