@@ -39,7 +39,14 @@ try {
     }
 
     function json(command, ...args) {
-      return JSON.parse(invoke([command, ...args, "--root", root, "--json"]));
+      const envelope = JSON.parse(invoke([command, ...args, "--root", root, "--json"]));
+      assert.equal(envelope.protocolVersion, 1);
+      assert.equal(envelope.command, command);
+      assert.equal(envelope.ok, true);
+      if (command === "doctor") return envelope.data.report;
+      if (command === "trace") return envelope.data.trace;
+      if (command === "config") return envelope.data.configuration;
+      return envelope.data;
     }
 
     assert.equal(invoke(["--version"]).trim(), pkg.version);
