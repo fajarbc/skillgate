@@ -312,3 +312,22 @@ it("rejects a near-limit task when the full pending manifest exceeds 32 MiB", as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("rejects an oversized pending manifest during plan when ownership already exists", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-existing-manifest-limit-"));
+  try {
+    const adapter = new CodexAdapter();
+    const manifestPath = join(root, ".codex", "skills.json");
+    await adapter.apply({ root, task: "seed", skills: [] });
+    const before = await readFile(manifestPath, "utf8");
+    const limit = 32 * 1024 * 1024;
+    const task = "x".repeat(limit - 100);
+    expect(Buffer.byteLength(JSON.stringify({ task, skills: [] }), "utf8")).toBeLessThan(limit);
+    const context = { root, task, skills: [] };
+    await expect(adapter.plan(context)).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(adapter.apply(context)).rejects.toBeInstanceOf(AdapterConflictError);
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
