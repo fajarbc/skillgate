@@ -427,8 +427,15 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
       // the source pathname still identifies the same snapshot before using it.
       // This detects observable substitution, not an atomic external-writer lock.
       await assertSourcePathSnapshot(skill.path, after);
-      const content = Buffer.concat(chunks, total).toString("utf8");
-      // Invalid UTF-8 may expand into replacement characters on decoding.
+      // Reject malformed UTF-8 rather than silently replacing invalid bytes
+      // with U+FFFD and publishing corrupted skill content.
+      let content: string;
+      try {
+        content = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
+      } catch {
+        throw new AdapterConflictError([skill.path]);
+      }
+      // Keep the decoded-size guard even if the decoder changes in the future.
       if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
         throw new AdapterConflictError([skill.path]);
       }
