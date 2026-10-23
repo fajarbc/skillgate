@@ -23,6 +23,21 @@ describe("CLI v1 stdin request transport", () => {
     expect(result).toEqual({ protocolVersion: 1, task, context: { paths: ["src/cli.ts"] } });
   });
 
+  it("snapshots reusable Buffer chunks before their producer mutates them", async () => {
+    const request = '{"protocolVersion":1,"task":"shared buffer"}';
+    const reused = Buffer.alloc(1);
+    async function* input() {
+      for (const byte of Buffer.from(request)) {
+        reused[0] = byte;
+        yield reused;
+      }
+    }
+    expect(await readJsonStdinRequest(input())).toEqual({
+      protocolVersion: 1,
+      task: "shared buffer",
+    });
+  });
+
   it("requires one JSON object with a nonempty task and protocol version", () => {
     for (const invalid of [
       "",
