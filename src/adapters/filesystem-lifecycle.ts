@@ -377,6 +377,20 @@ export async function isManagedFile(
 }
 
 /** Read and validate the exact bytes apply would consume, without workspace writes. */
+/** @internal: separately testable path identity check after a descriptor read. */
+export async function assertSourcePathSnapshot(path: string, descriptorSnapshot: import("node:fs").Stats): Promise<void> {
+  const pathSnapshot = await stat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") throw new AdapterConflictError([path]);
+    throw error;
+  });
+  if (!pathSnapshot.isFile() || pathSnapshot.dev !== descriptorSnapshot.dev ||
+      pathSnapshot.ino !== descriptorSnapshot.ino || pathSnapshot.size !== descriptorSnapshot.size ||
+      pathSnapshot.mtimeMs !== descriptorSnapshot.mtimeMs ||
+      pathSnapshot.ctimeMs !== descriptorSnapshot.ctimeMs) {
+    throw new AdapterConflictError([path]);
+  }
+}
+
 async function readPreparedSkillSource(skill: AdapterContext["skills"][number]): Promise<string> {
     // A FIFO or device can block readFile() indefinitely before apply begins.
     // Open nonblocking and reject non-regular sources before reading bytes.
@@ -412,15 +426,7 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
       // A descriptor remains readable after an external rename/unlink. Confirm
       // the source pathname still identifies the same snapshot before using it.
       // This detects observable substitution, not an atomic external-writer lock.
-      const pathSnapshot = await stat(skill.path).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") throw new AdapterConflictError([skill.path]);
-        throw error;
-      });
-      if (!pathSnapshot.isFile() || pathSnapshot.dev !== after.dev ||
-          pathSnapshot.ino !== after.ino || pathSnapshot.size !== after.size ||
-          pathSnapshot.mtimeMs !== after.mtimeMs || pathSnapshot.ctimeMs !== after.ctimeMs) {
-        throw new AdapterConflictError([skill.path]);
-      }
+      await assertSourcePathSnapshot(skill.path, after);
       const content = Buffer.concat(chunks, total).toString("utf8");
       // Invalid UTF-8 may expand into replacement characters on decoding.
       if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
