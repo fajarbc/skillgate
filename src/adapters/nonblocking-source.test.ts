@@ -294,3 +294,21 @@ it("rejects oversized manifest task metadata in both plan and apply without writ
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("rejects a near-limit task when the full pending manifest exceeds 32 MiB", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-near-limit-manifest-"));
+  try {
+    const limit = 32 * 1024 * 1024;
+    const task = "x".repeat(limit - 100);
+    // The old metadata-only preflight accepted this, although the pending
+    // manifest adds required ownership fields and pretty-printing overhead.
+    expect(Buffer.byteLength(JSON.stringify({ task, skills: [] }), "utf8")).toBeLessThan(limit);
+    const adapter = new CodexAdapter();
+    const ctx = { root, task, skills: [] };
+    await expect(adapter.plan(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(adapter.apply(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
+    expect(await readdir(root)).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
