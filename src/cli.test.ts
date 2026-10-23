@@ -23,6 +23,17 @@ describe("CLI", () => {
     log.mockRestore();
   });
 
+  it("shows JSON and stdin options on separate help lines", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["--help"])).toBe(0);
+      const help = String(log.mock.calls[0]?.[0]);
+      expect(help).toMatch(/--json[^\\n]*\\n\\s*--stdin/);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("rejects unknown commands", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await run(["wat"])).toBe(1);
