@@ -251,7 +251,7 @@ it("escapes fallback metadata so it cannot inject frontmatter or instructions", 
     expect((await adapter.plan(ctx)).conflicts).toEqual([]);
     await adapter.apply(ctx);
     const exposed = await readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8");
-    expect(exposed).toContain('description: "safe\\n---\\n# injected instruction"'.replaceAll("\\\\", "\\"));
+    expect(exposed).toContain('description: "safe\\n---\\n# injected instruction"');
     expect(exposed.split("\n").filter((line) => line === "---")).toHaveLength(2);
     expect(exposed).not.toContain("\n# injected instruction");
   } finally {
