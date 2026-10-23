@@ -6,7 +6,7 @@ Status: **implementation in progress on the #31 feature branch; not released**. 
 
 `skillgate <command> --json [options]` emits exactly **one UTF-8 JSON object followed by a newline** on stdout, for success or failure. Diagnostics may go to stderr, but never to JSON stdout. Exit status 0 indicates success; nonzero indicates failure. A caller must inspect both exit status and `ok`.
 
-Supported v1 commands are `scan`, `recommend`, `trace`, `doctor`, and `config`. `plan` and `apply` will join the protocol when their CLI entry points exist. Human-readable CLI output is unaffected by v1.
+Supported v1 commands are `scan`, `recommend`, `trace`, `doctor`, and `config`. `plan` and `apply` will join the protocol only after #28 lifecycle safety is accepted. Until then, `recommend --json --adapter <name>` fails closed with `ADAPTER_CONFLICT` and exit status 3 **before writing to the workspace**; it must not silently fall back to an unsafe apply. Human-readable CLI behavior is unchanged.
 
 ### Success envelope
 
@@ -44,7 +44,7 @@ The `command` field contains the requested command name, or `null` when command 
 | Command | Required `data` fields | Notes |
 | --- | --- | --- |
 | `scan` | `root`, `skills`, `signals` | Same discovery/detection core as the human CLI. |
-| `recommend` | `task`, `recommendations` | Recommendations must already be policy-filtered; `adapter` summary is optional when an adapter is explicitly requested. |
+| `recommend` | `task`, `recommendations` | Recommendations must already be policy-filtered. Machine-mode `--adapter` is rejected until #28 lifecycle safety is accepted; the optional `adapter` response field is reserved for a future safe implementation. |
 | `trace` | `trace` | `trace` is a trace record or `null` when none exists; absence is not a transport error. |
 | `doctor` | `report` | A failed report returns exit status 2 and `ok: false` with `error.code: CONFIGURATION_ERROR` and `data.report` for diagnostics. |
 | `config` | `configuration` | Must use the existing sanitized effective configuration, never raw secrets. |
