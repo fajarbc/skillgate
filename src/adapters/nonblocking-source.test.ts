@@ -279,3 +279,18 @@ it("escapes YAML Unicode line separators in fallback metadata", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("rejects oversized manifest task metadata in both plan and apply without writing state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-oversized-manifest-plan-"));
+  try {
+    // This cannot fit the 32 MiB ownership manifest even before path/digest fields.
+    const task = "x".repeat(32 * 1024 * 1024 + 1);
+    const adapter = new CodexAdapter();
+    const ctx = { root, task, skills: [] };
+    await expect(adapter.plan(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(adapter.apply(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
