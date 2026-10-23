@@ -362,6 +362,50 @@ export async function isManagedFile(
   }
 }
 
+/** Read and validate the exact bytes apply would consume, without workspace writes. */
+async function readPreparedSkillSource(skill: AdapterContext["skills"][number]): Promise<string> {
+    // A FIFO or device can block readFile() indefinitely before apply begins.
+    // Open nonblocking and reject non-regular sources before reading bytes.
+    let source;
+    try {
+      source = await open(skill.path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
+    }
+    try {
+      const before = await source.stat();
+      if (!before.isFile() || before.size > MAX_SKILL_SOURCE_BYTES) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      // Bound reads even if the source grows after stat(), before mutation.
+      const chunks: Buffer[] = [];
+      let total = 0;
+      while (true) {
+        const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_SKILL_SOURCE_BYTES + 1 - total));
+        const { bytesRead } = await source.read(chunk, 0, chunk.length, null);
+        if (bytesRead === 0) break;
+        total += bytesRead;
+        if (total > MAX_SKILL_SOURCE_BYTES) throw new AdapterConflictError([skill.path]);
+        chunks.push(chunk.subarray(0, bytesRead));
+      }
+      const after = await source.stat();
+      if (total !== before.size || before.dev !== after.dev || before.ino !== after.ino ||
+          before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+          before.ctimeMs !== after.ctimeMs) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      const content = Buffer.concat(chunks, total).toString("utf8");
+      // Invalid UTF-8 may expand into replacement characters on decoding.
+      if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      return content;
+    } finally {
+      await source.close();
+    }
+}
+
 export async function planFilesystemAdapter(
   agentName: string,
   managedDirName: string,
@@ -379,6 +423,14 @@ export async function planFilesystemAdapter(
 
   const plannedWrites: string[] = [];
   const conflicts: string[] = [];
+
+  // Planning must reject sources that apply would refuse, without mutating the workspace.
+  for (const { skill } of preparedSkills) {
+    const content = await readPreparedSkillSource(skill);
+    if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
+      conflicts.push(skill.path);
+    }
+  }
 
   for (const { dirPath } of preparedSkills) {
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
@@ -446,50 +498,7 @@ async function applyFilesystemAdapterUnlocked(
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
   // Read every source before creating directories or changing managed files.
   // A missing or unreadable later source must not leave a partial apply.
-  const preparedContents = await Promise.all(preparedSkills.map(async ({ skill }) => {
-    // A FIFO or device can block readFile() indefinitely before apply begins.
-    // Open nonblocking and reject non-regular sources before reading bytes.
-    let source;
-    try {
-      source = await open(skill.path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
-    }
-    try {
-      const before = await source.stat();
-      if (!before.isFile() || before.size > MAX_SKILL_SOURCE_BYTES) {
-        throw new AdapterConflictError([skill.path]);
-      }
-      // Bound reads even if the source grows after stat(), before mutation.
-      const chunks: Buffer[] = [];
-      let total = 0;
-      while (true) {
-        const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_SKILL_SOURCE_BYTES + 1 - total));
-        const { bytesRead } = await source.read(chunk, 0, chunk.length, null);
-        if (bytesRead === 0) break;
-        total += bytesRead;
-        if (total > MAX_SKILL_SOURCE_BYTES) throw new AdapterConflictError([skill.path]);
-        chunks.push(chunk.subarray(0, bytesRead));
-      }
-      const after = await source.stat();
-      if (total !== before.size || before.dev !== after.dev || before.ino !== after.ino ||
-          before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
-          before.ctimeMs !== after.ctimeMs) {
-        throw new AdapterConflictError([skill.path]);
-      }
-      const content = Buffer.concat(chunks, total).toString("utf8");
-      // Invalid UTF-8 may expand into replacement characters on decoding.
-      if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
-        throw new AdapterConflictError([skill.path]);
-      }
-      return content;
-    } finally {
-      await source.close();
-    }
-  }));
-
-  // Generated fallbacks must obey the same managed-output limit as file sources.
+  const preparedContents = await Promise.all(preparedSkills.map(({ skill }) => readPreparedSkillSource(skill)));
   for (let index = 0; index < preparedContents.length; index++) {
     if (Buffer.byteLength(preparedContents[index] ?? "", "utf8") > MAX_SKILL_SOURCE_BYTES) {
       throw new AdapterConflictError([preparedSkills[index]!.skill.path]);
