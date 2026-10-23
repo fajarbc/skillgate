@@ -188,11 +188,12 @@ it.skipIf(process.platform === "win32")("rejects source entry replacement by a s
     const source = join(root, "source.md");
     const moved = join(root, "moved.md");
     await writeFile(source, "# original bytes");
-    const descriptorSnapshot = await stat(source);
     const originalEntry = await lstat(source);
     await rename(source, moved);
     await symlink(moved, source);
-    // Following the symlink still reports the exact original file identity.
+    // Snapshot after the rename isolates pathname substitution from a ctime
+    // change on the moved inode. stat() alone would accept this alias.
+    const descriptorSnapshot = await stat(source);
     expect((await stat(source)).ino).toBe(descriptorSnapshot.ino);
     await expect(assertSourcePathSnapshot(source, descriptorSnapshot, originalEntry))
       .rejects.toBeInstanceOf(AdapterConflictError);
