@@ -421,6 +421,10 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
       source = await open(skill.path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Missing at the initial lstat() may use the metadata fallback. If the
+      // entry existed but vanished before open(), fail closed instead of
+      // silently publishing fabricated content during a source-path race.
+      if (sourcePathEntry) throw new AdapterConflictError([skill.path]);
       return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
     }
     try {
