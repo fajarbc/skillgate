@@ -28,7 +28,7 @@ describe("CLI", () => {
     try {
       expect(await run(["--help"])).toBe(0);
       const help = String(log.mock.calls[0]?.[0]);
-      expect(help).toMatch(/--json[^\\n]*\\n\\s*--stdin/);
+      expect(help).toMatch(/--json[^\n]*\n\s*--stdin/);
     } finally {
       log.mockRestore();
     }
