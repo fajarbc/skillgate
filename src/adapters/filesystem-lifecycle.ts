@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, open, realpath, rename, rm, rmdir } from "node:fs/promises";
+import { link, lstat, mkdir, open, realpath, rename, rm, rmdir, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -407,6 +407,18 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
       if (total !== before.size || before.dev !== after.dev || before.ino !== after.ino ||
           before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
           before.ctimeMs !== after.ctimeMs) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      // A descriptor remains readable after an external rename/unlink. Confirm
+      // the source pathname still identifies the same snapshot before using it.
+      // This detects observable substitution, not an atomic external-writer lock.
+      const pathSnapshot = await stat(skill.path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") throw new AdapterConflictError([skill.path]);
+        throw error;
+      });
+      if (!pathSnapshot.isFile() || pathSnapshot.dev !== after.dev ||
+          pathSnapshot.ino !== after.ino || pathSnapshot.size !== after.size ||
+          pathSnapshot.mtimeMs !== after.mtimeMs || pathSnapshot.ctimeMs !== after.ctimeMs) {
         throw new AdapterConflictError([skill.path]);
       }
       const content = Buffer.concat(chunks, total).toString("utf8");
