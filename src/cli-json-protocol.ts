@@ -64,5 +64,7 @@ export function jsonLine<T>(envelope: JsonProtocolEnvelope<T>): string {
   // JSON permits these Unicode line separators unescaped, but line-oriented
   // consumers may treat them as extra records. Escape without changing data.
   return JSON.stringify(envelope)
-    .replace(/\u0085/g, "\\u0085")\n    .replace(/\u2028/g, "\\u2028")\n    .replace(/\u2029/g, "\\u2029") + "\n";
+    .replace(/\u0085/g, "\\u0085")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029") + "\n";
 }
