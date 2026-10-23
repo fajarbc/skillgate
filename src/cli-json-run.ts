@@ -1,6 +1,5 @@
 import { cwd, stdin, stdout } from "node:process";
 import { parseArgs } from "node:util";
-import { getAdapter, listAdapters } from "./adapters/index.js";
 import { resolveConfiguration, sanitizeConfiguration, ConfigurationError } from "./config/index.js";
 import { detectProject } from "./detection/index.js";
 import { discoverSkills } from "./discovery/index.js";
@@ -65,6 +64,11 @@ export async function runJson(
     if (values.adapter && selected !== "recommend") {
       return fail("INVALID_REQUEST", "--adapter is only supported with recommend");
     }
+    if (values.adapter) {
+      // This is an apply operation, not a read-only recommendation. Do not
+      // expose it to machine callers before #28 lifecycle safety is accepted.
+      return fail("ADAPTER_CONFLICT", "JSON adapter application is unavailable pending lifecycle safety validation", 3);
+    }
 
     let task: string | undefined;
     if (selected === "recommend") {
@@ -126,29 +130,6 @@ export async function runJson(
       return evaluation ? evaluation.decision === "allow" : true;
     });
 
-    let adapterSummary: string | undefined;
-    if (values.adapter) {
-      if (configuration.adapters.length > 0 && !configuration.adapters.includes(values.adapter)) {
-        return fail("ADAPTER_CONFLICT", "Adapter is not enabled by configuration", 3);
-      }
-      const adapter = getAdapter(values.adapter);
-      if (!adapter) {
-        // Avoid echoing untrusted argument text into a machine error.
-        return fail("INVALID_REQUEST", `Unknown adapter. Available: ${listAdapters().join(", ")}`);
-      }
-      try {
-        const result = await adapter.apply({
-          task: task!,
-          root,
-          skills: approvedRecommendations,
-          options: configuration.adapterOptions[adapter.name] ?? configuration.adapterOptions[values.adapter],
-        });
-        adapterSummary = result.summary;
-      } catch {
-        return fail("ADAPTER_CONFLICT", "Adapter application failed", 3);
-      }
-    }
-
     const traceRecord = createTraceRecord({
       task: task!,
       root,
@@ -161,7 +142,6 @@ export async function runJson(
     return succeed(selected, {
       task: task!,
       recommendations: approvedRecommendations,
-      ...(adapterSummary ? { adapter: adapterSummary } : {}),
     });
   } catch (error) {
     if (error instanceof JsonStdinRequestError) {
