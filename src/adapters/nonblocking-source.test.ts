@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { CodexAdapter } from "./codex.js";
-import { AdapterConflictError, OWNERSHIP_HEADER, writeManagedFile } from "./filesystem-lifecycle.js";
+import { AdapterConflictError, OWNERSHIP_HEADER, assertSourcePathSnapshot, writeManagedFile } from "./filesystem-lifecycle.js";
 
 function context(root: string, path: string) {
   return { task: "non-regular-source", root, skills: [{
@@ -129,6 +129,39 @@ it("plan rejects UTF-8 replacement expansion beyond the managed-source limit", a
     await writeFile(source, Buffer.alloc(32 * 1024 * 1024, 0xff));
     await expect(new CodexAdapter().plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("detects source pathname replacement even when replacement bytes are identical", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-source-path-snapshot-"));
+  try {
+    const source = join(root, "source.md");
+    const moved = join(root, "moved.md");
+    await writeFile(source, "# identical content");
+    const originalSnapshot = await stat(source);
+    await expect(assertSourcePathSnapshot(source, originalSnapshot)).resolves.toBeUndefined();
+    // Retain the original inode under another name, then put identical bytes
+    // at the source pathname. Size/content checks alone cannot detect this.
+    await rename(source, moved);
+    await writeFile(source, "# identical content");
+    await expect(assertSourcePathSnapshot(source, originalSnapshot))
+      .rejects.toBeInstanceOf(AdapterConflictError);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("detects a source pathname removed after descriptor validation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-source-path-missing-"));
+  try {
+    const source = join(root, "source.md");
+    await writeFile(source, "# source");
+    const originalSnapshot = await stat(source);
+    await rm(source);
+    await expect(assertSourcePathSnapshot(source, originalSnapshot))
+      .rejects.toBeInstanceOf(AdapterConflictError);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
