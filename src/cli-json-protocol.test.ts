@@ -54,4 +54,13 @@ describe("versioned CLI JSON protocol", () => {
       '{"protocolVersion":1,"command":"doctor","ok":true,"data":{}}\n',
     );
   });
+
+  it("escapes Unicode line separators without changing parsed payloads", () => {
+    const payload = { task: "alpha\u0085beta\u2028gamma\u2029delta" };
+    const line = jsonLine(jsonSuccess("recommend", payload));
+    expect(line).not.toMatch(/[\u0085\u2028\u2029]/);
+    expect(line.split("\n")).toHaveLength(2);
+    expect(JSON.parse(line).data).toEqual(payload);
+  });
+
 });
