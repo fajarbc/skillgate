@@ -862,3 +862,45 @@ describe("adapter ownership manifest validation", () => {
   });
 
 });
+
+describe("replacement boundary regression", () => {
+  it("preserves a user-edited digest-owned file when replacement is requested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-replacement-regression-"));
+    try {
+      const path = join(root, "SKILL.md");
+      const original = OWNERSHIP_HEADER + "# original";
+      const edited = OWNERSHIP_HEADER + "# edited by user";
+      await writeFile(path, original);
+      const previous = {
+        managedBy: "skillgate" as const, version: "1.0" as const,
+        agent: "codex", task: "regression", updatedAt: new Date().toISOString(),
+        managedFiles: [path],
+        fileDigests: { [path]: createHash("sha256").update(original).digest("hex") },
+        skills: [],
+      };
+      await writeFile(path, edited);
+      await expect(writeManagedFile(path, OWNERSHIP_HEADER + "# new", {
+        expectedManifest: previous,
+      })).rejects.toBeInstanceOf(AdapterConflictError);
+      expect(await readFile(path, "utf8")).toBe(edited);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("never follows a forced symlink destination during replacement", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-replacement-symlink-"));
+    try {
+      const userFile = join(root, "user.md");
+      const target = join(root, "SKILL.md");
+      await writeFile(userFile, "# user");
+      await symlink(userFile, target);
+      await expect(writeManagedFile(target, OWNERSHIP_HEADER + "# replacement", {
+        force: true,
+      })).rejects.toBeInstanceOf(AdapterConflictError);
+      expect(await readFile(userFile, "utf8")).toBe("# user");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
