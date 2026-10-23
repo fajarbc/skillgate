@@ -30,8 +30,8 @@ function usage(): string {
     "  --root <path>     Project and skill root (default: current directory)",
     "  --adapter <name>  Apply skills to agent workspace (e.g. codex)",
     "  --config <path>   Explicit configuration file",
-    "  --json            Print versioned machine-readable JSON
-    --stdin           Read v1 JSON task from stdin (recommend --json only)",
+    "  --json            Print versioned machine-readable JSON",
+    "  --stdin           Read v1 JSON task from stdin (recommend --json only)",
     "  -h, --help        Show help",
     "  -v, --version     Show version",
   ].join("\n");
