@@ -3,6 +3,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, tr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { parse } from "yaml";
 import { CodexAdapter } from "./codex.js";
 import { AdapterConflictError, OWNERSHIP_HEADER, assertSourcePathSnapshot, writeManagedFile } from "./filesystem-lifecycle.js";
 
@@ -254,6 +255,26 @@ it("escapes fallback metadata so it cannot inject frontmatter or instructions", 
     expect(exposed).toContain('description: "safe\\n---\\n# injected instruction"');
     expect(exposed.split("\n").filter((line) => line === "---")).toHaveLength(2);
     expect(exposed).not.toContain("\n# injected instruction");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("escapes YAML Unicode line separators in fallback metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-fallback-unicode-"));
+  try {
+    const missing = join(root, "missing.md");
+    const ctx = context(root, missing);
+    const description = "safe\u2028---\u2028# injected\u0085continuation";
+    ctx.skills[0]!.metadata.description = description;
+    const adapter = new CodexAdapter();
+    expect((await adapter.plan(ctx)).conflicts).toEqual([]);
+    await adapter.apply(ctx);
+    const exposed = await readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8");
+    expect(exposed).toContain("\\u2028");
+    expect(exposed).toContain("\\u0085");
+    const frontmatter = exposed.slice(OWNERSHIP_HEADER.length).split("\n---\n")[0]!;
+    expect(parse(frontmatter.slice(4))).toEqual({ name: "sample", description });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
