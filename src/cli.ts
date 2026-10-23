@@ -45,8 +45,22 @@ async function scan(root: string, skillRoots: string[]) {
   return { root, skills: discovered, signals };
 }
 
+/** Recognize --json only when parseArgs would treat it as an option. */
+function requestsJsonTransport(argv: string[]): boolean {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--") break;
+    if (arg === "--root" || arg === "--adapter" || arg === "--config") {
+      index += 1;
+      continue;
+    }
+    if (arg === "--json") return true;
+  }
+  return false;
+}
+
 export async function run(argv: string[]): Promise<number> {
-  if (argv.includes("--json")) return runJson(argv);
+  if (requestsJsonTransport(argv)) return runJson(argv);
   let parsed;
   try {
     parsed = parseArgs({

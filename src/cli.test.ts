@@ -34,6 +34,25 @@ describe("CLI", () => {
     }
   });
 
+  it("preserves literal --json task text after -- in human mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "--root", root, "--", "--json"])).toBe(0);
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+    const trace = (await captureJson(["trace", "--root", root, "--json"])).trace;
+    expect(trace.task).toBe("--json");
+  });
+
+  it("still recognizes --json before -- with literal task text", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    const output = await captureJson(["recommend", "--json", "--root", root, "--", "--json"]);
+    expect(output.task).toBe("--json");
+  });
+
   it("rejects unknown commands", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await run(["wat"])).toBe(1);
