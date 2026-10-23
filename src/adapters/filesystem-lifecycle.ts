@@ -425,7 +425,13 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
       // entry existed but vanished before open(), fail closed instead of
       // silently publishing fabricated content during a source-path race.
       if (sourcePathEntry) throw new AdapterConflictError([skill.path]);
-      // JSON string literals are valid YAML double-quoted scalars. Escaping\n      // metadata prevents newlines, delimiters, or YAML tokens from injecting\n      // additional frontmatter or skill instructions into a missing source.\n      return `---\nname: ${JSON.stringify(skill.metadata.name)}\ndescription: ${JSON.stringify(skill.metadata.description)}\n---\n`;
+      // JSON-quoted strings are valid YAML scalars, except JSON.stringify leaves
+      // Unicode line separators literal; YAML interprets them as line breaks.
+      const yamlQuoted = (value: string): string => JSON.stringify(value).replace(
+        /[\u0085\u2028\u2029]/g,
+        (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
+      );
+      return `---\nname: ${yamlQuoted(skill.metadata.name)}\ndescription: ${yamlQuoted(skill.metadata.description)}\n---\n`;
     }
     try {
       const before = await source.stat();
