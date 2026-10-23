@@ -378,7 +378,25 @@ export async function isManagedFile(
 
 /** Read and validate the exact bytes apply would consume, without workspace writes. */
 /** @internal: separately testable path identity check after a descriptor read. */
-export async function assertSourcePathSnapshot(path: string, descriptorSnapshot: import("node:fs").Stats): Promise<void> {
+export async function assertSourcePathSnapshot(
+  path: string,
+  descriptorSnapshot: import("node:fs").Stats,
+  originalPathEntry?: import("node:fs").Stats,
+): Promise<void> {
+  // stat() follows symlinks: replacing a direct path with a symlink to the
+  // same inode would otherwise pass the descriptor identity check.
+  const pathEntry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") throw new AdapterConflictError([path]);
+    throw error;
+  });
+  if (originalPathEntry && (
+      pathEntry.dev !== originalPathEntry.dev || pathEntry.ino !== originalPathEntry.ino ||
+      pathEntry.mode !== originalPathEntry.mode || pathEntry.size !== originalPathEntry.size ||
+      pathEntry.mtimeMs !== originalPathEntry.mtimeMs ||
+      pathEntry.ctimeMs !== originalPathEntry.ctimeMs ||
+      pathEntry.nlink !== originalPathEntry.nlink)) {
+    throw new AdapterConflictError([path]);
+  }
   const pathSnapshot = await stat(path).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") throw new AdapterConflictError([path]);
     throw error;
@@ -395,7 +413,11 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
     // A FIFO or device can block readFile() indefinitely before apply begins.
     // Open nonblocking and reject non-regular sources before reading bytes.
     let source;
+    let sourcePathEntry: Awaited<ReturnType<typeof lstat>> | undefined;
     try {
+      // Capture the pathname entry separately from the opened target inode.
+      // This preserves stable symlink sources but detects entry replacement.
+      sourcePathEntry = await lstat(skill.path);
       source = await open(skill.path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -426,7 +448,7 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
       // A descriptor remains readable after an external rename/unlink. Confirm
       // the source pathname still identifies the same snapshot before using it.
       // This detects observable substitution, not an atomic external-writer lock.
-      await assertSourcePathSnapshot(skill.path, after);
+      await assertSourcePathSnapshot(skill.path, after, sourcePathEntry);
       // Reject malformed UTF-8 rather than silently replacing invalid bytes
       // with U+FFFD and publishing corrupted skill content.
       let content: string;
