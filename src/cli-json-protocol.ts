@@ -61,5 +61,8 @@ export function jsonFailure(
 
 /** Exactly one compact UTF-8 JSON document and a terminating newline. */
 export function jsonLine<T>(envelope: JsonProtocolEnvelope<T>): string {
-  // JSON permits these Unicode line separators unescaped, but line-oriented\n  // consumers may treat them as extra records. Escape without changing data.\n  return JSON.stringify(envelope)\n    .replace(/\u0085/g, "\\u0085")\n    .replace(/\u2028/g, "\\u2028")\n    .replace(/\u2029/g, "\\u2029") + "\n";
+  // JSON permits these Unicode line separators unescaped, but line-oriented
+  // consumers may treat them as extra records. Escape without changing data.
+  return JSON.stringify(envelope)
+    .replace(/\u0085/g, "\\u0085")\n    .replace(/\u2028/g, "\\u2028")\n    .replace(/\u2029/g, "\\u2029") + "\n";
 }
