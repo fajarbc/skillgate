@@ -1,6 +1,6 @@
 # SkillGate CLI JSON protocol v1 (proposed contract)
 
-Status: **design only — not yet implemented**. This document is the target contract for P0 #31. The current CLI's `--json` output is unversioned and does **not** conform to these envelopes. Consumers must not rely on v1 until the implementation, schemas, fixtures, and tests are merged.
+Status: **implementation in progress on the #31 feature branch; not released**. Versioned `--json` envelopes and bounded stdin transport are wired into the CLI on this branch. Schema fixtures, full repository tests, and review are still pending. Consumers must not rely on v1 until the changes are validated and merged.
 
 ## Invocation and transport
 
@@ -46,16 +46,16 @@ The `command` field contains the requested command name, or `null` when command 
 | `scan` | `root`, `skills`, `signals` | Same discovery/detection core as the human CLI. |
 | `recommend` | `task`, `recommendations` | Recommendations must already be policy-filtered; `adapter` summary is optional when an adapter is explicitly requested. |
 | `trace` | `trace` | `trace` is a trace record or `null` when none exists; absence is not a transport error. |
-| `doctor` | `report` | `report.status === "fail"` returns a nonzero process exit even if a report is successfully produced; a diagnostic failure is represented as `ok: false` with a structured report or error. |
+| `doctor` | `report` | A failed report returns exit status 2 and `ok: false` with `error.code: CONFIGURATION_ERROR` and `data.report` for diagnostics. |
 | `config` | `configuration` | Must use the existing sanitized effective configuration, never raw secrets. |
 | `plan` (future) | `plan` | Must not mutate the workspace. |
 | `apply` (future) | `result` | May mutate only according to the safe adapter lifecycle. |
 
 For v1, these field names and their JSON types are stable. Additional optional fields may be introduced without a version bump. Existing required fields may not be removed or repurposed in v1.
 
-## Large task input via stdin (future)
+## Large task input via stdin (feature branch)
 
-`skillgate recommend --json --stdin` will accept a **single** UTF-8 JSON object on stdin:
+`skillgate recommend --json --stdin` accepts a **single** UTF-8 JSON object on stdin, bounded to 1 MiB:
 
 ```json
 {
@@ -71,9 +71,9 @@ For v1, these field names and their JSON types are stable. Additional optional f
 
 ## Error codes and exit behavior
 
-Proposed stable error codes: `INVALID_REQUEST`, `UNSUPPORTED_PROTOCOL`, `CONFIGURATION_ERROR`, `POLICY_ERROR`, `ADAPTER_CONFLICT`, and `INTERNAL_ERROR`.
+Stable v1 error codes: `INVALID_REQUEST`, `UNSUPPORTED_PROTOCOL`, `CONFIGURATION_ERROR`, `POLICY_ERROR`, `ADAPTER_CONFLICT`, and `INTERNAL_ERROR`.
 
-Exit status 0: successful request. Exit status 1: invalid request or command. Exit status 2: configuration or policy error. Exit status 3: adapter conflict or failed operation. Exit status 4: unexpected internal error. These codes are **proposed** and must be validated against existing CLI compatibility before implementation.
+Exit status 0: successful request. Exit status 1: invalid request or command. Exit status 2: configuration, policy, or failed doctor checks. Exit status 3: adapter conflict or failed operation. Exit status 4: unexpected internal error. Human-readable CLI exit codes remain unchanged.
 
 ## Required conformance tests before release
 
@@ -85,4 +85,4 @@ Exit status 0: successful request. Exit status 1: invalid request or command. Ex
 - Policy-denied skills are absent from recommendation output.
 - Existing human output and exit behavior remain compatible unless explicitly documented.
 
-**Implementation status:** No v1 envelope, stdin transport, or schema fixtures are claimed by this document. This is an implementation checklist, not a release announcement.
+**Implementation status:** v1 envelope routing and strict bounded stdin parsing have been committed to the #31 feature branch. Schema fixtures and full CLI/Vitest validation are still outstanding; this is not a release announcement.
