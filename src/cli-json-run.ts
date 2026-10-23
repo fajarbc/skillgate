@@ -15,7 +15,10 @@ import { JsonStdinRequestError, readJsonStdinRequest } from "./cli-json-stdin.js
  * The JSON transport deliberately has one stdout write per invocation.
  * Human-facing CLI output remains in cli.ts and is not changed by this module.
  */
-export async function runJson(argv: string[]): Promise<number> {
+export async function runJson(
+  argv: string[],
+  input: AsyncIterable<Uint8Array | string> = stdin,
+): Promise<number> {
   let command: string | null = null;
   const fail = (code: JsonProtocolErrorCode, message: string, exitCode = 1): number => {
     stdout.write(jsonLine(jsonFailure(command, code, message)));
@@ -66,7 +69,7 @@ export async function runJson(argv: string[]): Promise<number> {
     let task: string | undefined;
     if (selected === "recommend") {
       if (values.stdin) {
-        task = (await readJsonStdinRequest(stdin)).task;
+        task = (await readJsonStdinRequest(input)).task;
       } else {
         task = positionals.slice(1).join(" ").trim();
       }
