@@ -508,6 +508,30 @@ export async function planFilesystemAdapter(
     throw new AdapterConflictError([manifestPath]);
   }
 
+  // Without a previous manifest, every pending field is predictable at plan
+  // time. Digest placeholders have the same 64-byte length as SHA-256 output.
+  // Check the actual pretty-printed envelope, not only its metadata subset:
+  // otherwise plan can succeed near 32 MiB while apply rejects the manifest.
+  if (!previousManifest) {
+    const projectedPending: ManifestData = {
+      managedBy: "skillgate", version: "1.0", agent: agentName,
+      task: context.task, updatedAt: new Date().toISOString(),
+      managedFiles: [
+        ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
+        manifestPath,
+      ],
+      fileDigests: Object.fromEntries(preparedSkills.map(({ dirPath }) => [
+        resolveSafeSubpath(dirPath, "SKILL.md"), "0".repeat(64),
+      ])),
+      phase: "pending",
+      previousFileDigests: {},
+      skills: requiredManifestMetadata.skills,
+    };
+    if (Buffer.byteLength(JSON.stringify(projectedPending, null, 2), "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+      throw new AdapterConflictError([manifestPath]);
+    }
+  }
+
   const plannedWrites: string[] = [];
   const conflicts: string[] = [];
 
