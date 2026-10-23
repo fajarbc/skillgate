@@ -376,6 +376,33 @@ export async function isManagedFile(
   }
 }
 
+/** Collect only previously verified ownership bytes for pending recovery metadata. */
+async function collectVerifiedOwnedDigests(
+  agentRoot: string,
+  manifestPath: string,
+  prior: ManifestData | null,
+): Promise<Record<string, string>> {
+  const verifiedDigests: Record<string, string> = {};
+  if (!prior) return verifiedDigests;
+  for (const filePath of prior.managedFiles) {
+    if (!isSafeManagedFilePath(agentRoot, filePath) || filePath === manifestPath) continue;
+    await assertNoSymlinkAncestors(filePath);
+    try {
+      const current = await readStableOwnershipFile(filePath);
+      if (!current.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) continue;
+      const currentDigest = digest(current);
+      // A legacy marker-only manifest cannot authenticate existing file bytes.
+      if (prior.fileDigests?.[filePath] === currentDigest ||
+          (prior.phase === "pending" && prior.previousFileDigests?.[filePath] === currentDigest)) {
+        verifiedDigests[filePath] = currentDigest;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return verifiedDigests;
+}
+
 /** Read and validate the exact bytes apply would consume, without workspace writes. */
 /** @internal: separately testable path identity check after a descriptor read. */
 export async function assertSourcePathSnapshot(
@@ -508,28 +535,30 @@ export async function planFilesystemAdapter(
     throw new AdapterConflictError([manifestPath]);
   }
 
-  // Without a previous manifest, every pending field is predictable at plan
-  // time. Digest placeholders have the same 64-byte length as SHA-256 output.
-  // Check the actual pretty-printed envelope, not only its metadata subset:
-  // otherwise plan can succeed near 32 MiB while apply rejects the manifest.
-  if (!previousManifest) {
-    const projectedPending: ManifestData = {
-      managedBy: "skillgate", version: "1.0", agent: agentName,
-      task: context.task, updatedAt: new Date().toISOString(),
-      managedFiles: [
-        ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
-        manifestPath,
-      ],
-      fileDigests: Object.fromEntries(preparedSkills.map(({ dirPath }) => [
+  // Project the full pending manifest, including retained ownership metadata.
+  // Use the same verified-digest collector as apply so existing-manifest plans
+  // also reject an envelope that apply cannot safely persist.
+  const verifiedDigests = await collectVerifiedOwnedDigests(agentRoot, manifestPath, previousManifest);
+  const projectedPending: ManifestData = {
+    managedBy: "skillgate", version: "1.0", agent: agentName,
+    task: context.task, updatedAt: new Date().toISOString(),
+    managedFiles: [...new Set([
+      ...(previousManifest?.managedFiles ?? []).filter((p) => isSafeManagedFilePath(agentRoot, p)),
+      ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
+      manifestPath,
+    ])],
+    fileDigests: {
+      ...(previousManifest?.fileDigests ?? {}),
+      ...Object.fromEntries(preparedSkills.map(({ dirPath }) => [
         resolveSafeSubpath(dirPath, "SKILL.md"), "0".repeat(64),
       ])),
-      phase: "pending",
-      previousFileDigests: {},
-      skills: requiredManifestMetadata.skills,
-    };
-    if (Buffer.byteLength(JSON.stringify(projectedPending, null, 2), "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
-      throw new AdapterConflictError([manifestPath]);
-    }
+    },
+    phase: "pending",
+    previousFileDigests: verifiedDigests,
+    skills: requiredManifestMetadata.skills,
+  };
+  if (Buffer.byteLength(JSON.stringify(projectedPending, null, 2), "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([manifestPath]);
   }
 
   const plannedWrites: string[] = [];
@@ -640,26 +669,8 @@ async function applyFilesystemAdapterUnlocked(
     }
   }
   const priorManifestDigest = priorManifestBytes === undefined ? undefined : digest(priorManifestBytes);
-  // Record only current, verified owned bytes before advertising replacements.
-  const previousVerifiedDigests: Record<string, string> = {};
-  if (prior) {
-    for (const filePath of prior.managedFiles) {
-      if (!isSafeManagedFilePath(agentRoot, filePath) || filePath === manifestPath) continue;
-      await assertNoSymlinkAncestors(filePath);
-      try {
-        const current = await readStableOwnershipFile(filePath);
-        if (!current.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) continue;
-        const currentDigest = digest(current);
-        // A legacy manifest without digests cannot prove ownership. Do not
-        // convert a marker-only file into trusted pending recovery metadata.
-        const verified = prior.fileDigests?.[filePath] === currentDigest ||
-          (prior.phase === "pending" && prior.previousFileDigests?.[filePath] === currentDigest);
-        if (verified) previousVerifiedDigests[filePath] = currentDigest;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-    }
-  }
+  // Use the same verified ownership snapshot as the plan-time size preflight.
+  const previousVerifiedDigests = await collectVerifiedOwnedDigests(agentRoot, manifestPath, prior);
   const plannedDigests = Object.fromEntries(preparedSkills.map(({ dirPath }, index) => [
     resolveSafeSubpath(dirPath, "SKILL.md"),
     digest(`${OWNERSHIP_HEADER}${preparedContents[index]}`),
