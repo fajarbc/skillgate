@@ -224,3 +224,19 @@ it.skipIf(process.platform === "win32")("rejects symlink source entry replacemen
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("preserves metadata fallback only for a source absent at the initial path check", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-absent-source-fallback-"));
+  try {
+    const missing = join(root, "missing.md");
+    const adapter = new CodexAdapter();
+    const ctx = context(root, missing);
+    expect((await adapter.plan(ctx)).conflicts).toEqual([]);
+    await adapter.apply(ctx);
+    const exposed = await readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8");
+    expect(exposed).toContain("name: sample");
+    expect(exposed).toContain("description: sample");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
