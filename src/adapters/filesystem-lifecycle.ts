@@ -245,12 +245,14 @@ export async function writeManagedFile(path: string, content: string, options?: 
     // access() follows symlinks and treats dangling symlinks as missing.
     // lstat() detects the directory entry itself, preventing unsafe writes.
     let exists = false;
+    let originalEntry: Awaited<ReturnType<typeof lstat>> | undefined;
     try {
       const entry = await lstat(path);
       if (entry.isSymbolicLink() || !entry.isFile()) {
         throw new AdapterConflictError([path]);
       }
       exists = true;
+      originalEntry = entry;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -294,7 +296,19 @@ export async function writeManagedFile(path: string, content: string, options?: 
       throw new AdapterConflictError([path]);
     }
     if (exists) {
-      // Replacing an existing owned file still requires stronger concurrency coordination.
+      // Reject observable substitution after the ownership checks. This does not
+      // eliminate a non-cooperating writer's race after this final lstat().
+      const currentEntry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") throw new AdapterConflictError([path]);
+        throw error;
+      });
+      if (!originalEntry || !currentEntry.isFile() || currentEntry.isSymbolicLink() ||
+          originalEntry.dev !== currentEntry.dev || originalEntry.ino !== currentEntry.ino ||
+          originalEntry.size !== currentEntry.size || originalEntry.mtimeMs !== currentEntry.mtimeMs ||
+          originalEntry.ctimeMs !== currentEntry.ctimeMs || originalEntry.nlink !== currentEntry.nlink) {
+        throw new AdapterConflictError([path]);
+      }
+      // Still only safe against cooperating writers; rename is not compare-and-swap.
       await rename(temporaryPath, path);
     } else {
       // A hard link creates the destination atomically without replacing a file
