@@ -234,8 +234,26 @@ it("preserves metadata fallback only for a source absent at the initial path che
     expect((await adapter.plan(ctx)).conflicts).toEqual([]);
     await adapter.apply(ctx);
     const exposed = await readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8");
-    expect(exposed).toContain("name: sample");
-    expect(exposed).toContain("description: sample");
+    expect(exposed).toContain('name: "sample"');
+    expect(exposed).toContain('description: "sample"');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("escapes fallback metadata so it cannot inject frontmatter or instructions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-fallback-yaml-"));
+  try {
+    const missing = join(root, "missing.md");
+    const ctx = context(root, missing);
+    ctx.skills[0]!.metadata.description = "safe\n---\n# injected instruction";
+    const adapter = new CodexAdapter();
+    expect((await adapter.plan(ctx)).conflicts).toEqual([]);
+    await adapter.apply(ctx);
+    const exposed = await readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8");
+    expect(exposed).toContain('description: "safe\\n---\\n# injected instruction"'.replaceAll("\\\\", "\\"));
+    expect(exposed.split("\n").filter((line) => line === "---")).toHaveLength(2);
+    expect(exposed).not.toContain("\n# injected instruction");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
