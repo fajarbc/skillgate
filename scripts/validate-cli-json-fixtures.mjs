@@ -11,7 +11,7 @@ const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 // Unsupported keywords must fail instead of silently weakening the checks.
 // A full standards-compliant JSON Schema validator is still needed for release.
 function validate(schema, value, path = "$") {
-  const supported = new Set(["$schema", "title", "description", "oneOf", "type", "const", "enum", "required", "properties", "items", "minLength"]);
+  const supported = new Set(["$schema", "title", "description", "oneOf", "type", "const", "enum", "required", "properties", "items", "minLength", "pattern"]);
   for (const keyword of Object.keys(schema)) {
     assert.ok(supported.has(keyword), `Unsupported fixture schema keyword: ${keyword}`);
   }
@@ -32,6 +32,10 @@ function validate(schema, value, path = "$") {
   if (schema.minLength !== undefined) {
     assert.equal(typeof value, "string", `${path}: expected string`);
     assert.ok(value.length >= schema.minLength, `${path}: too short`);
+  }
+  if (schema.pattern) {
+    assert.equal(typeof value, "string", `${path}: expected string`);
+    assert.match(value, new RegExp(schema.pattern), `${path}: pattern mismatch`);
   }
   if (schema.required) {
     for (const key of schema.required) assert.ok(Object.hasOwn(value, key), `${path}: missing ${key}`);
@@ -56,4 +60,6 @@ for (const name of names) {
 }
 assert.throws(() => validate(output, { protocolVersion: 2, command: "scan", ok: true, data: {} }));
 assert.throws(() => validate(input, { protocolVersion: 1, task: 42 }));
+assert.throws(() => validate(input, { protocolVersion: 1, task: "  " }));
+assert.throws(() => validate(input, { protocolVersion: 1, task: "ok", context: { paths: [" "] } }));
 console.log(`CLI JSON v1 schema fixtures passed (${names.length} fixtures)`);

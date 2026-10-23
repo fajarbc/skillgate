@@ -75,6 +75,10 @@ Stable v1 error codes: `INVALID_REQUEST`, `UNSUPPORTED_PROTOCOL`, `CONFIGURATION
 
 Exit status 0: successful request. Exit status 1: invalid request or command. Exit status 2: configuration, policy, or failed doctor checks. Exit status 3: adapter conflict or failed operation. Exit status 4: unexpected internal error. Human-readable CLI exit codes remain unchanged.
 
+## Schemas and golden fixtures
+
+The feature branch includes `schemas/cli-json-v1.schema.json`, `schemas/cli-json-stdin-v1.schema.json`, and eight golden examples in `fixtures/cli-json-v1/`. `npm run test:protocol` runs a dependency-free fixture check covering the schema keywords used by these files; `npm test` runs it before Vitest. This limited check is **not** a substitute for full JSON Schema 2020-12 validation of real CLI outputs before release.
+
 ## Required conformance tests before release
 
 - One golden JSON fixture and JSON Schema validation for each supported command, including error output.

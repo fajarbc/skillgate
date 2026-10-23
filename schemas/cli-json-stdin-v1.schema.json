@@ -12,7 +12,8 @@
     },
     "task": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "context": {
       "type": "object",
@@ -21,7 +22,8 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "\\S"
           }
         }
       }
