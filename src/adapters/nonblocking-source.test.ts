@@ -91,3 +91,45 @@ it("rejects oversized managed writes before staging", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.skipIf(process.platform === "win32")("plan rejects FIFO sources without creating ownership state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-plan-fifo-"));
+  try {
+    const source = join(root, "source.fifo");
+    const created = spawnSync("mkfifo", [source], { timeout: 3000 });
+    if ((created.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
+    expect(created.status).toBe(0);
+    await expect(new CodexAdapter().plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("plan rejects directory and oversized sources without creating ownership state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-plan-source-"));
+  try {
+    const directory = join(root, "directory");
+    await mkdir(directory);
+    await expect(new CodexAdapter().plan(context(root, directory))).rejects.toBeInstanceOf(AdapterConflictError);
+    const oversized = join(root, "oversized.md");
+    await writeFile(oversized, "x");
+    await truncate(oversized, 32 * 1024 * 1024 + 1);
+    await expect(new CodexAdapter().plan(context(root, oversized))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("plan rejects UTF-8 replacement expansion beyond the managed-source limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-plan-utf8-"));
+  try {
+    const source = join(root, "invalid.md");
+    await writeFile(source, Buffer.alloc(32 * 1024 * 1024, 0xff));
+    await expect(new CodexAdapter().plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
