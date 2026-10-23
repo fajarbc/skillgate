@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -176,6 +176,48 @@ it("detects a source pathname removed after descriptor validation", async () => 
     const originalSnapshot = await stat(source);
     await rm(source);
     await expect(assertSourcePathSnapshot(source, originalSnapshot))
+      .rejects.toBeInstanceOf(AdapterConflictError);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it.skipIf(process.platform === "win32")("rejects source entry replacement by a symlink to the original inode", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-source-symlink-swap-"));
+  try {
+    const source = join(root, "source.md");
+    const moved = join(root, "moved.md");
+    await writeFile(source, "# original bytes");
+    const descriptorSnapshot = await stat(source);
+    const originalEntry = await lstat(source);
+    await rename(source, moved);
+    await symlink(moved, source);
+    // Following the symlink still reports the exact original file identity.
+    expect((await stat(source)).ino).toBe(descriptorSnapshot.ino);
+    await expect(assertSourcePathSnapshot(source, descriptorSnapshot, originalEntry))
+      .rejects.toBeInstanceOf(AdapterConflictError);
+    // An unchanged symlink entry is still a supported source path.
+    await expect(assertSourcePathSnapshot(source, descriptorSnapshot, await lstat(source)))
+      .resolves.toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it.skipIf(process.platform === "win32")("rejects symlink source entry replacement even when the target is unchanged", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-source-symlink-replaced-"));
+  try {
+    const target = join(root, "target.md");
+    const source = join(root, "source.md");
+    const oldLink = join(root, "old-link.md");
+    await writeFile(target, "# stable target");
+    await symlink(target, source);
+    const descriptorSnapshot = await stat(source);
+    const originalEntry = await lstat(source);
+    await rename(source, oldLink);
+    await symlink(target, source);
+    expect((await stat(source)).ino).toBe(descriptorSnapshot.ino);
+    await expect(assertSourcePathSnapshot(source, descriptorSnapshot, originalEntry))
       .rejects.toBeInstanceOf(AdapterConflictError);
   } finally {
     await rm(root, { recursive: true, force: true });
