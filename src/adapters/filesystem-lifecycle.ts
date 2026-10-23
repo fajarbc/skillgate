@@ -425,7 +425,7 @@ async function readPreparedSkillSource(skill: AdapterContext["skills"][number]):
       // entry existed but vanished before open(), fail closed instead of
       // silently publishing fabricated content during a source-path race.
       if (sourcePathEntry) throw new AdapterConflictError([skill.path]);
-      return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
+      // JSON string literals are valid YAML double-quoted scalars. Escaping\n      // metadata prevents newlines, delimiters, or YAML tokens from injecting\n      // additional frontmatter or skill instructions into a missing source.\n      return `---\nname: ${JSON.stringify(skill.metadata.name)}\ndescription: ${JSON.stringify(skill.metadata.description)}\n---\n`;
     }
     try {
       const before = await source.stat();
