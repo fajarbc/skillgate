@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { CodexAdapter } from "./codex.js";
-import { AdapterConflictError } from "./filesystem-lifecycle.js";
+import { AdapterConflictError, OWNERSHIP_HEADER, writeManagedFile } from "./filesystem-lifecycle.js";
 
 function context(root: string, path: string) {
   return { task: "non-regular-source", root, skills: [{
@@ -39,12 +39,12 @@ it("rejects directory skill sources without creating ownership state", async () 
   }
 });
 
-it("rejects oversized skill sources before creating ownership state", async () => {
+it.each([32 * 1024 * 1024, 32 * 1024 * 1024 + 1])("rejects oversized skill sources of %i bytes", async (size) => {
   const root = await mkdtemp(join(tmpdir(), "skillgate-source-oversized-"));
   try {
     const source = join(root, "large.md");
     await writeFile(source, "x");
-    await truncate(source, 32 * 1024 * 1024 + 1);
+    await truncate(source, size);
     await expect(new CodexAdapter().apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
@@ -52,14 +52,41 @@ it("rejects oversized skill sources before creating ownership state", async () =
   }
 });
 
-it.each([0, 32 * 1024 * 1024])("accepts regular skill source of %i bytes", async (size) => {
+it.each([0, 32 * 1024 * 1024 - Buffer.byteLength(OWNERSHIP_HEADER)])("accepts regular skill source of %i bytes", async (size) => {
   const root = await mkdtemp(join(tmpdir(), "skillgate-source-boundary-"));
   try {
     const source = join(root, "source.md");
     await writeFile(source, "");
     await truncate(source, size);
-    const result = await new CodexAdapter().apply(context(root, source));
+    const adapter = new CodexAdapter();
+    const result = await adapter.apply(context(root, source));
     expect(result.filesWritten.length).toBeGreaterThan(0);
+    expect((await adapter.plan(context(root, source))).conflicts).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects oversized pending manifests before creating the adapter root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-size-"));
+  try {
+    const source = join(root, "small.md");
+    await writeFile(source, "small");
+    const ctx = context(root, source);
+    ctx.skills[0]!.metadata.description = "x".repeat(32 * 1024 * 1024);
+    await expect(new CodexAdapter().apply(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(stat(join(root, ".codex"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects oversized managed writes before staging", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-managed-write-limit-"));
+  try {
+    await expect(writeManagedFile(join(root, "oversized.md"), "x".repeat(32 * 1024 * 1024 + 1)))
+      .rejects.toBeInstanceOf(AdapterConflictError);
+    expect(await readdir(root)).toEqual([]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

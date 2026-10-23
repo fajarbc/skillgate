@@ -16,7 +16,8 @@ import type {
 
 export const OWNERSHIP_HEADER = "<!-- Managed by SkillGate. Do not edit directly. -->\n";
 const MAX_OWNERSHIP_FILE_BYTES = 32 * 1024 * 1024;
-const MAX_SKILL_SOURCE_BYTES = 32 * 1024 * 1024;
+// Reserve room for the ownership header within the reader's size limit.
+const MAX_SKILL_SOURCE_BYTES = MAX_OWNERSHIP_FILE_BYTES - Buffer.byteLength(OWNERSHIP_HEADER);
 /**
  * Serialize mutations by cooperating SkillGate processes targeting one adapter root.
  * The lock lives outside the workspace so cleanup never creates a missing root.
@@ -225,6 +226,10 @@ export async function readStableOwnershipFile(path: string): Promise<Buffer> {
 /** Stage complete bytes before replacing a managed destination. */
 /** @internal: exposed for focused filesystem safety regression tests. */
 export async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string; ownershipManifestPath?: string; ownershipManifestDigest?: string }): Promise<void> {
+  // Every managed output, including the final manifest, must remain readable.
+  if (Buffer.byteLength(content, "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([path]);
+  }
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
@@ -473,16 +478,27 @@ async function applyFilesystemAdapterUnlocked(
           before.ctimeMs !== after.ctimeMs) {
         throw new AdapterConflictError([skill.path]);
       }
-      return Buffer.concat(chunks, total).toString("utf8");
+      const content = Buffer.concat(chunks, total).toString("utf8");
+      // Invalid UTF-8 may expand into replacement characters on decoding.
+      if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      return content;
     } finally {
       await source.close();
     }
   }));
 
+  // Generated fallbacks must obey the same managed-output limit as file sources.
+  for (let index = 0; index < preparedContents.length; index++) {
+    if (Buffer.byteLength(preparedContents[index] ?? "", "utf8") > MAX_SKILL_SOURCE_BYTES) {
+      throw new AdapterConflictError([preparedSkills[index]!.skill.path]);
+    }
+  }
+
   // Persist intended ownership before mutating skill files so cleanup can
   // recover files from an interrupted apply.
   await assertNoSymlinkAncestors(manifestPath);
-  await mkdir(agentRoot, { recursive: true });
   const prior = await readPreviousManifest(manifestPath, agentName);
   // Do not proceed if an unrecognized or foreign manifest appeared after plan().
   // A missing manifest is the only safe no-digest starting state.
@@ -545,8 +561,13 @@ async function applyFilesystemAdapterUnlocked(
       score: skill.score, capabilities: skill.metadata.capabilities ?? [],
     })),
   };
-  const pendingDigest = digest(JSON.stringify(pending, null, 2));
-  await writeManagedFile(manifestPath, JSON.stringify(pending, null, 2), {
+  const pendingContent = JSON.stringify(pending, null, 2);
+  if (Buffer.byteLength(pendingContent, "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([manifestPath]);
+  }
+  const pendingDigest = digest(pendingContent);
+  await mkdir(agentRoot, { recursive: true });
+  await writeManagedFile(manifestPath, pendingContent, {
     force: options?.force, manifest: true, agent: agentName,
     expectedManifestDigest: priorManifestDigest,
   });
