@@ -428,7 +428,7 @@ export async function planFilesystemAdapter(
   for (const { skill } of preparedSkills) {
     const content = await readPreparedSkillSource(skill);
     if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
-      conflicts.push(skill.path);
+      throw new AdapterConflictError([skill.path]);
     }
   }
 
