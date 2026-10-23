@@ -632,6 +632,8 @@ async function applyFilesystemAdapterUnlocked(
     // Recheck ownership before deleting: the file may have changed since plan().
     if (!(await isManagedFile(staleFile, prior))) continue;
     await assertManifestDigest(manifestPath, pendingDigest);
+    // Manifest verification is asynchronous; reject a stale file changed meanwhile.
+    if (!(await isManagedFile(staleFile, prior))) continue;
     await rm(staleFile, { force: true });
     filesRemoved.push(staleFile);
     delete fileDigests[staleFile];
@@ -763,6 +765,14 @@ async function cleanupFilesystemAdapterUnlocked(
         // Force does not authorize deletion of independently edited files.
         if (managed) {
           if (expectedManifestDigest) await assertManifestDigest(manifestPath, expectedManifestDigest);
+          // Recheck after the manifest await, immediately before deletion.
+          if (filePath === manifestPath) {
+            if (digest(await readStableOwnershipFile(filePath)) !== expectedManifestDigest) {
+              throw new AdapterConflictError([filePath]);
+            }
+          } else if (!(await isManagedFile(filePath, previousManifest))) {
+            continue;
+          }
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
           try {
