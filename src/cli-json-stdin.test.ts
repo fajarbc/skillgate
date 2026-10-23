@@ -40,9 +40,14 @@ describe("CLI v1 stdin request transport", () => {
   });
 
   it("returns a stable unsupported-version code", () => {
-    expect(() => parseJsonStdinRequest('{"protocolVersion":2,"task":"x"}')).toThrowError(
-      expect.objectContaining({ code: "UNSUPPORTED_PROTOCOL" }),
-    );
+    let error: unknown;
+    try {
+      parseJsonStdinRequest('{"protocolVersion":2,"task":"x"}');
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(JsonStdinRequestError);
+    expect(error).toMatchObject({ code: "UNSUPPORTED_PROTOCOL" });
   });
 
   it("rejects malformed UTF-8 without replacement characters", async () => {
