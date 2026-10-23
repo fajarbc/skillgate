@@ -31,6 +31,8 @@ export interface JsonProtocolFailure {
   protocolVersion: typeof JSON_PROTOCOL_VERSION;
   command: string | null;
   ok: false;
+  /** Optional structured diagnostics (doctor failures only in v1). */
+  data?: { report: unknown };
   error: {
     code: JsonProtocolErrorCode;
     message: string;
