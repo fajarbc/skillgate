@@ -76,7 +76,9 @@ export async function readJsonStdinRequest(
     if (size > maxBytes) {
       throw new JsonStdinRequestError("INVALID_REQUEST", "stdin JSON request exceeds the byte limit");
     }
-    chunks.push(bytes);
+    // Copy each chunk now: a producer may reuse or mutate its Buffer before EOF.
+    // Buffer.slice() is a view, so use the Uint8Array copy constructor instead.
+    chunks.push(new Uint8Array(bytes));
   }
   const combined = new Uint8Array(size);
   let offset = 0;
