@@ -492,6 +492,22 @@ export async function planFilesystemAdapter(
   const previousManifest = await readPreviousManifest(manifestPath, agentName);
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
 
+  // The manifest contains the task and every selected skill's metadata. A
+  // manifest that cannot fit the ownership reader's bound must fail at plan()
+  // too, before apply() stages a pending manifest or touches the workspace.
+  // This is a lower bound: the actual manifest adds paths, digests and state.
+  const requiredManifestMetadata = {
+    task: context.task,
+    skills: preparedSkills.map(({ skill, safeId }) => ({
+      name: skill.metadata.name, identifier: safeId,
+      description: skill.metadata.description, path: skill.path,
+      score: skill.score, capabilities: skill.metadata.capabilities ?? [],
+    })),
+  };
+  if (Buffer.byteLength(JSON.stringify(requiredManifestMetadata), "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([manifestPath]);
+  }
+
   const plannedWrites: string[] = [];
   const conflicts: string[] = [];
 
