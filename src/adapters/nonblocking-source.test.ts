@@ -122,6 +122,21 @@ it("plan rejects directory and oversized sources without creating ownership stat
   }
 });
 
+it("rejects small malformed UTF-8 skill sources consistently in plan and apply", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skillgate-source-invalid-utf8-"));
+  try {
+    const source = join(root, "invalid.md");
+    // An invalid continuation byte must not be silently replaced with U+FFFD.
+    await writeFile(source, Buffer.from([0x23, 0x20, 0x80, 0x0a]));
+    const adapter = new CodexAdapter();
+    await expect(adapter.plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(adapter.apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it("plan rejects UTF-8 replacement expansion beyond the managed-source limit", async () => {
   const root = await mkdtemp(join(tmpdir(), "skillgate-plan-utf8-"));
   try {
