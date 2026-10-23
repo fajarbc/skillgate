@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -64,6 +64,22 @@ describe("CLI v1 JSON transport integration", () => {
       ok: true,
       data: { task, recommendations: expect.any(Array) },
     });
+  });
+
+  it("fails closed on machine adapter application until #28 safety is validated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
+    const { exitCode, envelope } = await capture(() =>
+      run(["recommend", "test", "--json", "--adapter", "codex", "--root", root]),
+    );
+    expect(exitCode).toBe(3);
+    expect(envelope).toMatchObject({
+      protocolVersion: 1,
+      command: "recommend",
+      ok: false,
+      error: { code: "ADAPTER_CONFLICT" },
+    });
+    await expect(access(join(root, ".codex"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(root, ".skillgate"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects unsupported stdin protocol versions with a stable code", async () => {
