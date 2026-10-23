@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillGate CLI JSON v1 envelope",
+  "description": "Success envelopes for five commands and structured failures. Data may gain optional fields in v1.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "command",
+        "ok",
+        "data"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "command": {
+          "const": "scan"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "root",
+            "skills",
+            "signals"
+          ],
+          "properties": {
+            "root": {
+              "type": "string"
+            },
+            "skills": {
+              "type": "array"
+            },
+            "signals": {
+              "type": "array"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "command",
+        "ok",
+        "data"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "command": {
+          "const": "recommend"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "task",
+            "recommendations"
+          ],
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "recommendations": {
+              "type": "array"
+            },
+            "adapter": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "command",
+        "ok",
+        "data"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "command": {
+          "const": "trace"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "trace"
+          ],
+          "properties": {
+            "trace": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "command",
+        "ok",
+        "data"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "command": {
+          "const": "doctor"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "report"
+          ],
+          "properties": {
+            "report": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "command",
+        "ok",
+        "data"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "command": {
+          "const": "config"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "configuration"
+          ],
+          "properties": {
+            "configuration": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "command",
+        "ok",
+        "error"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "INVALID_REQUEST",
+                "UNSUPPORTED_PROTOCOL",
+                "CONFIGURATION_ERROR",
+                "POLICY_ERROR",
+                "ADAPTER_CONFLICT",
+                "INTERNAL_ERROR"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "report": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

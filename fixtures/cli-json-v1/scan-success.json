@@ -1,0 +1,10 @@
+{
+  "protocolVersion": 1,
+  "command": "scan",
+  "ok": true,
+  "data": {
+    "root": "/workspace",
+    "skills": [],
+    "signals": []
+  }
+}

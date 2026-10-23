@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "command": "recommend",
+  "ok": true,
+  "data": {
+    "task": "Review tests\nThen improve",
+    "recommendations": []
+  }
+}
