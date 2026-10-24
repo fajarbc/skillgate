@@ -82,6 +82,33 @@ describe("CLI v1 JSON transport integration", () => {
     await expect(access(join(root, ".skillgate"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("fails closed for an explicitly empty machine adapter option", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
+    const { exitCode, envelope } = await capture(() =>
+      run(["recommend", "test", "--json", "--adapter", "", "--root", root]),
+    );
+    expect(exitCode).toBe(3);
+    expect(envelope).toMatchObject({
+      command: "recommend",
+      ok: false,
+      error: { code: "ADAPTER_CONFLICT" },
+    });
+    await expect(access(join(root, ".skillgate"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects even an empty adapter option on non-recommend JSON commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
+    const { exitCode, envelope } = await capture(() =>
+      run(["scan", "--json", "--adapter", "", "--root", root]),
+    );
+    expect(exitCode).toBe(1);
+    expect(envelope).toMatchObject({
+      command: "scan",
+      ok: false,
+      error: { code: "INVALID_REQUEST" },
+    });
+  });
+
   it("rejects unsupported stdin protocol versions with a stable code", async () => {
     const { exitCode, envelope } = await capture(() =>
       runJson(["recommend", "--json", "--stdin"], stdinText('{"protocolVersion":2,"task":"test"}')),
