@@ -61,10 +61,10 @@ export async function runJson(
     if (selected !== "recommend" && positionals.length !== 1) {
       return fail("INVALID_REQUEST", "Unexpected positional arguments");
     }
-    if (values.adapter && selected !== "recommend") {
+    if (values.adapter !== undefined && selected !== "recommend") {
       return fail("INVALID_REQUEST", "--adapter is only supported with recommend");
     }
-    if (values.adapter) {
+    if (values.adapter !== undefined) {
       // This is an apply operation, not a read-only recommendation. Do not
       // expose it to machine callers before #28 lifecycle safety is accepted.
       return fail("ADAPTER_CONFLICT", "JSON adapter application is unavailable pending lifecycle safety validation", 3);
