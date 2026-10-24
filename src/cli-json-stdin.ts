@@ -81,6 +81,24 @@ export async function readJsonStdinRequest(
     if (chunkBytes > maxBytes - size) {
       throw new JsonStdinRequestError("INVALID_REQUEST", "stdin JSON request exceeds the byte limit");
     }
+    // TextEncoder silently substitutes U+FFFD for unpaired UTF-16 surrogates.
+    // String-based producers must not corrupt request text before strict UTF-8
+    // decoding gets a chance to validate it. Complete pairs are preserved,
+    // including pairs joined across adjacent string chunks above.
+    if (typeof chunk === "string") {
+      for (let index = 0; index < chunk.length; index++) {
+        const code = chunk.charCodeAt(index);
+        if (code >= 0xd800 && code <= 0xdbff) {
+          const next = chunk.charCodeAt(index + 1);
+          if (!(next >= 0xdc00 && next <= 0xdfff)) {
+            throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
+          }
+          index++;
+        } else if (code >= 0xdc00 && code <= 0xdfff) {
+          throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
+        }
+      }
+    }
     const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
     // Copy immediately: a producer may reuse or mutate its backing buffer.
     combined.set(bytes, size);
@@ -99,13 +117,14 @@ export async function readJsonStdinRequest(
     } else {
       // A binary chunk cannot complete a string's UTF-16 surrogate pair.
       if (pendingHighSurrogate) {
-        append(pendingHighSurrogate);
-        pendingHighSurrogate = "";
+        throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
       }
       append(chunk);
     }
   }
-  if (pendingHighSurrogate) append(pendingHighSurrogate);
+  if (pendingHighSurrogate) {
+    throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
+  }
   let decoded: string;
   try {
     decoded = new TextDecoder("utf-8", { fatal: true }).decode(combined.subarray(0, size));
