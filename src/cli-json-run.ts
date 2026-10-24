@@ -6,9 +6,64 @@ import { discoverSkills } from "./discovery/index.js";
 import { runDiagnostics } from "./doctor/index.js";
 import { evaluatePolicies, loadPolicy, PolicyError } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
-import { loadLatestTrace } from "./trace/index.js";
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
+import { join } from "node:path";
 import { jsonFailure, jsonLine, jsonSuccess, type JsonProtocolCommand, type JsonProtocolErrorCode } from "./cli-json-protocol.js";
 import { JsonStdinRequestError, readJsonStdinRequest } from "./cli-json-stdin.js";
+
+/** Read existing trace data without following a user-controlled trace symlink or FIFO.
+ * A stable descriptor and bounded read prevent machine callers from hanging
+ * on special files or emitting arbitrary JSON through a symlinked trace.
+ * This is a read-only defense, not an atomic guarantee against external writers.
+ */
+async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
+  const directory = join(root, ".skillgate");
+  const file = join(directory, "trace.json");
+  const maxBytes = 32 * 1024 * 1024;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    const parent = await lstat(directory);
+    if (!parent.isDirectory() || parent.isSymbolicLink()) return null;
+    const entry = await lstat(file);
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1 ||
+        entry.size > maxBytes) return null;
+    handle = await open(file, constants.O_RDONLY |
+      (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+    const before = await handle.stat();
+    if (!before.isFile() || before.nlink !== 1 || before.size > maxBytes ||
+        before.dev !== entry.dev || before.ino !== entry.ino ||
+        before.size !== entry.size || before.mtimeMs !== entry.mtimeMs ||
+        before.ctimeMs !== entry.ctimeMs) return null;
+    const bytes = Buffer.allocUnsafe(before.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, null);
+      if (bytesRead === 0) return null;
+      offset += bytesRead;
+    }
+    // Reject a source that grows after the initial size check.
+    if ((await handle.read(Buffer.allocUnsafe(1), 0, 1, null)).bytesRead !== 0) return null;
+    const after = await handle.stat();
+    const current = await lstat(file);
+    const parentAfter = await lstat(directory);
+    if (!parentAfter.isDirectory() || parentAfter.isSymbolicLink() ||
+        parentAfter.dev !== parent.dev || parentAfter.ino !== parent.ino ||
+        !current.isFile() || current.isSymbolicLink() || current.nlink !== 1 ||
+        current.dev !== before.dev || current.ino !== before.ino ||
+        current.size !== before.size || current.mtimeMs !== before.mtimeMs ||
+        current.ctimeMs !== before.ctimeMs || after.nlink !== 1 ||
+        after.dev !== before.dev || after.ino !== before.ino ||
+        after.size !== before.size || after.mtimeMs !== before.mtimeMs ||
+        after.ctimeMs !== before.ctimeMs) return null;
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+  } catch {
+    // Missing, malformed, or unsafe traces are reported as absent.
+    return null;
+  } finally {
+    await handle?.close();
+  }
+}
 
 /**
  * The JSON transport deliberately has one stdout write per invocation.
@@ -84,7 +139,7 @@ export async function runJson(
 
     const root = values.root ?? cwd();
     if (selected === "trace") {
-      return succeed(selected, { trace: await loadLatestTrace(root) });
+      return succeed(selected, { trace: await loadBoundedJsonTrace(root) });
     }
     if (selected === "doctor") {
       const report = await runDiagnostics({ root });
