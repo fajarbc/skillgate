@@ -50,6 +50,24 @@ describe("CLI v1 JSON transport integration", () => {
     });
   });
 
+  it("keeps malformed string options in JSON transport when followed by --json", async () => {
+    // parseArgs rejects these as missing/ambiguous values. The presence of
+    // --json must still produce a single structured error on stdout.
+    for (const args of [
+      ["scan", "--root", "--json"],
+      ["scan", "--config", "--json"],
+      ["recommend", "task", "--adapter", "--json"],
+    ]) {
+      const { exitCode, envelope } = await capture(() => run(args));
+      expect(exitCode).toBe(1);
+      expect(envelope).toMatchObject({
+        protocolVersion: 1,
+        ok: false,
+        error: { code: "INVALID_REQUEST" },
+      });
+    }
+  });
+
   it("preserves a multiline stdin task without shell quoting", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
     const task = "Investigate the regression\nThen verify 日本語 🚀";
