@@ -51,7 +51,11 @@ function requestsJsonTransport(argv: string[]): boolean {
     const arg = argv[index];
     if (arg === "--") break;
     if (arg === "--root" || arg === "--adapter" || arg === "--config") {
-      index += 1;
+      // parseArgs rejects a following option as an ambiguous string value.
+      // Do not skip --json in that case: callers still need a structured
+      // INVALID_REQUEST response rather than a human-only parse error.
+      const next = argv[index + 1];
+      if (next !== undefined && (next === "-" || !next.startsWith("-"))) index += 1;
       continue;
     }
     if (arg === "--json") return true;
