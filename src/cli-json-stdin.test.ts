@@ -36,6 +36,24 @@ describe("CLI v1 stdin request transport", () => {
     expect(request).toEqual({ protocolVersion: 1, task });
   });
 
+  it("rejects unpaired UTF-16 surrogates instead of silently replacing task characters", async () => {
+    const prefix = '{"protocolVersion":1,"task":"';
+    const suffix = '"}';
+    const invalidInputs: Array<Array<string | Uint8Array>> = [
+      [prefix + "\udc80" + suffix], // lone low surrogate
+      [prefix + "\ud800x" + suffix], // high surrogate followed by non-low
+      [prefix + "\ud800", suffix], // high surrogate across incompatible strings
+      [prefix + "\ud800", new TextEncoder().encode(suffix)], // mixed binary boundary
+      [prefix + "\ud800"], // high surrogate at end of stream
+    ];
+    for (const parts of invalidInputs) {
+      await expect(readJsonStdinRequest(chunks(...parts))).rejects.toMatchObject({
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("surrogate"),
+      });
+    }
+  });
+
   it("handles many empty and single-byte chunks within a bounded receive buffer", async () => {
     const payload = JSON.stringify({ protocolVersion: 1, task: "fragmented request" });
     async function* fragmented() {
