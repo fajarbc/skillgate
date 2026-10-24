@@ -1,4 +1,4 @@
-import { access, mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { access, link, mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,13 @@ async function capture(invoke: () => Promise<number>) {
 
 async function* stdinText(text: string) {
   yield text;
+}
+
+function validTrace(root: string) {
+  return {
+    id: "existing", timestamp: "2026-10-25T00:00:00Z", task: "review", root,
+    signals: [], candidates: [], selectedCount: 0, rejectedCount: 0, totalEstimatedTokens: 0,
+  };
 }
 
 describe("CLI v1 JSON transport integration", () => {
@@ -366,7 +373,8 @@ describe("CLI v1 JSON transport integration", () => {
     try {
       await mkdir(join(root, ".skillgate"));
       const sentinel = join(root, "user-owned.json");
-      const content = JSON.stringify({ secret: "do-not-expose" });
+      // A valid trace would be returned if the symlink guard were bypassed.
+      const content = JSON.stringify({ ...validTrace(root), secret: "do-not-expose" });
       await writeFile(sentinel, content);
       await symlink(sentinel, join(root, ".skillgate", "trace.json"));
       const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
@@ -374,6 +382,56 @@ describe("CLI v1 JSON transport integration", () => {
       expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
       expect(JSON.stringify(envelope)).not.toContain("do-not-expose");
       expect(await readFile(sentinel, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a hardlinked machine trace even when its JSON is valid", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const sentinel = join(root, "user-owned.json");
+      const content = JSON.stringify(validTrace(root));
+      await writeFile(sentinel, content);
+      await link(sentinel, join(root, ".skillgate", "trace.json"));
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+      expect(await readFile(sentinel, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a symlinked .skillgate directory containing a valid trace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      const external = join(root, "user-owned-dir");
+      await mkdir(external);
+      const content = JSON.stringify(validTrace(root));
+      await writeFile(join(external, "trace.json"), content);
+      await symlink(external, join(root, ".skillgate"), "dir");
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+      expect(await readFile(join(external, "trace.json"), "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed UTF-8 trace bytes without rewriting the file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      const content = Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]);
+      await writeFile(file, content);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+      expect(await readFile(file)).toEqual(content);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
