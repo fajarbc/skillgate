@@ -187,6 +187,27 @@ describe("CLI v1 JSON transport integration", () => {
     expect(JSON.stringify(envelope)).not.toContain("stack");
   });
 
+  it.each([
+    ['"user-owned-secret"', "string"],
+    ["[1, 2, 3]", "array"],
+    ["42", "number"],
+    ["true", "boolean"],
+  ])("treats a %s machine trace value as absent instead of violating the schema (%s)", async (content) => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      await writeFile(file, content);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+      expect(JSON.stringify(envelope)).not.toContain("user-owned-secret");
+      expect(await readFile(file, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads an unchanged regular JSON trace without modifying it", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
     try {
