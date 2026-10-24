@@ -6,7 +6,7 @@ import { discoverSkills } from "./discovery/index.js";
 import { runDiagnostics } from "./doctor/index.js";
 import { evaluatePolicies, loadPolicy, PolicyError } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
-import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
+import { loadLatestTrace } from "./trace/index.js";
 import { jsonFailure, jsonLine, jsonSuccess, type JsonProtocolCommand, type JsonProtocolErrorCode } from "./cli-json-protocol.js";
 import { JsonStdinRequestError, readJsonStdinRequest } from "./cli-json-stdin.js";
 
@@ -130,15 +130,10 @@ export async function runJson(
       return evaluation ? evaluation.decision === "allow" : true;
     });
 
-    const traceRecord = createTraceRecord({
-      task: task!,
-      root,
-      signals,
-      discoveredSkills: skillsFound,
-      rankedSkills: approvedRecommendations,
-      policyEvaluations: evalMap,
-    });
-    await saveTrace(traceRecord, root);
+    // JSON recommendations must remain read-only until #28 defines an accepted
+    // lifecycle for managed writes. saveTrace() writes to a predictable path
+    // and can follow an existing symlink, overwriting user-owned content.
+    // The trace command still reads traces created by the human CLI.
     return succeed(selected, {
       task: task!,
       recommendations: approvedRecommendations,
