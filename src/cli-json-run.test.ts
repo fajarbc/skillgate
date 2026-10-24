@@ -40,6 +40,30 @@ describe("CLI v1 JSON transport integration", () => {
     });
   });
 
+  it("keeps machine stdout isolated from stderr for success and request errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-stderr-"));
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const success = await capture(() => run(["scan", "--root", root, "--json"]));
+      expect(success.exitCode).toBe(0);
+      expect(success.envelope).toMatchObject({ command: "scan", ok: true });
+
+      const failure = await capture(() =>
+        runJson(["recommend", "--json", "--stdin"], stdinText("{malformed")),
+      );
+      expect(failure.exitCode).toBe(1);
+      expect(failure.envelope).toMatchObject({
+        command: "recommend",
+        ok: false,
+        error: { code: "INVALID_REQUEST" },
+      });
+      expect(stderr).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns one structured error for an unknown command", async () => {
     const { exitCode, envelope } = await capture(() => run(["unknown", "--json"]));
     expect(exitCode).toBe(1);
