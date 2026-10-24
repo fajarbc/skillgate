@@ -12,6 +12,20 @@ import { join } from "node:path";
 import { jsonFailure, jsonLine, jsonSuccess, type JsonProtocolCommand, type JsonProtocolErrorCode } from "./cli-json-protocol.js";
 import { JsonStdinRequestError, readJsonStdinRequest } from "./cli-json-stdin.js";
 
+/** A foreign JSON object is not a SkillGate trace just because it parses.
+ * Validate the stable trace envelope before exposing it to machine clients.
+ */
+function isTraceRecord(value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return ["id", "timestamp", "task", "root"].every((key) =>
+    typeof record[key] === "string") &&
+    Array.isArray(record.signals) && Array.isArray(record.candidates) &&
+    ["selectedCount", "rejectedCount", "totalEstimatedTokens"].every((key) =>
+      typeof record[key] === "number" && Number.isSafeInteger(record[key]) &&
+      (record[key] as number) >= 0);
+}
+
 /** Read existing trace data without following a user-controlled trace symlink or FIFO.
  * A stable descriptor and bounded read prevent machine callers from hanging
  * on special files or emitting arbitrary JSON through a symlinked trace.
@@ -56,11 +70,10 @@ async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
         after.dev !== before.dev || after.ino !== before.ino ||
         after.size !== before.size || after.mtimeMs !== before.mtimeMs ||
         after.ctimeMs !== before.ctimeMs) return null;
-    // A trace is a JSON record, not an arbitrary JSON value. Returning a
-    // scalar or array violates the v1 machine trace schema; treat it as absent.
+    // A parseable JSON object is not necessarily a SkillGate trace. Reject
+    // unrelated data rather than presenting it as a valid machine trace.
     const parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed : null;
+    return isTraceRecord(parsed) ? parsed : null;
   } catch {
     // Missing, malformed, or unsafe traces are reported as absent.
     return null;
