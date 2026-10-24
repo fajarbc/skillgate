@@ -56,7 +56,11 @@ async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
         after.dev !== before.dev || after.ino !== before.ino ||
         after.size !== before.size || after.mtimeMs !== before.mtimeMs ||
         after.ctimeMs !== before.ctimeMs) return null;
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+    // A trace is a JSON record, not an arbitrary JSON value. Returning a
+    // scalar or array violates the v1 machine trace schema; treat it as absent.
+    const parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed : null;
   } catch {
     // Missing, malformed, or unsafe traces are reported as absent.
     return null;
