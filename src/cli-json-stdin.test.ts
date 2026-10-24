@@ -54,6 +54,28 @@ describe("CLI v1 stdin request transport", () => {
     }
   });
 
+  it("rejects unpaired surrogates introduced by JSON Unicode escapes", async () => {
+    // UTF-8 transport is valid here; JSON.parse introduces the lone surrogate.
+    // Both task text and advisory paths must reject this silent corruption.
+    const invalid = [
+      '{"protocolVersion":1,"task":"review \\ud800"}',
+      '{"protocolVersion":1,"task":"review \\udc00"}',
+      '{"protocolVersion":1,"task":"ok","context":{"paths":["src/\\ud800.ts"]}}',
+      '{"protocolVersion":1,"task":"ok","context":{"paths":["src/\\udc00.ts"]}}',
+    ];
+    for (const payload of invalid) {
+      expect(() => parseJsonStdinRequest(payload)).toThrow(JsonStdinRequestError);
+      await expect(readJsonStdinRequest(chunks(payload))).rejects.toMatchObject({
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("surrogate"),
+      });
+    }
+    const valid = '{"protocolVersion":1,"task":"review \\ud83d\\ude80","context":{"paths":["src/\\ud83d\\ude80.ts"]}}';
+    expect(parseJsonStdinRequest(valid)).toEqual({
+      protocolVersion: 1, task: "review 🚀", context: { paths: ["src/🚀.ts"] },
+    });
+  });
+
   it("handles many empty and single-byte chunks within a bounded receive buffer", async () => {
     const payload = JSON.stringify({ protocolVersion: 1, task: "fragmented request" });
     async function* fragmented() {

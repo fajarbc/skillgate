@@ -23,6 +23,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** JSON \u005cu escapes can decode to unpaired UTF-16 surrogates even when the
+ * transport bytes themselves are valid UTF-8. Reject those after JSON.parse.
+ */
+function hasUnpairedSurrogate(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(++index);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Parse a single v1 JSON request; never interpolate untrusted input into errors. */
 export function parseJsonStdinRequest(text: string): JsonStdinRequest {
   let parsed: unknown;
@@ -43,6 +59,9 @@ export function parseJsonStdinRequest(text: string): JsonStdinRequest {
   if (typeof parsed.task !== "string" || !parsed.task.trim()) {
     throw new JsonStdinRequestError("INVALID_REQUEST", "task must be a nonempty string");
   }
+  if (hasUnpairedSurrogate(parsed.task)) {
+    throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
+  }
 
   let context: JsonStdinRequest["context"];
   if ("context" in parsed) {
@@ -53,6 +72,9 @@ export function parseJsonStdinRequest(text: string): JsonStdinRequest {
       const paths = parsed.context.paths;
       if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string" && path.trim())) {
         throw new JsonStdinRequestError("INVALID_REQUEST", "context.paths must be an array of nonempty strings");
+      }
+      if (paths.some((path) => hasUnpairedSurrogate(path))) {
+        throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
       }
       context = { paths: [...paths] };
     } else {
@@ -85,19 +107,8 @@ export async function readJsonStdinRequest(
     // String-based producers must not corrupt request text before strict UTF-8
     // decoding gets a chance to validate it. Complete pairs are preserved,
     // including pairs joined across adjacent string chunks above.
-    if (typeof chunk === "string") {
-      for (let index = 0; index < chunk.length; index++) {
-        const code = chunk.charCodeAt(index);
-        if (code >= 0xd800 && code <= 0xdbff) {
-          const next = chunk.charCodeAt(index + 1);
-          if (!(next >= 0xdc00 && next <= 0xdfff)) {
-            throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
-          }
-          index++;
-        } else if (code >= 0xdc00 && code <= 0xdfff) {
-          throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
-        }
-      }
+    if (typeof chunk === "string" && hasUnpairedSurrogate(chunk)) {
+      throw new JsonStdinRequestError("INVALID_REQUEST", "stdin contains an unpaired UTF-16 surrogate");
     }
     const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
     // Copy immediately: a producer may reuse or mutate its backing buffer.
