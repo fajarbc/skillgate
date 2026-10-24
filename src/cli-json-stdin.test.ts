@@ -23,6 +23,19 @@ describe("CLI v1 stdin request transport", () => {
     expect(result).toEqual({ protocolVersion: 1, task, context: { paths: ["src/cli.ts"] } });
   });
 
+  it("preserves UTF-16 surrogate pairs split across string chunks at the exact byte limit", async () => {
+    const task = "Investigate 🚀 safely";
+    const payload = JSON.stringify({ protocolVersion: 1, task });
+    const split = payload.indexOf("🚀") + 1;
+    // The first chunk ends with the high surrogate; the next begins with
+    // the low surrogate. Independent TextEncoder calls corrupt the task.
+    const request = await readJsonStdinRequest(
+      chunks(payload.slice(0, split), payload.slice(split)),
+      Buffer.byteLength(payload, "utf8"),
+    );
+    expect(request).toEqual({ protocolVersion: 1, task });
+  });
+
   it("snapshots reusable Buffer chunks before their producer mutates them", async () => {
     const request = '{"protocolVersion":1,"task":"shared buffer"}';
     const reused = Buffer.alloc(1);
