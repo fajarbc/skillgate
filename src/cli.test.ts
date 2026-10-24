@@ -121,7 +121,17 @@ describe("CLI", () => {
 
     const output = await captureJson(["recommend", "test", "react", "--root", root, "--json"]);
     expect(output.recommendations).toHaveLength(0);
+    // Machine recommendations intentionally do not persist traces until the
+    // lifecycle write boundary is accepted. Do not expect a trace from JSON mode.
+    expect((await captureJson(["trace", "--root", root, "--json"])).trace).toBeNull();
 
+    // The human CLI still records a trace, including policy rejections.
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "test", "react", "--root", root])).toBe(0);
+    } finally {
+      log.mockRestore();
+    }
     const traceJson = (await captureJson(["trace", "--root", root, "--json"])).trace;
     const rejected = traceJson.candidates.find((c: { name: string }) => c.name === "react-testing");
     expect(rejected?.status).toBe("rejected");
