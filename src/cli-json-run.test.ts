@@ -232,12 +232,33 @@ describe("CLI v1 JSON transport integration", () => {
     }
   });
 
+  it.each([
+    ['{"secret":"user-owned-secret"}', "unrelated object"],
+    ['{"id":"partial","task":"review"}', "incomplete trace"],
+    ['{"id":"x","timestamp":"now","task":"review","root":"/","signals":[],"candidates":[],"selectedCount":-1,"rejectedCount":0,"totalEstimatedTokens":0}', "negative count"],
+    ['{"id":"x","timestamp":"now","task":"review","root":"/","signals":{},"candidates":[],"selectedCount":0,"rejectedCount":0,"totalEstimatedTokens":0}', "invalid signals"],
+  ])("treats a %s as absent instead of exposing a foreign machine trace (%s)", async (content) => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      await writeFile(file, content);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+      expect(JSON.stringify(envelope)).not.toContain("user-owned-secret");
+      expect(await readFile(file, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads an unchanged regular JSON trace without modifying it", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
     try {
       await mkdir(join(root, ".skillgate"));
       const file = join(root, ".skillgate", "trace.json");
-      const content = JSON.stringify({ id: "existing", task: "review" });
+      const content = JSON.stringify({ id: "existing", timestamp: "2026-10-25T00:00:00Z", task: "review", root, signals: [], candidates: [], selectedCount: 0, rejectedCount: 0, totalEstimatedTokens: 0 });
       await writeFile(file, content);
       const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
       expect(exitCode).toBe(0);
