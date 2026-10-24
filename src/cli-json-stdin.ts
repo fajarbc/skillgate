@@ -71,11 +71,14 @@ export async function readJsonStdinRequest(
   let size = 0;
   const encoder = new TextEncoder();
   for await (const chunk of input) {
-    const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
-    size += bytes.byteLength;
-    if (size > maxBytes) {
+    // Measure string chunks before encoding: an oversized string must not
+    // allocate an equally oversized UTF-8 buffer just to be rejected.
+    const chunkBytes = typeof chunk === "string" ? Buffer.byteLength(chunk, "utf8") : chunk.byteLength;
+    if (chunkBytes > maxBytes - size) {
       throw new JsonStdinRequestError("INVALID_REQUEST", "stdin JSON request exceeds the byte limit");
     }
+    const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
+    size += chunkBytes;
     // Copy each chunk now: a producer may reuse or mutate its Buffer before EOF.
     // Buffer.slice() is a view, so use the Uint8Array copy constructor instead.
     chunks.push(new Uint8Array(bytes));
