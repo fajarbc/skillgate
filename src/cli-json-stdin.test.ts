@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   JsonStdinRequestError,
   MAX_JSON_STDIN_BYTES,
@@ -79,6 +79,21 @@ describe("CLI v1 stdin request transport", () => {
     await expect(
       readJsonStdinRequest(chunks("x".repeat(MAX_JSON_STDIN_BYTES), "y")),
     ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  });
+
+  it("rejects oversized string chunks before allocating a UTF-8 buffer", async () => {
+    const encode = vi.spyOn(TextEncoder.prototype, "encode");
+    try {
+      await expect(
+        readJsonStdinRequest(chunks("🚀".repeat(Math.floor(MAX_JSON_STDIN_BYTES / 4) + 1))),
+      ).rejects.toMatchObject({
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("byte limit"),
+      });
+      expect(encode).not.toHaveBeenCalled();
+    } finally {
+      encode.mockRestore();
+    }
   });
 
   it("accepts an exactly bounded complete request", async () => {
