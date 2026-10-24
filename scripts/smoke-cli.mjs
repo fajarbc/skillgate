@@ -4,9 +4,11 @@ import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validate as validateCliJson } from "./validate-cli-json-fixtures.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(await readFile(join(repository, "package.json"), "utf8"));
+const jsonSchema = JSON.parse(await readFile(join(repository, "schemas", "cli-json-v1.schema.json"), "utf8"));
 const temporary = await mkdtemp(join(tmpdir(), "skillgate-cli-smoke-"));
 
 try {
@@ -39,6 +41,10 @@ try {
       if (args.includes("--json")) {
         assert.ok(result.stdout.endsWith("\n"), "JSON transport must terminate with a newline");
         assert.equal(result.stdout.split("\n").length, 2, "JSON transport must emit exactly one line");
+        // Validate the actual built CLI output, not just golden fixtures.
+        // This covers the supported schema subset; full 2020-12 conformance
+        // still requires an independent standards-compliant validator.
+        validateCliJson(jsonSchema, JSON.parse(result.stdout));
       }
       return result.stdout;
     }
