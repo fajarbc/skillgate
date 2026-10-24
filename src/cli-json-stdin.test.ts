@@ -36,6 +36,20 @@ describe("CLI v1 stdin request transport", () => {
     expect(request).toEqual({ protocolVersion: 1, task });
   });
 
+  it("handles many empty and single-byte chunks within a bounded receive buffer", async () => {
+    const payload = JSON.stringify({ protocolVersion: 1, task: "fragmented request" });
+    async function* fragmented() {
+      // Empty chunks do not consume request bytes and must not accumulate
+      // one retained allocation per producer yield.
+      for (let index = 0; index < 20_000; index++) yield "";
+      for (const byte of Buffer.from(payload)) yield Uint8Array.of(byte);
+    }
+    expect(await readJsonStdinRequest(fragmented(), Buffer.byteLength(payload))).toEqual({
+      protocolVersion: 1,
+      task: "fragmented request",
+    });
+  });
+
   it("snapshots reusable Buffer chunks before their producer mutates them", async () => {
     const request = '{"protocolVersion":1,"task":"shared buffer"}';
     const reused = Buffer.alloc(1);
