@@ -253,6 +253,68 @@ describe("CLI v1 JSON transport integration", () => {
     }
   });
 
+  it("projects nested trace fields without leaking unrelated properties", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      const record = {
+        id: "existing", timestamp: "2026-10-25T00:00:00Z", task: "review", root,
+        signals: [{ kind: "framework", name: "react", evidence: "package.json", secret: "nested-secret" }],
+        candidates: [{
+          path: "/skills/react/SKILL.md", name: "react", description: "React skill",
+          status: "selected", decisionReason: "ranked", score: 5,
+          reasons: [{ source: "name", term: "react", points: 5, secret: "reason-secret" }],
+          estimatedTokens: 3, policyDecision: "allow", secret: "candidate-secret",
+        }],
+        selectedCount: 1, rejectedCount: 0, totalEstimatedTokens: 3,
+        secret: "root-secret",
+      };
+      const original = JSON.stringify(record);
+      await writeFile(file, original);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({
+        command: "trace", ok: true,
+        data: { trace: { id: "existing", selectedCount: 1, signals: [{ name: "react" }] } },
+      });
+      expect(JSON.stringify(envelope)).not.toContain("-secret");
+      expect(await readFile(file, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["invalid signal", { signals: ["secret-signal"] }],
+    ["invalid candidate", { candidates: ["secret-candidate"], selectedCount: 0, rejectedCount: 1 }],
+    ["invalid reason", { candidates: [{
+      path: "/skill", name: "skill", description: "desc", status: "selected",
+      decisionReason: "ranked", score: 1, reasons: ["secret-reason"], estimatedTokens: 2,
+    }], selectedCount: 1, totalEstimatedTokens: 2 }],
+    ["mismatched counters", { selectedCount: 1 }],
+  ])("rejects a machine trace with %s", async (_label, changes) => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      const record = {
+        id: "existing", timestamp: "2026-10-25T00:00:00Z", task: "review", root,
+        signals: [], candidates: [], selectedCount: 0, rejectedCount: 0, totalEstimatedTokens: 0,
+        ...changes,
+      };
+      const original = JSON.stringify(record);
+      await writeFile(file, original);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+      expect(JSON.stringify(envelope)).not.toContain("secret-");
+      expect(await readFile(file, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads an unchanged regular JSON trace without modifying it", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
     try {
