@@ -6,7 +6,7 @@ Status: **implementation in progress on the #31 feature branch; not released**. 
 
 `skillgate <command> --json [options]` emits exactly **one UTF-8 JSON object followed by a newline** on stdout, for success or failure. Diagnostics may go to stderr, but never to JSON stdout. Exit status 0 indicates success; nonzero indicates failure. A caller must inspect both exit status and `ok`.
 
-Supported v1 commands are `scan`, `recommend`, `trace`, `doctor`, and `config`. `plan` and `apply` will join the protocol only after #28 lifecycle safety is accepted. Until then, `recommend --json --adapter <name>` fails closed with `ADAPTER_CONFLICT` and exit status 3 **before writing to the workspace**; it must not silently fall back to an unsafe apply. Human-readable CLI behavior is unchanged.
+Supported v1 commands are `scan`, `recommend`, `trace`, `doctor`, and `config`. `plan` and `apply` will join the protocol only after #28 lifecycle safety is accepted. Until then, `recommend --json --adapter <name>` fails closed with `ADAPTER_CONFLICT` and exit status 3 **before writing to the workspace**; it must not silently fall back to an unsafe apply. Human-readable CLI behavior is unchanged. JSON `recommend` deliberately does **not** persist `.skillgate/trace.json` while #28 lifecycle safety is unresolved: the current trace writer follows predictable paths and can overwrite user-owned symlink targets. JSON `trace` can read an existing trace written by the human CLI, but it is not updated by JSON recommendations. This is a temporary read-only machine-mode safety boundary, not a promise that human-mode trace persistence is race-free.
 
 ### Success envelope
 
