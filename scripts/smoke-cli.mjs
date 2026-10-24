@@ -24,7 +24,7 @@ try {
       "---\nname: testing\ndescription: Test TypeScript code\n---\n# Run tests\n");
     await writeFile(join(root, "package.json"), JSON.stringify({ devDependencies: { typescript: "5.7.0" } }));
 
-    function invoke(args) {
+    function invoke(args, expectedStatus = 0) {
       const result = spawnSync(process.execPath, [cli, ...args], {
         cwd: root,
         encoding: "utf8",
@@ -32,7 +32,7 @@ try {
         timeout: 30_000,
       });
       assert.ifError(result.error);
-      assert.equal(result.status, 0, `${args.join(" ")}: ${result.stderr}`);
+      assert.equal(result.status, expectedStatus, `${args.join(" ")}: ${result.stderr}`);
       assert.equal(result.stderr, "", "successful CLI invocations must not print diagnostics");
       assert.notEqual(result.stdout.trim(), "", "CLI entry point must actually run");
       return result.stdout;
@@ -63,15 +63,27 @@ try {
     assert.equal(doctor.version, pkg.version);
     assert.equal(doctor.summary.failures, 0);
 
+    const recommendation = json("recommend", "test TypeScript");
+    assert.deepEqual(Object.keys(recommendation).sort(), ["recommendations", "task"]);
+    assert.equal(recommendation.task, "test TypeScript");
+    assert.equal(recommendation.recommendations[0].metadata.name, "testing");
+
     for (const adapter of ["codex", "claude"]) {
-      const recommendation = json("recommend", "test TypeScript", "--adapter", adapter);
-      assert.deepEqual(Object.keys(recommendation).sort(), ["adapter", "recommendations", "task"]);
-      assert.equal(recommendation.task, "test TypeScript");
-      assert.equal(recommendation.recommendations[0].metadata.name, "testing");
+      // Machine-mode apply must fail closed until the #28 safety boundary is accepted.
+      const rejected = JSON.parse(invoke(["recommend", "test TypeScript", "--adapter", adapter, "--root", root, "--json"], 3));
+      assert.equal(rejected.protocolVersion, 1);
+      assert.equal(rejected.ok, false);
+      assert.equal(rejected.error.code, "ADAPTER_CONFLICT");
+
+      // Human CLI adapter behavior remains backward-compatible.
+      const humanArgs = ["recommend", "test TypeScript", "--adapter", adapter, "--root", root];
+      assert.match(invoke(humanArgs), /testing/);
       const exposed = join(root, `.${adapter}`, "skills", "testing", "SKILL.md");
-      assert.match(await readFile(exposed, "utf8"), /# Run tests/);
-      // Exercise replacement of existing managed files on each OS as well.
-      assert.deepEqual(json("recommend", "test TypeScript", "--adapter", adapter), recommendation);
+      const managed = await readFile(exposed, "utf8");
+      assert.match(managed, /# Run tests/);
+      // Reapplying an unchanged skill must preserve its managed content.
+      invoke(humanArgs);
+      assert.equal(await readFile(exposed, "utf8"), managed);
     }
 
     const trace = json("trace");
