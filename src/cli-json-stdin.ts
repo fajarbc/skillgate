@@ -70,19 +70,40 @@ export async function readJsonStdinRequest(
   const chunks: Uint8Array[] = [];
   let size = 0;
   const encoder = new TextEncoder();
-  for await (const chunk of input) {
-    // Measure string chunks before encoding: an oversized string must not
-    // allocate an equally oversized UTF-8 buffer just to be rejected.
+  // String producers may split a surrogate pair across chunks. Encoding each
+  // chunk separately would silently replace both halves with U+FFFD.
+  let pendingHighSurrogate = "";
+  const append = (chunk: Uint8Array | string): void => {
+    // Reject oversized strings before allocating their encoded representation.
     const chunkBytes = typeof chunk === "string" ? Buffer.byteLength(chunk, "utf8") : chunk.byteLength;
     if (chunkBytes > maxBytes - size) {
       throw new JsonStdinRequestError("INVALID_REQUEST", "stdin JSON request exceeds the byte limit");
     }
     const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
     size += chunkBytes;
-    // Copy each chunk now: a producer may reuse or mutate its Buffer before EOF.
-    // Buffer.slice() is a view, so use the Uint8Array copy constructor instead.
+    // Snapshot reusable producer buffers; Buffer.slice() would retain a view.
     chunks.push(new Uint8Array(bytes));
+  };
+  for await (const chunk of input) {
+    if (typeof chunk === "string") {
+      let text = pendingHighSurrogate + chunk;
+      pendingHighSurrogate = "";
+      const last = text.charCodeAt(text.length - 1);
+      if (last >= 0xd800 && last <= 0xdbff) {
+        pendingHighSurrogate = text.slice(-1);
+        text = text.slice(0, -1);
+      }
+      if (text) append(text);
+    } else {
+      // A binary chunk cannot complete a string's UTF-16 surrogate pair.
+      if (pendingHighSurrogate) {
+        append(pendingHighSurrogate);
+        pendingHighSurrogate = "";
+      }
+      append(chunk);
+    }
   }
+  if (pendingHighSurrogate) append(pendingHighSurrogate);
   const combined = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
