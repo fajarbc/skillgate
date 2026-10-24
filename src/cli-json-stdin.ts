@@ -67,7 +67,10 @@ export async function readJsonStdinRequest(
   input: AsyncIterable<Uint8Array | string>,
   maxBytes = MAX_JSON_STDIN_BYTES,
 ): Promise<JsonStdinRequest> {
-  // A byte-bounded request must not retain an unbounded number of tiny or\n  // empty producer chunks. Copy directly into one bounded receive buffer.\n  const combined = new Uint8Array(maxBytes);\n  let size = 0;
+  // A byte-bounded request must not retain an unbounded number of tiny or
+  // empty producer chunks. Copy directly into one bounded receive buffer.
+  const combined = new Uint8Array(maxBytes);
+  let size = 0;
   const encoder = new TextEncoder();
   // String producers may split a surrogate pair across chunks. Encoding each
   // chunk separately would silently replace both halves with U+FFFD.
@@ -79,7 +82,9 @@ export async function readJsonStdinRequest(
       throw new JsonStdinRequestError("INVALID_REQUEST", "stdin JSON request exceeds the byte limit");
     }
     const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
-    // Copy immediately: a producer may reuse or mutate its backing buffer.\n    combined.set(bytes, size);\n    size += chunkBytes;
+    // Copy immediately: a producer may reuse or mutate its backing buffer.
+    combined.set(bytes, size);
+    size += chunkBytes;
   };
   for await (const chunk of input) {
     if (typeof chunk === "string") {
