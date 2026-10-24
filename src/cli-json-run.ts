@@ -219,7 +219,19 @@ export async function runJson(
       return succeed(selected, { trace: await loadBoundedJsonTrace(root) });
     }
     if (selected === "doctor") {
-      const report = await runDiagnostics({ root });
+      const diagnostics = await runDiagnostics({ root });
+      // Policy validation errors can interpolate user-controlled field names
+      // and values (for example an invalid defaultAction). Machine responses
+      // must not echo those values, even inside the diagnostic report.
+      // Preserve the full report for the existing human CLI only.
+      const report = {
+        ...diagnostics,
+        checks: diagnostics.checks.map((check) =>
+          check.name === "policy-configuration" && check.status === "fail"
+            ? { ...check, message: "Policy configuration invalid" }
+            : check,
+        ),
+      };
       if (report.status === "fail") {
         // Retain diagnostic details while returning a structured nonzero result.
         stdout.write(jsonLine({
