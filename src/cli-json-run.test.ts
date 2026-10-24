@@ -1,4 +1,5 @@
-import { access, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -184,6 +185,71 @@ describe("CLI v1 JSON transport integration", () => {
     expect(envelope.error.code).toBe("INVALID_REQUEST");
     expect(JSON.stringify(envelope)).not.toContain("secret-token");
     expect(JSON.stringify(envelope)).not.toContain("stack");
+  });
+
+  it("reads an unchanged regular JSON trace without modifying it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      const content = JSON.stringify({ id: "existing", task: "review" });
+      await writeFile(file, content);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: { id: "existing" } } });
+      expect(await readFile(file, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not follow a symlinked machine trace into user-owned JSON", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const sentinel = join(root, "user-owned.json");
+      const content = JSON.stringify({ secret: "do-not-expose" });
+      await writeFile(sentinel, content);
+      await symlink(sentinel, join(root, ".skillgate", "trace.json"));
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+      expect(JSON.stringify(envelope)).not.toContain("do-not-expose");
+      expect(await readFile(sentinel, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects oversized trace data before reading it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      await writeFile(file, "{}");
+      await truncate(file, 32 * 1024 * 1024 + 1);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects FIFO trace paths without blocking", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-trace-"));
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const file = join(root, ".skillgate", "trace.json");
+      const created = spawnSync("mkfifo", [file], { timeout: 3000 });
+      if ((created.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
+      expect(created.status).toBe(0);
+      const { exitCode, envelope } = await capture(() => run(["trace", "--root", root, "--json"]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "trace", ok: true, data: { trace: null } });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("reports an absent trace as a successful nullable trace field", async () => {
