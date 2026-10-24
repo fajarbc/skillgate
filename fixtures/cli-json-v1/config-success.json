@@ -1,0 +1,16 @@
+{
+  "protocolVersion": 1,
+  "command": "config",
+  "ok": true,
+  "data": {
+    "configuration": {
+      "version": 1,
+      "skillRoots": [
+        "/workspace"
+      ],
+      "candidateLimit": 10,
+      "adapters": [],
+      "adapterOptions": {}
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "task": "Review tests\nThen improve",
+  "context": {
+    "paths": [
+      "src/cli.ts"
+    ]
+  }
+}
