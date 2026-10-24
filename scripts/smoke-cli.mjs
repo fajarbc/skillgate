@@ -76,7 +76,7 @@ try {
     await assert.rejects(access(join(root, ".skillgate")), { code: "ENOENT" });
 
     // Exercise the built binary's stdin transport with Unicode and invalid requests.
-    const stdinTask = "test TypeScript\\nReview 日本語 🚀".replace("\\n", "\n");
+    const stdinTask = "test TypeScript\nReview 日本語 🚀";
     const stdinRequest = JSON.stringify({
       protocolVersion: 1,
       task: stdinTask,
