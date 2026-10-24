@@ -12,18 +12,78 @@ import { join } from "node:path";
 import { jsonFailure, jsonLine, jsonSuccess, type JsonProtocolCommand, type JsonProtocolErrorCode } from "./cli-json-protocol.js";
 import { JsonStdinRequestError, readJsonStdinRequest } from "./cli-json-stdin.js";
 
-/** A foreign JSON object is not a SkillGate trace just because it parses.
- * Validate the stable trace envelope before exposing it to machine clients.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSafeCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Validate and project only stable SkillGate trace fields. A foreign JSON file
+ * must not smuggle arbitrary nested properties into machine output.
  */
-function isTraceRecord(value: unknown): boolean {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return ["id", "timestamp", "task", "root"].every((key) =>
-    typeof record[key] === "string") &&
-    Array.isArray(record.signals) && Array.isArray(record.candidates) &&
-    ["selectedCount", "rejectedCount", "totalEstimatedTokens"].every((key) =>
-      typeof record[key] === "number" && Number.isSafeInteger(record[key]) &&
-      (record[key] as number) >= 0);
+function sanitizeTraceRecord(value: unknown): unknown | null {
+  if (!isRecord(value) ||
+      !["id", "timestamp", "task", "root"].every((key) => typeof value[key] === "string") ||
+      !Array.isArray(value.signals) || !Array.isArray(value.candidates) ||
+      !["selectedCount", "rejectedCount", "totalEstimatedTokens"].every((key) => isSafeCount(value[key]))) {
+    return null;
+  }
+
+  const signals = [];
+  for (const signal of value.signals) {
+    if (!isRecord(signal) ||
+        !["language", "runtime", "framework", "tool"].includes(signal.kind as string) ||
+        typeof signal.name !== "string" || typeof signal.evidence !== "string") return null;
+    signals.push({ kind: signal.kind, name: signal.name, evidence: signal.evidence });
+  }
+
+  const candidates = [];
+  for (const candidate of value.candidates) {
+    if (!isRecord(candidate) ||
+        !["path", "name", "description", "decisionReason"].every((key) => typeof candidate[key] === "string") ||
+        (candidate.status !== "selected" && candidate.status !== "rejected") ||
+        typeof candidate.score !== "number" || !Number.isFinite(candidate.score) ||
+        !isSafeCount(candidate.estimatedTokens) || !Array.isArray(candidate.reasons) ||
+        (candidate.policyDecision !== undefined &&
+          candidate.policyDecision !== "allow" && candidate.policyDecision !== "deny")) return null;
+    const reasons = [];
+    for (const reason of candidate.reasons) {
+      if (!isRecord(reason) ||
+          !["name", "description", "project"].includes(reason.source as string) ||
+          typeof reason.term !== "string" || typeof reason.points !== "number" ||
+          !Number.isFinite(reason.points)) return null;
+      reasons.push({ source: reason.source, term: reason.term, points: reason.points });
+    }
+    candidates.push({
+      path: candidate.path,
+      name: candidate.name,
+      description: candidate.description,
+      status: candidate.status,
+      decisionReason: candidate.decisionReason,
+      score: candidate.score,
+      reasons,
+      estimatedTokens: candidate.estimatedTokens,
+      ...(candidate.policyDecision === undefined ? {} : { policyDecision: candidate.policyDecision }),
+    });
+  }
+  if (value.selectedCount !== candidates.filter((candidate) => candidate.status === "selected").length ||
+      value.rejectedCount !== candidates.filter((candidate) => candidate.status === "rejected").length ||
+      value.totalEstimatedTokens !== candidates.filter((candidate) => candidate.status === "selected")
+        .reduce((total, candidate) => total + candidate.estimatedTokens, 0)) return null;
+
+  return {
+    id: value.id,
+    timestamp: value.timestamp,
+    task: value.task,
+    root: value.root,
+    signals,
+    candidates,
+    selectedCount: value.selectedCount,
+    rejectedCount: value.rejectedCount,
+    totalEstimatedTokens: value.totalEstimatedTokens,
+  };
 }
 
 /** Read existing trace data without following a user-controlled trace symlink or FIFO.
@@ -73,7 +133,7 @@ async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
     // A parseable JSON object is not necessarily a SkillGate trace. Reject
     // unrelated data rather than presenting it as a valid machine trace.
     const parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    return isTraceRecord(parsed) ? parsed : null;
+    return sanitizeTraceRecord(parsed);
   } catch {
     // Missing, malformed, or unsafe traces are reported as absent.
     return null;
