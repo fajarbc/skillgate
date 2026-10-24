@@ -1,4 +1,4 @@
-import { access, mkdtemp } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -82,6 +82,31 @@ describe("CLI v1 JSON transport integration", () => {
       ok: true,
       data: { task, recommendations: expect.any(Array) },
     });
+  });
+
+  it("does not create a managed trace directory for JSON recommendations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
+    const { exitCode, envelope } = await capture(() =>
+      run(["recommend", "inspect safety", "--root", root, "--json"]),
+    );
+    expect(exitCode).toBe(0);
+    expect(envelope).toMatchObject({ command: "recommend", ok: true });
+    await expect(access(join(root, ".skillgate"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("preserves a user-owned file behind a trace symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
+    const managed = join(root, ".skillgate");
+    const sentinel = join(root, "user-owned.txt");
+    await mkdir(managed);
+    await writeFile(sentinel, "keep user content", "utf8");
+    await symlink(sentinel, join(managed, "trace.json"));
+    const { exitCode, envelope } = await capture(() =>
+      run(["recommend", "inspect safety", "--root", root, "--json"]),
+    );
+    expect(exitCode).toBe(0);
+    expect(envelope).toMatchObject({ command: "recommend", ok: true });
+    expect(await readFile(sentinel, "utf8")).toBe("keep user content");
   });
 
   it("fails closed on machine adapter application until #28 safety is validated", async () => {
