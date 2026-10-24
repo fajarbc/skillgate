@@ -64,6 +64,36 @@ describe("CLI v1 JSON transport integration", () => {
     }
   });
 
+  it("redacts user-controlled policy errors from JSON doctor diagnostics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-doctor-"));
+    const secret = "secret-policy-value-should-not-appear";
+    const content = JSON.stringify({ defaultAction: secret });
+    try {
+      await mkdir(join(root, ".skillgate"));
+      const policyFile = join(root, ".skillgate", "policy.json");
+      await writeFile(policyFile, content);
+      const { exitCode, envelope } = await capture(() => run(["doctor", "--json", "--root", root]));
+      expect(exitCode).toBe(2);
+      expect(envelope).toMatchObject({
+        command: "doctor",
+        ok: false,
+        error: { code: "CONFIGURATION_ERROR" },
+        data: { report: { status: "fail" } },
+      });
+      const policyCheck = envelope.data.report.checks.find(
+        (check: { name: string }) => check.name === "policy-configuration",
+      );
+      expect(policyCheck).toMatchObject({
+        status: "fail",
+        message: "Policy configuration invalid",
+      });
+      expect(JSON.stringify(envelope)).not.toContain(secret);
+      expect(await readFile(policyFile, "utf8")).toBe(content);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns one structured error for an unknown command", async () => {
     const { exitCode, envelope } = await capture(() => run(["unknown", "--json"]));
     expect(exitCode).toBe(1);
