@@ -111,6 +111,16 @@ try {
     assert.equal(malformed.ok, false);
     assert.equal(malformed.error.code, "INVALID_REQUEST");
 
+    // Exercise the built entry point, not just the in-process run() tests:
+    // malformed boolean --json assignments must still use JSON transport.
+    for (const flag of ["--json=true", "--json=false", "--json="]) {
+      const envelope = JSON.parse(invoke(["scan", flag, "--root", root], 1));
+      assert.equal(envelope.protocolVersion, 1);
+      assert.equal(envelope.command, null);
+      assert.equal(envelope.ok, false);
+      assert.equal(envelope.error.code, "INVALID_REQUEST");
+    }
+
     for (const adapter of ["codex", "claude"]) {
       // Machine-mode apply must fail closed until the #28 safety boundary is accepted.
       const rejected = JSON.parse(invoke(["recommend", "test TypeScript", "--adapter", adapter, "--root", root, "--json"], 3));
