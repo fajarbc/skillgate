@@ -485,6 +485,41 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex.deepSecret).toBe(deepSecret);
   });
 
+  it("redacts credentials in relative redirect callbacks without hiding safe destinations", () => {
+    const redirect = (target: string) => `https://example.org/redirect?next=${encodeURIComponent(target)}`;
+    const options = {
+      rootRelative: redirect("/callback?code=secret-canary"),
+      queryOnly: redirect("?api_key=secret-canary"),
+      dotRelative: redirect("./callback?code_verifier=secret-canary"),
+      parentRelative: redirect("../callback?SAMLResponse=secret-canary"),
+      bareRelative: redirect("callback?client_assertion=secret-canary"),
+      fragmentRelative: `https://example.org/#/route?next=${encodeURIComponent("/callback?client_assertion=secret-canary")}`,
+      safePath: redirect("/docs?mode=preview"),
+      safeQuery: redirect("?mode=preview"),
+      safeRelative: redirect("./docs?tab=read"),
+      safeText: "ordinary-mode",
+    };
+    const config = {
+      version: 1 as const, skillRoots: ["/workspace"], candidateLimit: 10,
+      adapters: ["codex"], adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      rootRelative: "[REDACTED]",
+      queryOnly: "[REDACTED]",
+      dotRelative: "[REDACTED]",
+      parentRelative: "[REDACTED]",
+      bareRelative: "[REDACTED]",
+      fragmentRelative: "[REDACTED]",
+      safePath: options.safePath,
+      safeQuery: options.safeQuery,
+      safeRelative: options.safeRelative,
+      safeText: options.safeText,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
