@@ -21,9 +21,10 @@ export interface SkillGateConfig {
 
 const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters", "adapterOptions"]);
 // Adapter options and signed URLs may contain credentials under HTTP/auth names.
+// Dotted and space-delimited keys (api.key, access key) are also sensitive.
 // Keep public config output fail-closed for those keys, without mutating the
 // effective configuration used internally by adapters.
-const sensitiveOption = /(?:secret|token|pass(?:word|wd|phrase)|pwd|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[_-])(?:sig|key)(?:$|[_-]))/i;
+const sensitiveOption = /(?:secret|token|pass(?:word|wd|phrase)|pwd|api[._\s-]?key|credential|private[._\s-]?key|access[._\s-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[._\s-])(?:sig|key)(?:$|[._\s-]))/i;
 
 /** URLSearchParams decodes once, but nested encodings can conceal a
  * credential key for several more passes. Bound the work and fail closed if
