@@ -101,6 +101,53 @@ describe("CLI v1 JSON transport integration", () => {
     }
   });
 
+  it("redacts HTTP authorization and session credentials in JSON config output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-config-redaction-"));
+    const configFile = join(root, "explicit.json");
+    const original = JSON.stringify({
+      version: 1,
+      adapterOptions: {
+        codex: {
+          authorization: "Bearer user-secret",
+          authHeader: "user-secret",
+          accessKey: "user-secret",
+          cookie: "user-secret",
+          sessionId: "user-secret",
+          mode: "safe",
+        },
+      },
+    });
+    try {
+      await writeFile(configFile, original);
+      const { exitCode, envelope } = await capture(() =>
+        run(["config", "--json", "--root", root, "--config", configFile]),
+      );
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({
+        command: "config",
+        ok: true,
+        data: {
+          configuration: {
+            adapterOptions: {
+              codex: {
+                authorization: "[REDACTED]",
+                authHeader: "[REDACTED]",
+                accessKey: "[REDACTED]",
+                cookie: "[REDACTED]",
+                sessionId: "[REDACTED]",
+                mode: "safe",
+              },
+            },
+          },
+        },
+      });
+      expect(JSON.stringify(envelope)).not.toContain("user-secret");
+      expect(await readFile(configFile, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns one structured error for an unknown command", async () => {
     const { exitCode, envelope } = await capture(() => run(["unknown", "--json"]));
     expect(exitCode).toBe(1);
