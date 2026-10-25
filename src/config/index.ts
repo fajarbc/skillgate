@@ -51,13 +51,17 @@ function isNestedEncodedCredentialKey(key: string): boolean {
  * fragment parameters in public config output. Keep ordinary URLs intact.
  */
 function hasEmbeddedUrlCredentials(value: string): boolean {
+  // A malformed absolute URL may still contain userinfo credentials. If URL
+  // parsing rejects it, fail closed rather than returning its raw value in
+  // public config output. Ordinary non-URL option values remain untouched.
+  const looksLikeUrl = /^[a-z][a-z\d+.-]*:\/{1,2}/i.test(value);
   try {
     const url = new URL(value);
     return Boolean(url.username || url.password) ||
       [...url.searchParams.keys()].some((key) => sensitiveOption.test(key) || isNestedEncodedCredentialKey(key)) ||
       [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => sensitiveOption.test(key) || isNestedEncodedCredentialKey(key));
   } catch {
-    return false;
+    return looksLikeUrl;
   }
 }
 
