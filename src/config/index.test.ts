@@ -364,6 +364,39 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("redacts protocol-relative URL credentials, including nested redirects", () => {
+    const options = {
+      directUserinfo: "//alice:secret-canary@private.example/skills",
+      directSigned: "//private.example/skills?api_key=secret-canary",
+      nestedUserinfo: "https://public.example/redirect?next=%2F%2Falice%3Asecret-canary%40private.example%2Fskills",
+      nestedSigned: "https://public.example/redirect?next=%2F%2Fprivate.example%2F%3Fapi_key%3Dsecret-canary",
+      malformed: "//[invalid-host",
+      safeDirect: "//private.example/docs?mode=preview",
+      safeNested: "https://public.example/redirect?next=%2F%2Fprivate.example%2Fdocs",
+      mode: "safe",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      directUserinfo: "[REDACTED]",
+      directSigned: "[REDACTED]",
+      nestedUserinfo: "[REDACTED]",
+      nestedSigned: "[REDACTED]",
+      malformed: "[REDACTED]",
+      safeDirect: options.safeDirect,
+      safeNested: options.safeNested,
+      mode: "safe",
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("redacts credentials inside nested redirect URLs without hiding safe destinations", () => {
     const options = {
       nestedUserinfo: "https://example.org/redirect?next=https%3A%2F%2Fuser%3Apassword%40private.example%2F",
