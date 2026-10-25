@@ -26,7 +26,11 @@ const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "
 // effective configuration used internally by adapters.
 const sensitiveOption = /(?:secret|token|pass(?:word|wd|phrase)|pwd|api[._\s-]?key|credential|private[._\s-]?key|access[._\s-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[._\s-])(?:sig|key)(?:$|[._\s-]))/i;
 
-// OAuth authorization codes and SAML assertions are bearer credentials even\n// when their parameter names do not include token, key, or secret.\nconst sensitiveUrlParameter = /^(?:code|samlresponse|client_assertion)$/i;\n\n/** URLSearchParams decodes once, but nested encodings can conceal a
+// OAuth authorization codes and SAML assertions are bearer credentials even
+// when their parameter names do not include token, key, or secret.
+const sensitiveUrlParameter = /^(?:code|samlresponse|client_assertion)$/i;
+
+/** URLSearchParams decodes once, but nested encodings can conceal a
  * credential key for several more passes. Bound the work and fail closed if
  * a malformed or excessively nested escape sequence remains.
  */
@@ -70,7 +74,7 @@ export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig 
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, ((isNestedEncodedCredentialKey(key, true)) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (isNestedEncodedCredentialKey(key) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
     ])),
   };
 }
