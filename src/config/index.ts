@@ -29,6 +29,9 @@ const sensitiveOption = /(?:secret|token|pass(?:word|wd|phrase)|pwd|api[._\s-]?k
 // OAuth authorization codes and SAML assertions are bearer credentials even
 // when their parameter names do not include token, key, or secret.
 const sensitiveUrlParameter = /^(?:code|samlresponse|client_assertion)$/i;
+// These credentials are sensitive as standalone adapter settings too, while
+// an ordinary option named "code" must remain visible.
+const sensitiveAssertionOption = /^(?:samlresponse|client_assertion)$/i;
 
 /** URLSearchParams decodes once, but nested encodings can conceal a
  * credential key for several more passes. Bound the work and fail closed if
@@ -74,7 +77,7 @@ export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig 
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (isNestedEncodedCredentialKey(key) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, ((isNestedEncodedCredentialKey(key) || sensitiveAssertionOption.test(key)) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
     ])),
   };
 }
