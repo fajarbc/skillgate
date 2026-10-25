@@ -165,6 +165,15 @@ describe("CLI v1 JSON transport integration", () => {
           safeChallenge: "https://auth.example.org/authorize?code_challenge=public",
           nestedRedirect: "https://example.org/redirect?next=https%3A%2F%2Fuser%3Auser-secret%40private.example%2F",
           nestedSignedRedirect: "https://example.org/redirect?next=https%3A%2F%2Fprivate.example%2F%3Fapi_key%3Duser-secret",
+          deepRedirect: Array.from({ length: 4 }).reduce(
+            (url: string) => `https://redirect.example.org/?next=${encodeURIComponent(url)}`,
+            "https://private.example.org/?api_key=user-secret",
+          ),
+          heavilyEncodedRedirect: "https://example.org/redirect?next=" +
+            encodeURIComponent(Array.from({ length: 7 }).reduce(
+              (url: string) => encodeURIComponent(url),
+              "https://private.example.org/?api_key=user-secret",
+            )),
           safeNestedRedirect: "https://example.org/redirect?next=https%3A%2F%2Fprivate.example%2Fdocs",
           safeEndpoint: "https://example.org/skills?mode=safe",
           mode: "safe",
@@ -209,6 +218,8 @@ describe("CLI v1 JSON transport integration", () => {
                 safeChallenge: "https://auth.example.org/authorize?code_challenge=public",
                 nestedRedirect: "[REDACTED]",
                 nestedSignedRedirect: "[REDACTED]",
+                deepRedirect: "[REDACTED]",
+                heavilyEncodedRedirect: "[REDACTED]",
                 safeNestedRedirect: "https://example.org/redirect?next=https%3A%2F%2Fprivate.example%2Fdocs",
                 safeEndpoint: "https://example.org/skills?mode=safe",
                 mode: "safe",
