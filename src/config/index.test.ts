@@ -244,6 +244,39 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("preserves ordinary code settings while redacting standalone assertions and encoded keys", () => {
+    const options = {
+      code: "source-code-not-a-secret",
+      "co%64e": "encoded-source-code-not-a-secret",
+      SAMLResponse: "saml-secret-canary",
+      client_assertion: "assertion-secret-canary",
+      "client%255Fassertion": "nested-assertion-secret-canary",
+      "SAML%2552esponse": "nested-saml-secret-canary",
+      callback: "https://example.org/callback?code=oauth-secret-canary",
+      safeUrl: "https://example.org/status?status_code=200",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      code: options.code,
+      "co%64e": options["co%64e"],
+      SAMLResponse: "[REDACTED]",
+      client_assertion: "[REDACTED]",
+      "client%255Fassertion": "[REDACTED]",
+      "SAML%2552esponse": "[REDACTED]",
+      callback: "[REDACTED]",
+      safeUrl: options.safeUrl,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
