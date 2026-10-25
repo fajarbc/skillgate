@@ -20,7 +20,10 @@ export interface SkillGateConfig {
 }
 
 const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters", "adapterOptions"]);
-const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key)/i;
+// Adapter options may contain credentials under conventional HTTP/auth names.
+// Keep public config output fail-closed for those keys, without mutating the
+// effective configuration used internally by adapters.
+const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization|auth|bearer|cookie|session)/i;
 
 export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig {
   return {
