@@ -67,9 +67,15 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0, allowRelative = fal
   // Protocol-relative URLs can carry userinfo and signed parameters too.
   // Parse them against an explicit scheme without changing the original value.
   const schemeRelative = value.startsWith("//");
-  // Redirect parameters can contain relative callback paths or query-only URLs.\n  // Parse them only when reached through an enclosing URL; do not reinterpret\n  // arbitrary standalone adapter option strings as relative URLs.\n  const relativeUrl = allowRelative && (value.startsWith("/") || value.startsWith("?") ||\n    value.startsWith("./") || value.startsWith("../") || /^[^/?#\s][^?#\s]*\?/.test(value));\n  const looksLikeUrl = schemeRelative || relativeUrl || /^[a-z][a-z\d+.-]*:\/{1,2}/i.test(value);
+  // Redirect parameters can contain relative callback paths or query-only URLs.
+  // Parse them only when reached through an enclosing URL; do not reinterpret
+  // arbitrary standalone adapter option strings as relative URLs.
+  const relativeUrl = allowRelative && (value.startsWith("/") || value.startsWith("?") ||
+    value.startsWith("./") || value.startsWith("../") || /^[^/?#\s][^?#\s]*\?/.test(value));
+  const looksLikeUrl = schemeRelative || relativeUrl || /^[a-z][a-z\d+.-]*:\/{1,2}/i.test(value);
   try {
-    const url = relativeUrl ? new URL(value, "https://skillgate.invalid/") :\n      new URL(schemeRelative ? `https:${value}` : value);
+    const url = relativeUrl ? new URL(value, "https://skillgate.invalid/") :
+      new URL(schemeRelative ? `https:${value}` : value);
     // OAuth fragments may be key/value data, hash-router queries, or both.
     // Parsing only the suffix after "?" can hide an earlier access_token or
     // authorization code when a later fragment value contains a question mark.
@@ -102,7 +108,9 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0, allowRelative = fal
     return parameters.some(([, raw]) => {
       let candidate = raw;
       for (let encodingDepth = 0; encodingDepth < 4; encodingDepth++) {
-        if (candidate.startsWith("//") || candidate.includes("://") || candidate.startsWith("http:/") ||\n            candidate.startsWith("https:/") || candidate.startsWith("/") || candidate.startsWith("?") ||\n            candidate.startsWith("./") || candidate.startsWith("../") || /^[^/?#\s][^?#\s]*\?/.test(candidate)) {
+        if (candidate.startsWith("//") || candidate.includes("://") || candidate.startsWith("http:/") ||
+            candidate.startsWith("https:/") || candidate.startsWith("/") || candidate.startsWith("?") ||
+            candidate.startsWith("./") || candidate.startsWith("../") || /^[^/?#\s][^?#\s]*\?/.test(candidate)) {
           // At the recursion limit, further redirects may conceal credentials.
           // Fail closed instead of exposing an uninspected nested URL.
           if (depth >= 3 || hasEmbeddedUrlCredentials(candidate, depth + 1, true)) return true;
