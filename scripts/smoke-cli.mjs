@@ -38,7 +38,7 @@ try {
       assert.equal(result.status, expectedStatus, `${args.join(" ")}: ${result.stderr}`);
       assert.equal(result.stderr, "", "successful CLI invocations must not print diagnostics");
       assert.notEqual(result.stdout.trim(), "", "CLI entry point must actually run");
-      if (args.includes("--json")) {
+      if (args.some((arg) => arg === "--json" || arg.startsWith("--json="))) {
         assert.ok(result.stdout.endsWith("\n"), "JSON transport must terminate with a newline");
         assert.equal(result.stdout.split("\n").length, 2, "JSON transport must emit exactly one line");
         // Validate the actual built CLI output, not just golden fixtures.
@@ -110,6 +110,25 @@ try {
     ));
     assert.equal(malformed.ok, false);
     assert.equal(malformed.error.code, "INVALID_REQUEST");
+
+    // Validate real process stdin boundaries, not just the isolated reader.
+    // Invalid UTF-8 must fail closed without emitting replacement characters.
+    const invalidUtf8 = JSON.parse(invoke(
+      ["recommend", "--json", "--stdin", "--root", root], 1, Buffer.from([0xff]),
+    ));
+    assert.equal(invalidUtf8.command, "recommend");
+    assert.equal(invalidUtf8.ok, false);
+    assert.equal(invalidUtf8.error.code, "INVALID_REQUEST");
+
+    // The one-megabyte limit counts the entire serialized request, not just
+    // its task string. Exercise the actual CLI entry point at this boundary.
+    const oversizedStdin = JSON.parse(invoke(
+      ["recommend", "--json", "--stdin", "--root", root], 1,
+      JSON.stringify({ protocolVersion: 1, task: "a".repeat(1024 * 1024) }),
+    ));
+    assert.equal(oversizedStdin.command, "recommend");
+    assert.equal(oversizedStdin.ok, false);
+    assert.equal(oversizedStdin.error.code, "INVALID_REQUEST");
 
     // Exercise the built entry point, not just the in-process run() tests:
     // malformed boolean --json assignments must still use JSON transport.
