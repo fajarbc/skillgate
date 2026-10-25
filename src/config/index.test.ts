@@ -90,6 +90,32 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex.query).toContain("secret-canary");
   });
 
+  it("redacts deeply encoded URL credentials and malformed escape keys", () => {
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: {
+        codex: {
+          nestedQuery: "https://example.org/data?api%25255Fkey=secret-canary",
+          nestedFragment: "https://example.org/data#api%25255Fkey=secret-canary",
+          malformed: "https://example.org/data?%25ZZ=secret-canary",
+          safe: "https://example.org/data?design%252520mode=preview",
+        },
+      },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      nestedQuery: "[REDACTED]",
+      nestedFragment: "[REDACTED]",
+      malformed: "[REDACTED]",
+      safe: config.adapterOptions.codex.safe,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex.nestedQuery).toContain("secret-canary");
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
