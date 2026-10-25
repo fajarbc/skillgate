@@ -116,6 +116,34 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex.nestedQuery).toContain("secret-canary");
   });
 
+  it("redacts percent-encoded adapter option names without mutating source settings", () => {
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: {
+        codex: {
+          "api%5Fkey": "secret-canary",
+          "api%25255Fkey": "nested-secret-canary",
+          "api%ZZ": "malformed-secret-canary",
+          "design%2520mode": "preview",
+          mode: "safe",
+        },
+      },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      "api%5Fkey": "[REDACTED]",
+      "api%25255Fkey": "[REDACTED]",
+      "api%ZZ": "[REDACTED]",
+      "design%2520mode": "preview",
+      mode: "safe",
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex["api%5Fkey"]).toBe("secret-canary");
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
