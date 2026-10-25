@@ -270,18 +270,18 @@ export async function runJson(
     const skills = skillsFound.flatMap((skill) =>
       skill.metadata ? [{ path: skill.path, metadata: skill.metadata }] : [],
     );
-    const recommendations = rankSkills({
+    // Apply policy before ranking and limiting results. Filtering after the
+    // candidateLimit slice lets denied high-scoring skills crowd out permitted
+    // matches, yielding fewer recommendations than the configured limit.
+    const policy = await loadPolicy(root, configuration.policyPath);
+    const eligibleSkills = evaluatePolicies(skills, policy)
+      .filter((evaluation) => evaluation.decision === "allow")
+      .map((evaluation) => evaluation.skill);
+    const approvedRecommendations = rankSkills({
       task: task!,
-      skills,
+      skills: eligibleSkills,
       signals,
       limit: configuration.candidateLimit,
-    });
-    const policy = await loadPolicy(root, configuration.policyPath);
-    const policyEvaluations = evaluatePolicies(skills, policy);
-    const evalMap = new Map(policyEvaluations.map((evaluation) => [evaluation.skill.path, evaluation]));
-    const approvedRecommendations = recommendations.filter((recommendation) => {
-      const evaluation = evalMap.get(recommendation.path);
-      return evaluation ? evaluation.decision === "allow" : true;
     });
 
     // JSON recommendations must remain read-only until #28 defines an accepted
