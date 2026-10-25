@@ -83,12 +83,14 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0): boolean {
     // An innocuous outer parameter such as "redirect" may contain a URL with
     // userinfo or signed credentials. Inspect nested URL values with bounded
     // recursion and decoding, while preserving safe redirect destinations.
-    if (depth >= 3) return false;
     return parameters.some(([, raw]) => {
       let candidate = raw;
       for (let encodingDepth = 0; encodingDepth < 4; encodingDepth++) {
-        if ((candidate.includes("://") || candidate.startsWith("http:/") || candidate.startsWith("https:/")) &&
-            hasEmbeddedUrlCredentials(candidate, depth + 1)) return true;
+        if (candidate.includes("://") || candidate.startsWith("http:/") || candidate.startsWith("https:/")) {
+          // At the recursion limit, further redirects may conceal credentials.
+          // Fail closed instead of exposing an uninspected nested URL.
+          if (depth >= 3 || hasEmbeddedUrlCredentials(candidate, depth + 1)) return true;
+        }
         if (!candidate.includes("%")) break;
         try {
           const decoded = decodeURIComponent(candidate);
@@ -98,7 +100,8 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0): boolean {
           return true;
         }
       }
-      return false;
+      // Excessive encoding can hide a nested URL past the decode budget.
+      return candidate.includes("%");
     });
   } catch {
     return looksLikeUrl;
