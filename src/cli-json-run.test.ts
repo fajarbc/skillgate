@@ -130,6 +130,25 @@ describe("CLI v1 JSON transport integration", () => {
     }
   });
 
+  it("returns structured errors for malformed --json=value options", async () => {
+    const humanError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      for (const flag of ["--json=true", "--json=false", "--json="]) {
+        const { exitCode, envelope } = await capture(() => run(["scan", flag]));
+        expect(exitCode).toBe(1);
+        expect(envelope).toMatchObject({
+          protocolVersion: 1,
+          command: null,
+          ok: false,
+          error: { code: "INVALID_REQUEST" },
+        });
+      }
+      expect(humanError).not.toHaveBeenCalled();
+    } finally {
+      humanError.mockRestore();
+    }
+  });
+
   it("preserves a multiline stdin task without shell quoting", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
     const task = "Investigate the regression\nThen verify 日本語 🚀";
