@@ -35,6 +35,37 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex.apiKey).toBe("secret-value");
   });
 
+  it("redacts signed URL credentials without changing safe options or source configuration", () => {
+    const options = {
+      aws: "https://s3.example.org/object?X-Amz-Signature=signed-secret",
+      google: "https://storage.example.org/object?X-Goog-Signature=signed-secret",
+      azure: "https://blob.example.org/object?sv=2024-01-01&sig=signed-secret",
+      maps: "https://maps.example.org/lookup?key=signed-secret",
+      fragment: "https://example.org/callback#sig=signed-secret",
+      safeUrl: "https://example.org/search?design=default&mode=safe",
+      mode: "safe",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      aws: "[REDACTED]",
+      google: "[REDACTED]",
+      azure: "[REDACTED]",
+      maps: "[REDACTED]",
+      fragment: "[REDACTED]",
+      safeUrl: options.safeUrl,
+      mode: "safe",
+    });
+    expect(config.adapterOptions.codex).toEqual(options);
+    expect(JSON.stringify(sanitized)).not.toContain("signed-secret");
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
