@@ -271,10 +271,10 @@ describe("CLI v1 JSON transport integration", () => {
       await mkdir(allowed, { recursive: true });
       await mkdir(join(root, ".skillgate"));
       await writeFile(join(denied, "SKILL.md"),
-        "---\\nname: typescript\\ndescription: TypeScript expertise\\n---\\n");
+        "---\nname: typescript\ndescription: TypeScript expertise\n---\n");
       await writeFile(join(allowed, "SKILL.md"),
-        "---\\nname: lint-helper\\ndescription: TypeScript lint assistance\\n---\\n");
-      await writeFile(join(root, "skillgate.yaml"), "version: 1\\ncandidateLimit: 1\\n");
+        "---\nname: lint-helper\ndescription: TypeScript lint assistance\n---\n");
+      await writeFile(join(root, "skillgate.yaml"), "version: 1\ncandidateLimit: 1\n");
       const policyFile = join(root, ".skillgate", "policy.json");
       const policy = JSON.stringify({ deniedSkills: ["typescript"] });
       await writeFile(policyFile, policy);
