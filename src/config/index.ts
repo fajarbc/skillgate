@@ -87,7 +87,7 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0): boolean {
     return parameters.some(([, raw]) => {
       let candidate = raw;
       for (let encodingDepth = 0; encodingDepth < 4; encodingDepth++) {
-        if (/^[a-z][a-z\\d+.-]*:\\/{1,2}/i.test(candidate) &&
+        if ((candidate.includes("://") || candidate.startsWith("http:/") || candidate.startsWith("https:/")) &&
             hasEmbeddedUrlCredentials(candidate, depth + 1)) return true;
         if (!candidate.includes("%")) break;
         try {
