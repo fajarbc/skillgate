@@ -306,6 +306,35 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("redacts PKCE code verifiers in options, URLs, and hash-router callbacks", () => {
+    const options = {
+      code_verifier: "pkce-secret-canary",
+      "code%255Fverifier": "nested-pkce-secret-canary",
+      tokenEndpoint: "https://auth.example.org/token?code_verifier=pkce-secret-canary",
+      hashCallback: "https://auth.example.org/#/callback?code%255Fverifier=pkce-secret-canary",
+      safeChallenge: "https://auth.example.org/authorize?code_challenge=public-challenge",
+      code: "ordinary-source-code",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      code_verifier: "[REDACTED]",
+      "code%255Fverifier": "[REDACTED]",
+      tokenEndpoint: "[REDACTED]",
+      hashCallback: "[REDACTED]",
+      safeChallenge: options.safeChallenge,
+      code: options.code,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("pkce-secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
