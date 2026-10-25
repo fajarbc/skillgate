@@ -26,12 +26,12 @@ const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "
 // effective configuration used internally by adapters.
 const sensitiveOption = /(?:secret|token|pass(?:word|wd|phrase)|pwd|api[._\s-]?key|credential|private[._\s-]?key|access[._\s-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[._\s-])(?:sig|key)(?:$|[._\s-]))/i;
 
-// OAuth authorization codes and SAML assertions are bearer credentials even
+// OAuth authorization codes, PKCE verifiers, and SAML assertions are credentials even
 // when their parameter names do not include token, key, or secret.
-const sensitiveUrlParameter = /^(?:code|samlresponse|client_assertion)$/i;
+const sensitiveUrlParameter = /^(?:code|code_verifier|samlresponse|client_assertion)$/i;
 // These credentials are sensitive as standalone adapter settings too, while
 // an ordinary option named "code" must remain visible.
-const sensitiveAssertionOption = /^(?:samlresponse|client_assertion)$/i;
+const sensitiveAssertionOption = /^(?:code_verifier|samlresponse|client_assertion)$/i;
 
 /** URLSearchParams decodes once, but nested encodings can conceal a
  * credential key for several more passes. Bound the work and fail closed if
