@@ -25,13 +25,24 @@ const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "
 // effective configuration used internally by adapters.
 const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[_-])(?:sig|key)(?:$|[_-]))/i;
 
-/** Detect credential parameter names encoded more than once in signed URLs. */
+/** URLSearchParams decodes once, but nested encodings can conceal a
+ * credential key for several more passes. Bound the work and fail closed if
+ * a malformed or excessively nested escape sequence remains.
+ */
 function isNestedEncodedCredentialKey(key: string): boolean {
-  try {
-    return sensitiveOption.test(decodeURIComponent(key));
-  } catch {
-    return false;
+  let decoded = key;
+  for (let depth = 0; depth < 8; depth++) {
+    if (sensitiveOption.test(decoded)) return true;
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return true;
+    }
+    if (next === decoded) return false;
+    decoded = next;
   }
+  return sensitiveOption.test(decoded) || decoded.includes("%");
 }
 
 /** URL values can embed credentials even under innocuous option names such as
