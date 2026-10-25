@@ -144,6 +144,39 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex["api%5Fkey"]).toBe("secret-canary");
   });
 
+  it("redacts password aliases in adapter keys and credential-bearing URLs", () => {
+    const options = {
+      pwd: "secret-canary",
+      passwd: "secret-canary",
+      passphrase: "secret-canary",
+      db: "postgresql://example.test/db?pwd=secret-canary",
+      callback: "https://example.test/callback#passphrase=secret-canary",
+      endpoint: "https://example.test/connect?passwd=secret-canary",
+      safeUrl: "https://example.test/docs?mode=read",
+      mode: "safe",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      pwd: "[REDACTED]",
+      passwd: "[REDACTED]",
+      passphrase: "[REDACTED]",
+      db: "[REDACTED]",
+      callback: "[REDACTED]",
+      endpoint: "[REDACTED]",
+      safeUrl: options.safeUrl,
+      mode: "safe",
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
