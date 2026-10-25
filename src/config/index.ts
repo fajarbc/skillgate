@@ -69,7 +69,8 @@ function hasEmbeddedUrlCredentials(value: string): boolean {
     const url = new URL(value);
     return Boolean(url.username || url.password) ||
       [...url.searchParams.keys()].some((key) => isNestedEncodedCredentialKey(key, "url")) ||
-      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => isNestedEncodedCredentialKey(key, "url"));
+      [...new URLSearchParams(url.hash.includes("?") ? url.hash.slice(url.hash.indexOf("?") + 1) : url.hash.slice(1)).keys()]
+        .some((key) => isNestedEncodedCredentialKey(key, "url"));
   } catch {
     return looksLikeUrl;
   }
