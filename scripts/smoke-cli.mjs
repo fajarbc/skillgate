@@ -166,6 +166,50 @@ try {
     assert.equal(config.version, 1);
     assert.deepEqual(config.skillRoots, [root]);
 
+    // Exercise real built CLI policy enforcement, not only in-process tests.
+    const policyFile = join(root, ".skillgate", "policy.json");
+    await writeFile(policyFile, JSON.stringify({ deniedSkills: ["testing"] }));
+    const denied = json("recommend", "test TypeScript");
+    assert.deepEqual(denied.recommendations, [], "denied skills must not appear in machine recommendations");
+
+    // Machine config output must redact credentials while preserving safe values
+    // and leaving the source configuration file untouched.
+    const secret = "smoke-cli-secret-canary";
+    const configFile = join(temporary, "explicit-config.json");
+    const originalConfig = JSON.stringify({
+      version: 1,
+      adapterOptions: {
+        codex: {
+          apiKey: secret,
+          endpoint: `https://user:${secret}@example.org/v1`,
+          signed: `https://example.org/object?X-Amz-Signature=${secret}`,
+          safeEndpoint: "https://example.org/docs?mode=read",
+        },
+      },
+    });
+    await writeFile(configFile, originalConfig);
+    const sanitized = JSON.parse(invoke(["config", "--json", "--root", root, "--config", configFile]));
+    assert.equal(sanitized.ok, true);
+    assert.deepEqual(sanitized.data.configuration.adapterOptions.codex, {
+      apiKey: "[REDACTED]",
+      endpoint: "[REDACTED]",
+      signed: "[REDACTED]",
+      safeEndpoint: "https://example.org/docs?mode=read",
+    });
+    assert.ok(!JSON.stringify(sanitized).includes(secret), "machine config must not leak credentials");
+    assert.equal(await readFile(configFile, "utf8"), originalConfig);
+
+    // A failed doctor must emit one structured JSON error with a report, never
+    // echoing the invalid policy value or writing human diagnostics to stderr.
+    const invalidPolicy = JSON.stringify({ defaultAction: secret });
+    await writeFile(policyFile, invalidPolicy);
+    const failedDoctor = JSON.parse(invoke(["doctor", "--json", "--root", root], 2));
+    assert.equal(failedDoctor.ok, false);
+    assert.equal(failedDoctor.error.code, "CONFIGURATION_ERROR");
+    assert.equal(failedDoctor.data.report.status, "fail");
+    assert.ok(!JSON.stringify(failedDoctor).includes(secret), "doctor must not leak policy contents");
+    assert.equal(await readFile(policyFile, "utf8"), invalidPolicy);
+
     console.log(`Built CLI smoke passed (${process.platform}, ${process.version})`);
   } finally {
     await rm(built, { recursive: true, force: true });
