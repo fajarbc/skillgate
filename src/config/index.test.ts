@@ -306,6 +306,35 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("redacts OAuth credentials before question marks inside URL fragments", () => {
+    const options = {
+      callbackA: "https://example.org/#access_token=secret-canary&return_to=/docs?mode=preview",
+      callbackB: "https://example.org/#code=secret-canary?state=ok",
+      callbackC: "https://example.org/#client_assertion=secret-canary?state=ok",
+      router: "https://example.org/#/callback?code=secret-canary",
+      safeHash: "https://example.org/#/docs?mode=preview&status_code=200",
+      safeNested: "https://example.org/#mode=preview&return_to=/docs?tab=ok",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      callbackA: "[REDACTED]",
+      callbackB: "[REDACTED]",
+      callbackC: "[REDACTED]",
+      router: "[REDACTED]",
+      safeHash: options.safeHash,
+      safeNested: options.safeNested,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("redacts PKCE code verifiers in options, URLs, and hash-router callbacks", () => {
     const options = {
       code_verifier: "pkce-secret-canary",
