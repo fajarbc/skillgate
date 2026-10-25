@@ -37,10 +37,13 @@ const sensitiveAssertionOption = /^(?:samlresponse|client_assertion)$/i;
  * credential key for several more passes. Bound the work and fail closed if
  * a malformed or excessively nested escape sequence remains.
  */
-function isNestedEncodedCredentialKey(key: string, urlParameter = false): boolean {
+function isNestedEncodedCredentialKey(key: string, context: "option" | "url" = "option"): boolean {
+  const isSensitive = (decoded: string): boolean =>
+    sensitiveOption.test(decoded) ||
+    (context === "url" ? sensitiveUrlParameter : sensitiveAssertionOption).test(decoded);
   let decoded = key;
   for (let depth = 0; depth < 8; depth++) {
-    if (sensitiveOption.test(decoded) || (urlParameter && sensitiveUrlParameter.test(decoded))) return true;
+    if (isSensitive(decoded)) return true;
     let next: string;
     try {
       next = decodeURIComponent(decoded);
@@ -50,7 +53,7 @@ function isNestedEncodedCredentialKey(key: string, urlParameter = false): boolea
     if (next === decoded) return false;
     decoded = next;
   }
-  return sensitiveOption.test(decoded) || (urlParameter && sensitiveUrlParameter.test(decoded)) || decoded.includes("%");
+  return isSensitive(decoded) || decoded.includes("%");
 }
 
 /** URL values can embed credentials even under innocuous option names such as
@@ -65,8 +68,8 @@ function hasEmbeddedUrlCredentials(value: string): boolean {
   try {
     const url = new URL(value);
     return Boolean(url.username || url.password) ||
-      [...url.searchParams.keys()].some((key) => isNestedEncodedCredentialKey(key, true)) ||
-      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => isNestedEncodedCredentialKey(key, true));
+      [...url.searchParams.keys()].some((key) => isNestedEncodedCredentialKey(key, "url")) ||
+      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => isNestedEncodedCredentialKey(key, "url"));
   } catch {
     return looksLikeUrl;
   }
@@ -77,7 +80,7 @@ export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig 
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, ((isNestedEncodedCredentialKey(key) || sensitiveAssertionOption.test(key)) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (isNestedEncodedCredentialKey(key) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
     ])),
   };
 }
