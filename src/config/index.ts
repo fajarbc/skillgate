@@ -60,7 +60,7 @@ function isNestedEncodedCredentialKey(key: string, context: "option" | "url" = "
  * endpoint or registry. Never echo URL userinfo or credential-bearing query/
  * fragment parameters in public config output. Keep ordinary URLs intact.
  */
-function hasEmbeddedUrlCredentials(value: string): boolean {
+function hasEmbeddedUrlCredentials(value: string, depth = 0): boolean {
   // A malformed absolute URL may still contain userinfo credentials. If URL
   // parsing rejects it, fail closed rather than returning its raw value in
   // public config output. Ordinary non-URL option values remain untouched.
@@ -71,15 +71,35 @@ function hasEmbeddedUrlCredentials(value: string): boolean {
     // Parsing only the suffix after "?" can hide an earlier access_token or
     // authorization code when a later fragment value contains a question mark.
     const fragment = url.hash.slice(1);
-    const fragmentKeys = [
-      ...new URLSearchParams(fragment).keys(),
+    const parameters = [
+      ...url.searchParams.entries(),
+      ...new URLSearchParams(fragment).entries(),
       ...(fragment.includes("?")
-        ? new URLSearchParams(fragment.slice(fragment.indexOf("?") + 1)).keys()
+        ? new URLSearchParams(fragment.slice(fragment.indexOf("?") + 1)).entries()
         : []),
     ];
-    return Boolean(url.username || url.password) ||
-      [...url.searchParams.keys()].some((key) => isNestedEncodedCredentialKey(key, "url")) ||
-      fragmentKeys.some((key) => isNestedEncodedCredentialKey(key, "url"));
+    if (url.username || url.password ||
+        parameters.some(([key]) => isNestedEncodedCredentialKey(key, "url"))) return true;
+    // An innocuous outer parameter such as "redirect" may contain a URL with
+    // userinfo or signed credentials. Inspect nested URL values with bounded
+    // recursion and decoding, while preserving safe redirect destinations.
+    if (depth >= 3) return false;
+    return parameters.some(([, raw]) => {
+      let candidate = raw;
+      for (let encodingDepth = 0; encodingDepth < 4; encodingDepth++) {
+        if (/^[a-z][a-z\\d+.-]*:\\/{1,2}/i.test(candidate) &&
+            hasEmbeddedUrlCredentials(candidate, depth + 1)) return true;
+        if (!candidate.includes("%")) break;
+        try {
+          const decoded = decodeURIComponent(candidate);
+          if (decoded === candidate) break;
+          candidate = decoded;
+        } catch {
+          return true;
+        }
+      }
+      return false;
+    });
   } catch {
     return looksLikeUrl;
   }
