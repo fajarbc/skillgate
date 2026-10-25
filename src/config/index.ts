@@ -25,6 +25,15 @@ const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "
 // effective configuration used internally by adapters.
 const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[_-])(?:sig|key)(?:$|[_-]))/i;
 
+/** Detect credential parameter names encoded more than once in signed URLs. */
+function isNestedEncodedCredentialKey(key: string): boolean {
+  try {
+    return sensitiveOption.test(decodeURIComponent(key));
+  } catch {
+    return false;
+  }
+}
+
 /** URL values can embed credentials even under innocuous option names such as
  * endpoint or registry. Never echo URL userinfo or credential-bearing query/
  * fragment parameters in public config output. Keep ordinary URLs intact.
@@ -33,8 +42,8 @@ function hasEmbeddedUrlCredentials(value: string): boolean {
   try {
     const url = new URL(value);
     return Boolean(url.username || url.password) ||
-      [...url.searchParams.keys()].some((key) => sensitiveOption.test(key)) ||
-      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => sensitiveOption.test(key));
+      [...url.searchParams.keys()].some((key) => sensitiveOption.test(key) || isNestedEncodedCredentialKey(key)) ||
+      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => sensitiveOption.test(key) || isNestedEncodedCredentialKey(key));
   } catch {
     return false;
   }
