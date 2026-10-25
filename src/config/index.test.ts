@@ -395,14 +395,14 @@ describe("parseConfiguration", () => {
 
   it("fails closed when nested redirect depth or percent-decoding limits are reached", () => {
     const wrap = (url: string) => `https://redirect.example.org/?next=${encodeURIComponent(url)}`;
-    const deepSecret = Array.from({ length: 4 }).reduce(
+    const deepSecret = Array.from({ length: 4 }, () => 0).reduce(
       (url) => wrap(url), "https://private.example.org/?api_key=deep-secret-canary",
     );
-    const deeplyEncoded = wrap(Array.from({ length: 7 }).reduce(
+    const deeplyEncoded = wrap(Array.from({ length: 7 }, () => 0).reduce(
       (url) => encodeURIComponent(url), "https://private.example.org/?api_key=encoded-secret-canary",
     ));
     const shallowSafe = wrap(wrap("https://private.example.org/docs"));
-    const deepSafe = Array.from({ length: 4 }).reduce(
+    const deepSafe = Array.from({ length: 4 }, () => 0).reduce(
       (url) => wrap(url), "https://private.example.org/docs",
     );
     const config = {
