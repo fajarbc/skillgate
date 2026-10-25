@@ -65,7 +65,7 @@ export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig 
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (sensitiveOption.test(key) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, ((sensitiveOption.test(key) || isNestedEncodedCredentialKey(key)) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
     ])),
   };
 }
