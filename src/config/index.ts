@@ -26,14 +26,14 @@ const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "
 // effective configuration used internally by adapters.
 const sensitiveOption = /(?:secret|token|pass(?:word|wd|phrase)|pwd|api[._\s-]?key|credential|private[._\s-]?key|access[._\s-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[._\s-])(?:sig|key)(?:$|[._\s-]))/i;
 
-/** URLSearchParams decodes once, but nested encodings can conceal a
+// OAuth authorization codes and SAML assertions are bearer credentials even\n// when their parameter names do not include token, key, or secret.\nconst sensitiveUrlParameter = /^(?:code|samlresponse|client_assertion)$/i;\n\n/** URLSearchParams decodes once, but nested encodings can conceal a
  * credential key for several more passes. Bound the work and fail closed if
  * a malformed or excessively nested escape sequence remains.
  */
-function isNestedEncodedCredentialKey(key: string): boolean {
+function isNestedEncodedCredentialKey(key: string, urlParameter = false): boolean {
   let decoded = key;
   for (let depth = 0; depth < 8; depth++) {
-    if (sensitiveOption.test(decoded)) return true;
+    if (sensitiveOption.test(decoded) || (urlParameter && sensitiveUrlParameter.test(decoded))) return true;
     let next: string;
     try {
       next = decodeURIComponent(decoded);
@@ -43,7 +43,7 @@ function isNestedEncodedCredentialKey(key: string): boolean {
     if (next === decoded) return false;
     decoded = next;
   }
-  return sensitiveOption.test(decoded) || decoded.includes("%");
+  return sensitiveOption.test(decoded) || (urlParameter && sensitiveUrlParameter.test(decoded)) || decoded.includes("%");
 }
 
 /** URL values can embed credentials even under innocuous option names such as
@@ -58,8 +58,8 @@ function hasEmbeddedUrlCredentials(value: string): boolean {
   try {
     const url = new URL(value);
     return Boolean(url.username || url.password) ||
-      [...url.searchParams.keys()].some((key) => sensitiveOption.test(key) || isNestedEncodedCredentialKey(key)) ||
-      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => sensitiveOption.test(key) || isNestedEncodedCredentialKey(key));
+      [...url.searchParams.keys()].some((key) => isNestedEncodedCredentialKey(key, true)) ||
+      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => isNestedEncodedCredentialKey(key, true));
   } catch {
     return looksLikeUrl;
   }
@@ -70,7 +70,7 @@ export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig 
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, ((sensitiveOption.test(key) || isNestedEncodedCredentialKey(key)) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, ((isNestedEncodedCredentialKey(key, true)) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
     ])),
   };
 }
