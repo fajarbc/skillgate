@@ -67,10 +67,19 @@ function hasEmbeddedUrlCredentials(value: string): boolean {
   const looksLikeUrl = /^[a-z][a-z\d+.-]*:\/{1,2}/i.test(value);
   try {
     const url = new URL(value);
+    // OAuth fragments may be key/value data, hash-router queries, or both.
+    // Parsing only the suffix after "?" can hide an earlier access_token or
+    // authorization code when a later fragment value contains a question mark.
+    const fragment = url.hash.slice(1);
+    const fragmentKeys = [
+      ...new URLSearchParams(fragment).keys(),
+      ...(fragment.includes("?")
+        ? new URLSearchParams(fragment.slice(fragment.indexOf("?") + 1)).keys()
+        : []),
+    ];
     return Boolean(url.username || url.password) ||
       [...url.searchParams.keys()].some((key) => isNestedEncodedCredentialKey(key, "url")) ||
-      [...new URLSearchParams(url.hash.includes("?") ? url.hash.slice(url.hash.indexOf("?") + 1) : url.hash.slice(1)).keys()]
-        .some((key) => isNestedEncodedCredentialKey(key, "url"));
+      fragmentKeys.some((key) => isNestedEncodedCredentialKey(key, "url"));
   } catch {
     return looksLikeUrl;
   }
