@@ -101,7 +101,7 @@ describe("CLI v1 JSON transport integration", () => {
     }
   });
 
-  it("redacts HTTP authorization and session credentials in JSON config output", async () => {
+  it("redacts HTTP authorization, session, and credential-bearing URL values in JSON config output", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-config-redaction-"));
     const configFile = join(root, "explicit.json");
     const original = JSON.stringify({
@@ -113,6 +113,11 @@ describe("CLI v1 JSON transport integration", () => {
           accessKey: "user-secret",
           cookie: "user-secret",
           sessionId: "user-secret",
+          endpoint: "https://user:user-secret@example.org/v1",
+          registry: "https://example.org/skills?api_key=user-secret",
+          callback: "https://example.org/#access_token=user-secret",
+          database: "postgresql://user:user-secret@db.example.org/main",
+          safeEndpoint: "https://example.org/skills?mode=safe",
           mode: "safe",
         },
       },
@@ -135,6 +140,11 @@ describe("CLI v1 JSON transport integration", () => {
                 accessKey: "[REDACTED]",
                 cookie: "[REDACTED]",
                 sessionId: "[REDACTED]",
+                endpoint: "[REDACTED]",
+                registry: "[REDACTED]",
+                callback: "[REDACTED]",
+                database: "[REDACTED]",
+                safeEndpoint: "https://example.org/skills?mode=safe",
                 mode: "safe",
               },
             },
