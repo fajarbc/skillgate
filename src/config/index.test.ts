@@ -66,6 +66,30 @@ describe("parseConfiguration", () => {
     expect(JSON.stringify(sanitized)).not.toContain("signed-secret");
   });
 
+  it("redacts double-encoded signed URL credential parameter names", () => {
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: {
+        codex: {
+          query: "https://example.org/data?access%255Ftoken=secret-canary",
+          fragment: "https://example.org/data#api%255Fkey=secret-canary",
+          safe: "https://example.org/data?design%2520mode=preview",
+        },
+      },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      query: "[REDACTED]",
+      fragment: "[REDACTED]",
+      safe: config.adapterOptions.codex.safe,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex.query).toContain("secret-canary");
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
