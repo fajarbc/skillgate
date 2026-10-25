@@ -177,6 +177,41 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("redacts dotted and space-delimited credential keys in options and URLs", () => {
+    const options = {
+      "api.key": "credential-canary",
+      "access key": "credential-canary",
+      "private.key": "credential-canary",
+      endpoint: "https://example.org/path?api.key=credential-canary",
+      encoded: "https://example.org/path?api%2Ekey=credential-canary",
+      fragment: "https://example.org/path#access+key=credential-canary",
+      safeUrl: "https://example.org/path?design.mode=preview",
+      keyboard: "enabled",
+      mode: "safe",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      "api.key": "[REDACTED]",
+      "access key": "[REDACTED]",
+      "private.key": "[REDACTED]",
+      endpoint: "[REDACTED]",
+      encoded: "[REDACTED]",
+      fragment: "[REDACTED]",
+      safeUrl: options.safeUrl,
+      keyboard: "enabled",
+      mode: "safe",
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("credential-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
