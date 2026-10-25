@@ -25,12 +25,27 @@ const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "
 // effective configuration used internally by adapters.
 const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization|auth|bearer|cookie|session)/i;
 
+/** URL values can embed credentials even under innocuous option names such as
+ * endpoint or registry. Never echo URL userinfo or credential-bearing query/
+ * fragment parameters in public config output. Keep ordinary URLs intact.
+ */
+function hasEmbeddedUrlCredentials(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return Boolean(url.username || url.password) ||
+      [...url.searchParams.keys()].some((key) => sensitiveOption.test(key)) ||
+      [...new URLSearchParams(url.hash.slice(1)).keys()].some((key) => sensitiveOption.test(key));
+  } catch {
+    return false;
+  }
+}
+
 export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig {
   return {
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, sensitiveOption.test(key) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (sensitiveOption.test(key) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
     ])),
   };
 }
