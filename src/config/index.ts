@@ -20,10 +20,10 @@ export interface SkillGateConfig {
 }
 
 const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters", "adapterOptions"]);
-// Adapter options may contain credentials under conventional HTTP/auth names.
+// Adapter options and signed URLs may contain credentials under HTTP/auth names.
 // Keep public config output fail-closed for those keys, without mutating the
 // effective configuration used internally by adapters.
-const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization|auth|bearer|cookie|session)/i;
+const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key|access[_-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[_-])(?:sig|key)(?:$|[_-]))/i;
 
 /** URL values can embed credentials even under innocuous option names such as
  * endpoint or registry. Never echo URL userinfo or credential-bearing query/
