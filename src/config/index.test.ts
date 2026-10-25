@@ -335,6 +335,35 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("redacts encoded hash-router query delimiters without hiding safe routes", () => {
+    const options = {
+      encodedCode: "https://example.org/#/callback%3Fcode%3Dcanary-1",
+      twiceEncodedCode: "https://example.org/#/callback%253Fcode%253Dcanary-2",
+      encodedSaml: "https://example.org/#/callback%3Fsamlresponse%3Dcanary-3",
+      encodedAssertion: "https://example.org/#/callback%253Fclient_assertion%253Dcanary-4",
+      safeRoute: "https://example.org/#/docs%3Fmode%3Dpreview",
+      safeDoubleEncodedRoute: "https://example.org/#/docs%253Fmode%253Dpreview",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      encodedCode: "[REDACTED]",
+      twiceEncodedCode: "[REDACTED]",
+      encodedSaml: "[REDACTED]",
+      encodedAssertion: "[REDACTED]",
+      safeRoute: options.safeRoute,
+      safeDoubleEncodedRoute: options.safeDoubleEncodedRoute,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("canary-");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("redacts PKCE code verifiers in options, URLs, and hash-router callbacks", () => {
     const options = {
       code_verifier: "pkce-secret-canary",
