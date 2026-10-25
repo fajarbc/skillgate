@@ -262,6 +262,41 @@ describe("CLI v1 JSON transport integration", () => {
     });
   });
 
+  it("fills candidateLimit from permitted skills instead of letting denied top matches crowd them out", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-policy-limit-"));
+    try {
+      const denied = join(root, "skills", "typescript");
+      const allowed = join(root, "skills", "lint-helper");
+      await mkdir(denied, { recursive: true });
+      await mkdir(allowed, { recursive: true });
+      await mkdir(join(root, ".skillgate"));
+      await writeFile(join(denied, "SKILL.md"),
+        "---\\nname: typescript\\ndescription: TypeScript expertise\\n---\\n");
+      await writeFile(join(allowed, "SKILL.md"),
+        "---\\nname: lint-helper\\ndescription: TypeScript lint assistance\\n---\\n");
+      await writeFile(join(root, "skillgate.yaml"), "version: 1\\ncandidateLimit: 1\\n");
+      const policyFile = join(root, ".skillgate", "policy.json");
+      const policy = JSON.stringify({ deniedSkills: ["typescript"] });
+      await writeFile(policyFile, policy);
+
+      const { exitCode, envelope } = await capture(() =>
+        run(["recommend", "typescript", "--root", root, "--json"]),
+      );
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({
+        command: "recommend",
+        ok: true,
+        data: { recommendations: [{ metadata: { name: "lint-helper" } }] },
+      });
+      expect(envelope.data.recommendations).toHaveLength(1);
+      expect(JSON.stringify(envelope)).not.toContain('"name":"typescript"');
+      expect(await readFile(policyFile, "utf8")).toBe(policy);
+      await expect(access(join(root, ".skillgate", "trace.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not create a managed trace directory for JSON recommendations", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-"));
     const { exitCode, envelope } = await capture(() =>
