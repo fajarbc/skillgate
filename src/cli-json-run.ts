@@ -220,17 +220,27 @@ export async function runJson(
     }
     if (selected === "doctor") {
       const diagnostics = await runDiagnostics({ root });
-      // Policy validation errors can interpolate user-controlled field names
-      // and values (for example an invalid defaultAction). Machine responses
-      // must not echo those values, even inside the diagnostic report.
-      // Preserve the full report for the existing human CLI only.
+      // Doctor's human diagnostics can include user-controlled skill paths,
+      // extension field names, and filesystem error text. Public machine
+      // output must preserve statuses and counts without echoing those details.
+      // Human CLI diagnostics remain unchanged.
       const report = {
         ...diagnostics,
-        checks: diagnostics.checks.map((check) =>
-          check.name === "policy-configuration" && check.status === "fail"
-            ? { ...check, message: "Policy configuration invalid" }
-            : check,
-        ),
+        checks: diagnostics.checks.map((check) => {
+          if (check.name === "policy-configuration" && check.status === "fail") {
+            return { name: check.name, status: check.status, message: "Policy configuration invalid" };
+          }
+          if (check.name === "filesystem-permissions" && check.status === "fail") {
+            return { name: check.name, status: check.status, message: "Filesystem permissions check failed" };
+          }
+          if (check.name === "skill-discovery" && check.status !== "ok") {
+            return { name: check.name, status: check.status, message: "Skill discovery reported invalid or unreadable skills" };
+          }
+          if (check.name === "skill-metadata-extensions") {
+            return { name: check.name, status: check.status, message: "Skill metadata contains extension fields" };
+          }
+          return check;
+        }),
       };
       if (report.status === "fail") {
         // Retain diagnostic details while returning a structured nonzero result.
