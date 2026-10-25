@@ -364,6 +364,35 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("redacts credentials inside nested redirect URLs without hiding safe destinations", () => {
+    const options = {
+      nestedUserinfo: "https://example.org/redirect?next=https%3A%2F%2Fuser%3Apassword%40private.example%2F",
+      nestedSigned: "https://example.org/redirect?next=https%3A%2F%2Fprivate.example%2F%3Fapi_key%3Dsecret-canary",
+      twiceEncoded: "https://example.org/redirect?next=https%253A%252F%252Fuser%253Apassword%2540private.example%252F",
+      hashRouter: "https://example.org/#/callback?next=https%3A%2F%2Fprivate.example%2F%3Fcode%3Dsecret-canary",
+      safeRedirect: "https://example.org/redirect?next=https%3A%2F%2Fprivate.example%2Fdocs",
+      safeEncoded: "https://example.org/redirect?next=https%253A%252F%252Fprivate.example%252Fdocs",
+    };
+    const config = {
+      version: 1 as const,
+      skillRoots: ["/workspace"],
+      candidateLimit: 10,
+      adapters: ["codex"],
+      adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      nestedUserinfo: "[REDACTED]",
+      nestedSigned: "[REDACTED]",
+      twiceEncoded: "[REDACTED]",
+      hashRouter: "[REDACTED]",
+      safeRedirect: options.safeRedirect,
+      safeEncoded: options.safeEncoded,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
