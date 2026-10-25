@@ -64,9 +64,12 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0): boolean {
   // A malformed absolute URL may still contain userinfo credentials. If URL
   // parsing rejects it, fail closed rather than returning its raw value in
   // public config output. Ordinary non-URL option values remain untouched.
-  const looksLikeUrl = /^[a-z][a-z\d+.-]*:\/{1,2}/i.test(value);
+  // Protocol-relative URLs can carry userinfo and signed parameters too.
+  // Parse them against an explicit scheme without changing the original value.
+  const schemeRelative = value.startsWith("//");
+  const looksLikeUrl = schemeRelative || /^[a-z][a-z\d+.-]*:\/{1,2}/i.test(value);
   try {
-    const url = new URL(value);
+    const url = new URL(schemeRelative ? `https:${value}` : value);
     // OAuth fragments may be key/value data, hash-router queries, or both.
     // Parsing only the suffix after "?" can hide an earlier access_token or
     // authorization code when a later fragment value contains a question mark.
@@ -86,7 +89,7 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0): boolean {
     return parameters.some(([, raw]) => {
       let candidate = raw;
       for (let encodingDepth = 0; encodingDepth < 4; encodingDepth++) {
-        if (candidate.includes("://") || candidate.startsWith("http:/") || candidate.startsWith("https:/")) {
+        if (candidate.startsWith("//") || candidate.includes("://") || candidate.startsWith("http:/") || candidate.startsWith("https:/")) {
           // At the recursion limit, further redirects may conceal credentials.
           // Fail closed instead of exposing an uninspected nested URL.
           if (depth >= 3 || hasEmbeddedUrlCredentials(candidate, depth + 1)) return true;
