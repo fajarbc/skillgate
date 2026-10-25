@@ -101,6 +101,38 @@ describe("CLI v1 JSON transport integration", () => {
     }
   });
 
+  it("omits user-controlled skill paths and extension names from JSON doctor diagnostics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-json-doctor-skills-"));
+    const invalidDirectory = join(root, "private-path-canary");
+    const validDirectory = join(root, "safe-skill");
+    const invalidSource = "no YAML frontmatter";
+    const validSource = "---\\nname: safe-skill\\ndescription: Example skill\\nprivate-field-canary: value\\n---\\n";
+    try {
+      await mkdir(invalidDirectory);
+      await mkdir(validDirectory);
+      await writeFile(join(invalidDirectory, "SKILL.md"), invalidSource);
+      await writeFile(join(validDirectory, "SKILL.md"), validSource);
+      const { exitCode, envelope } = await capture(() => run(["doctor", "--json", "--root", root]));
+      expect(exitCode).toBe(0);
+      expect(envelope).toMatchObject({ command: "doctor", ok: true, data: { report: { status: "warn" } } });
+      const checks = envelope.data.report.checks;
+      expect(checks.find((check: { name: string }) => check.name === "skill-discovery")).toMatchObject({
+        status: "warn",
+        message: "Skill discovery reported invalid or unreadable skills",
+      });
+      expect(checks.find((check: { name: string }) => check.name === "skill-metadata-extensions")).toMatchObject({
+        status: "warn",
+        message: "Skill metadata contains extension fields",
+      });
+      expect(JSON.stringify(envelope)).not.toContain("private-path-canary");
+      expect(JSON.stringify(envelope)).not.toContain("private-field-canary");
+      expect(await readFile(join(invalidDirectory, "SKILL.md"), "utf8")).toBe(invalidSource);
+      expect(await readFile(join(validDirectory, "SKILL.md"), "utf8")).toBe(validSource);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("redacts HTTP authorization, session, and credential-bearing URL values in JSON config output", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-json-config-redaction-"));
     const configFile = join(root, "explicit.json");
