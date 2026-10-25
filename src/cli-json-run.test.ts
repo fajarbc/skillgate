@@ -106,7 +106,7 @@ describe("CLI v1 JSON transport integration", () => {
     const invalidDirectory = join(root, "private-path-canary");
     const validDirectory = join(root, "safe-skill");
     const invalidSource = "no YAML frontmatter";
-    const validSource = "---\\nname: safe-skill\\ndescription: Example skill\\nprivate-field-canary: value\\n---\\n";
+    const validSource = "---\nname: safe-skill\ndescription: Example skill\nprivate-field-canary: value\n---\n";
     try {
       await mkdir(invalidDirectory);
       await mkdir(validDirectory);
