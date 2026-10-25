@@ -151,6 +151,10 @@ describe("CLI v1 JSON transport integration", () => {
           callbackWithQuery: "https://example.org/#access_token=user-secret&return_to=/docs?mode=preview",
           callbackCode: "https://example.org/#code=user-secret?state=ok",
           callbackAssertion: "https://example.org/#client_assertion=user-secret?state=ok",
+          encodedRouterCode: "https://example.org/#/callback%3Fcode%3Dcanary-1",
+          twiceEncodedRouterCode: "https://example.org/#/callback%253Fcode%253Dcanary-2",
+          encodedRouterSaml: "https://example.org/#/callback%3Fsamlresponse%3Dcanary-3",
+          safeEncodedRouter: "https://example.org/#/docs%3Fmode%3Dpreview",
           safeFragmentQuery: "https://example.org/#mode=preview&return_to=/docs?tab=ok",
           database: "postgresql://user:user-secret@db.example.org/main",
           malformedHttps: "https://user:user-secret@bad host/path",
@@ -209,6 +213,10 @@ describe("CLI v1 JSON transport integration", () => {
                 callbackWithQuery: "[REDACTED]",
                 callbackCode: "[REDACTED]",
                 callbackAssertion: "[REDACTED]",
+                encodedRouterCode: "[REDACTED]",
+                twiceEncodedRouterCode: "[REDACTED]",
+                encodedRouterSaml: "[REDACTED]",
+                safeEncodedRouter: "https://example.org/#/docs%3Fmode%3Dpreview",
                 safeFragmentQuery: "https://example.org/#mode=preview&return_to=/docs?tab=ok",
                 database: "[REDACTED]",
                 malformedHttps: "[REDACTED]",
@@ -239,6 +247,7 @@ describe("CLI v1 JSON transport integration", () => {
         },
       });
       expect(JSON.stringify(envelope)).not.toContain("user-secret");
+      expect(JSON.stringify(envelope)).not.toContain("canary-");
       expect(await readFile(configFile, "utf8")).toBe(original);
     } finally {
       await rm(root, { recursive: true, force: true });
