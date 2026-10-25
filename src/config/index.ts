@@ -73,14 +73,27 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0): boolean {
     // OAuth fragments may be key/value data, hash-router queries, or both.
     // Parsing only the suffix after "?" can hide an earlier access_token or
     // authorization code when a later fragment value contains a question mark.
-    const fragment = url.hash.slice(1);
-    const parameters = [
-      ...url.searchParams.entries(),
-      ...new URLSearchParams(fragment).entries(),
-      ...(fragment.includes("?")
-        ? new URLSearchParams(fragment.slice(fragment.indexOf("?") + 1)).entries()
-        : []),
-    ];
+    // Hash-router callbacks can encode the query delimiters themselves
+    // (#/callback%3Fcode%3D...). Inspect each bounded decoding layer, not
+    // only the raw fragment, or authorization codes may reach public output.
+    const parameters = [...url.searchParams.entries()];
+    let fragmentView = url.hash.slice(1);
+    for (let decodeDepth = 0; decodeDepth <= 4; decodeDepth++) {
+      parameters.push(...new URLSearchParams(fragmentView).entries());
+      if (fragmentView.includes("?")) {
+        parameters.push(...new URLSearchParams(fragmentView.slice(fragmentView.indexOf("?") + 1)).entries());
+      }
+      if (!fragmentView.includes("%")) break;
+      // Further encodings could hide another sensitive query delimiter.
+      if (decodeDepth === 4) return true;
+      try {
+        const decoded = decodeURIComponent(fragmentView);
+        if (decoded === fragmentView) break;
+        fragmentView = decoded;
+      } catch {
+        return true;
+      }
+    }
     if (url.username || url.password ||
         parameters.some(([key]) => isNestedEncodedCredentialKey(key, "url"))) return true;
     // An innocuous outer parameter such as "redirect" may contain a URL with
