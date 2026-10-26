@@ -83,9 +83,13 @@ export class McpJsonRpcSession {
     }
     if (!hasId) {
       // Only a well-formed initialized notification may complete the handshake.
-      // Reject malformed params without replying to the notification.
+      // Its optional params contain only MCP _meta; arbitrary fields must not
+      // silently become authorization inputs when filesystem tools are added.
+      const params = value.params;
       if (method === "notifications/initialized" && this.state === "initializing" &&
-          (value.params === undefined || record(value.params))) {
+          (params === undefined || (record(params) &&
+            Object.keys(params).every((key) => key === "_meta") &&
+            (params._meta === undefined || record(params._meta))))) {
         this.state = "ready";
       }
       // JSON-RPC notifications cannot be acknowledged, including invalid ones.
