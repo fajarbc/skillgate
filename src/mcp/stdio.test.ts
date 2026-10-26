@@ -49,6 +49,26 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, result: { tools: [] } });
   });
 
+  it("rejects stale tools/list cursors over the stdio transport", async () => {
+    const { output, lines } = outputCollector();
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-06-18", capabilities: {},
+        clientInfo: { name: "client", version: "1" },
+      } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: { cursor: "stale" } },
+      { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} },
+    ];
+    await runMcpStdio(Readable.from(messages.map((message) =>
+      Buffer.from(JSON.stringify(message) + "\n"))), output);
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[1]!)).toEqual({
+      jsonrpc: "2.0", id: 2, error: { code: -32602, message: "Invalid tool list cursor" },
+    });
+    expect(JSON.parse(lines[2]!)).toEqual({ jsonrpc: "2.0", id: 3, result: { tools: [] } });
+  });
+
   it("rejects a wire-format negative-zero ID without rewriting it to zero", async () => {
     const { output, lines } = outputCollector();
     const messages = [
