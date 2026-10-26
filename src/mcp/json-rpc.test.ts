@@ -89,7 +89,7 @@ describe("MCP JSON-RPC session", () => {
     expect(JSON.parse(text)).toEqual({
       protocolVersion: MCP_PROTOCOL_VERSION,
       skillToolsAvailable: false,
-      lifecycleMutationSafety: "strict-fail-closed",
+      filesystemAccess: "disabled",
     });
     for (const params of [
       { name: "filesystem/read", arguments: { path: "/etc/passwd" } },
