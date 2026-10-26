@@ -9,6 +9,8 @@ export interface AdapterContext {
 
 export interface LifecycleOptions {
   force?: boolean;
+  /** Reject mutation unless strict external-writer atomicity is implemented. */
+  concurrency?: "cooperative" | "strict";
 }
 
 export interface AdapterPlan {
