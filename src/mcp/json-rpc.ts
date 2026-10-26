@@ -38,6 +38,11 @@ export class McpJsonRpcSession {
       return failure(null, -32600, "Invalid Request");
     }
     const method = value.method;
+    // MCP methods take object parameters. Reject primitive and array values
+    // rather than silently accepting malformed JSON-RPC requests.
+    if (hasId && value.params !== undefined && !record(value.params)) {
+      return failure(id as string | number, -32602, "Invalid params");
+    }
     if (!hasId) {
       if (method === "notifications/initialized" && this.state === "initializing") {
         this.state = "ready";
@@ -49,9 +54,12 @@ export class McpJsonRpcSession {
     if (method === "initialize") {
       if (this.state !== "new") return failure(requestId, -32600, "Already initialized");
       if (!record(value.params) || typeof value.params.protocolVersion !== "string" ||
+          value.params.protocolVersion.length === 0 ||
           !record(value.params.capabilities) || !record(value.params.clientInfo) ||
           typeof value.params.clientInfo.name !== "string" ||
-          typeof value.params.clientInfo.version !== "string") {
+          typeof value.params.clientInfo.version !== "string" ||
+          value.params.clientInfo.name.length === 0 ||
+          value.params.clientInfo.version.length === 0) {
         return failure(requestId, -32602, "Invalid initialize parameters");
       }
       this.state = "initializing";
