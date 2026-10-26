@@ -119,11 +119,23 @@ export class McpJsonRpcSession {
       if (record(value.params) && Object.prototype.hasOwnProperty.call(value.params, "cursor")) {
         return failure(requestId, -32602, "Invalid tool list cursor");
       }
+      // Accept only MCP's optional request metadata. Unknown fields must not
+      // silently acquire meaning when additional tools are implemented.
+      if (record(value.params) && (Object.keys(value.params).some((key) => key !== "_meta") ||
+          (value.params._meta !== undefined && !record(value.params._meta)))) {
+        return failure(requestId, -32602, "Invalid tool list parameters");
+      }
       return response(requestId, { tools: [STATUS_TOOL] });
     }
     if (method === "tools/call") {
       if (!record(value.params) || typeof value.params.name !== "string" ||
           (value.params.arguments !== undefined && !record(value.params.arguments))) {
+        return failure(requestId, -32602, "Invalid tool call parameters");
+      }
+      // Closed parameter shape: reject extraneous fields, while permitting
+      // the standard MCP _meta extension for compatible clients.
+      if (Object.keys(value.params).some((key) => !["name", "arguments", "_meta"].includes(key)) ||
+          (value.params._meta !== undefined && !record(value.params._meta))) {
         return failure(requestId, -32602, "Invalid tool call parameters");
       }
       if (value.params.name !== STATUS_TOOL.name) {
