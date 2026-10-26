@@ -70,18 +70,30 @@ export async function runMcpStdio(
 ): Promise<void> {
   const decoder = new McpJsonLineDecoder();
   const session = new McpJsonRpcSession();
-  for await (const chunk of input) {
-    for (const message of decoder.push(chunk)) {
-      const result = session.handle(message);
-      if (result === null) continue;
-      const line = JSON.stringify(result)
-        .replace(/\u0085/g, "\\u0085")
-        .replace(/\u2028/g, "\\u2028")
-        .replace(/\u2029/g, "\\u2029") + "\n";
-      await writeResponse(output, line);
+  // Writable errors can arrive between responses, when writeResponse() has
+  // removed its per-write listener. Keep a session listener so such errors
+  // cannot become uncaught process-level exceptions.
+  let outputFailed = false;
+  const onOutputError = () => { outputFailed = true; };
+  output.on("error", onOutputError);
+  try {
+    for await (const chunk of input) {
+      for (const message of decoder.push(chunk)) {
+        if (outputFailed) throw new Error("MCP output failed");
+        const result = session.handle(message);
+        if (result === null) continue;
+        const line = JSON.stringify(result)
+          .replace(/\u0085/g, "\\u0085")
+          .replace(/\u2028/g, "\\u2028")
+          .replace(/\u2029/g, "\\u2029") + "\n";
+        await writeResponse(output, line);
+      }
     }
+    decoder.finish();
+    if (outputFailed) throw new Error("MCP output failed");
+  } finally {
+    output.off("error", onOutputError);
   }
-  decoder.finish();
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
