@@ -133,6 +133,34 @@ describe("MCP stdio integration", () => {
     expect(lines).toEqual([]);
   });
 
+  it("contains stdout errors between responses without leaking secret details or listeners", async () => {
+    const { output, lines } = outputCollector();
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    async function* requests() {
+      yield Buffer.from(ping);
+      // The previous write's short-lived error listener has been removed.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      output.emit("error", new Error("secret filesystem detail"));
+      yield Buffer.from(ping);
+    }
+    await expect(runMcpStdio(requests(), output)).rejects.toThrow("MCP output failed");
+    expect(lines).toHaveLength(1);
+    expect(output.listenerCount("error")).toBe(0);
+  });
+
+  it("reports stdout errors received just before EOF", async () => {
+    const { output, lines } = outputCollector();
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    async function* requests() {
+      yield Buffer.from(ping);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      output.emit("error", new Error("secret filesystem detail"));
+    }
+    await expect(runMcpStdio(requests(), output)).rejects.toThrow("MCP output failed");
+    expect(lines).toHaveLength(1);
+    expect(output.listenerCount("error")).toBe(0);
+  });
+
   it("escapes Unicode line separators from client-controlled request ids", async () => {
     const { output, lines } = outputCollector();
     const request = JSON.stringify({ jsonrpc: "2.0", id: "id\u2028break", method: "ping" }) + "\n";
