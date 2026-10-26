@@ -9,7 +9,10 @@ export interface AdapterContext {
 
 export interface LifecycleOptions {
   force?: boolean;
-  /** Reject mutation unless strict external-writer atomicity is implemented. */
+  /**
+   * Defaults to strict: mutation fails closed until an atomic backend exists.
+   * Explicit cooperative mode is a legacy opt-in and does not meet Option B.
+   */
   concurrency?: "cooperative" | "strict";
 }
 
