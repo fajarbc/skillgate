@@ -78,7 +78,7 @@ export async function runMcpStdio(
   output.on("error", onOutputError);
   try {
     for await (const chunk of input) {
-      for (const message of decoder.push(chunk)) {
+      for (const message of decoder.decode(chunk)) {
         if (outputFailed) throw new Error("MCP output failed");
         const result = session.handle(message);
         if (result === null) continue;
