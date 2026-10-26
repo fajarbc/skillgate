@@ -23,21 +23,41 @@ function failure(id: JsonId, code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
+/** The status tool is filesystem-free and has a stable, versioned result schema. */
+export const MCP_STATUS_SCHEMA_VERSION = "1" as const;
+
+const STATUS_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    schemaVersion: { const: MCP_STATUS_SCHEMA_VERSION },
+    protocolVersion: { const: MCP_PROTOCOL_VERSION },
+    skillToolsAvailable: { const: false },
+    filesystemAccess: { const: "disabled" },
+  },
+  required: ["schemaVersion", "protocolVersion", "skillToolsAvailable", "filesystemAccess"],
+  additionalProperties: false,
+} as const;
+
 /** One instance per client connection. Notifications never produce a response. */
 const STATUS_TOOL = {
   name: "skillgate/status",
   description: "Report this local SkillGate MCP preview's safe capabilities without reading workspace files.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  outputSchema: STATUS_OUTPUT_SCHEMA,
 } as const;
 
 /** A static, non-sensitive response: this tool does not read config or files. */
 function statusResult(): Record<string, unknown> {
+  const payload = {
+    schemaVersion: MCP_STATUS_SCHEMA_VERSION,
+    protocolVersion: MCP_PROTOCOL_VERSION,
+    skillToolsAvailable: false,
+    filesystemAccess: "disabled",
+  } as const;
   return {
-    content: [{ type: "text", text: JSON.stringify({
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      skillToolsAvailable: false,
-      filesystemAccess: "disabled",
-    }) }],
+    structuredContent: payload,
+    // Keep text for MCP clients that have not adopted structured tool output.
+    content: [{ type: "text", text: JSON.stringify(payload) }],
   };
 }
 
