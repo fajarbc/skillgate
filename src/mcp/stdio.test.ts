@@ -64,6 +64,42 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
   });
 
+  it("waits for a successful asynchronous write callback even without backpressure", async () => {
+    let completeWrite: (() => void) | undefined;
+    const output = new Writable({
+      highWaterMark: 1024,
+      write(_chunk, _encoding, callback) {
+        completeWrite = callback;
+      },
+    });
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\\n";
+    let settled = false;
+    const pending = runMcpStdio(Readable.from([Buffer.from(ping)]), output)
+      .finally(() => { settled = true; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(completeWrite).toBeTypeOf("function");
+    completeWrite?.();
+    await pending;
+    expect(settled).toBe(true);
+  });
+
+  it("fails safely on an asynchronous write error when stdout was not backpressured", async () => {
+    const output = new Writable({
+      highWaterMark: 1024,
+      write(_chunk, _encoding, callback) {
+        setImmediate(() => callback(new Error("secret filesystem detail")));
+      },
+    });
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\\n";
+    await expect(runMcpStdio(Readable.from([Buffer.from(ping)]), output))
+      .rejects.toThrow("MCP output failed");
+    // Writable emits its error event after the write callback. It must be
+    // consumed rather than becoming an uncaught process-level exception.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(output.listenerCount("error")).toBe(0);
+  });
+
   it("rejects a closed stdout instead of hanging while waiting for drain", async () => {
     const output = new Writable({
       highWaterMark: 1,
