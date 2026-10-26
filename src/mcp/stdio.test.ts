@@ -52,8 +52,8 @@ describe("MCP stdio integration", () => {
   it("rejects a wire-format negative-zero ID without rewriting it to zero", async () => {
     const { output, lines } = outputCollector();
     const messages = [
-      '{"jsonrpc":"2.0","id":-0,"method":"ping"}\\n',
-      '{"jsonrpc":"2.0","id":0,"method":"ping"}\\n',
+      '{"jsonrpc":"2.0","id":-0,"method":"ping"}\n',
+      '{"jsonrpc":"2.0","id":0,"method":"ping"}\n',
     ];
     await runMcpStdio(Readable.from(messages.map((value) => Buffer.from(value))), output);
     expect(lines).toHaveLength(2);
