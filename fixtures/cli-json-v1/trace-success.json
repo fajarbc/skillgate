@@ -1,0 +1,8 @@
+{
+  "protocolVersion": 1,
+  "command": "trace",
+  "ok": true,
+  "data": {
+    "trace": null
+  }
+}

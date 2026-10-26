@@ -1,4 +1,5 @@
-import { access, constants, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, lstat } from "node:fs/promises";
+import { constants } from "node:fs";
 import { join } from "node:path";
 import { listAdapters } from "../adapters/index.js";
 import { discoverSkills } from "../discovery/index.js";
@@ -35,15 +36,23 @@ export async function runDiagnostics(options: DoctorOptions): Promise<DoctorRepo
   try {
     await access(root, constants.R_OK | constants.W_OK);
     const managedDir = join(root, ".skillgate");
-    await mkdir(managedDir, { recursive: true });
-    const probeFile = join(managedDir, ".write-probe");
-    await writeFile(probeFile, "probe", "utf8");
-    await rm(probeFile, { force: true });
+    // Diagnostics must never overwrite or delete user-owned files. An
+    // existing managed directory is checked without following symlinks;
+    // if absent, the writable root is sufficient for future creation.
+    try {
+      const managed = await lstat(managedDir);
+      if (!managed.isDirectory() || managed.isSymbolicLink()) {
+        throw new Error(".skillgate must be a real directory");
+      }
+      await access(managedDir, constants.R_OK | constants.W_OK);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
 
     checks.push({
       name: "filesystem-permissions",
       status: "ok",
-      message: "Project root and .skillgate/ managed directory are writable",
+      message: "Project root and any existing .skillgate/ directory are writable",
     });
   } catch (err: unknown) {
     checks.push({

@@ -20,14 +20,147 @@ export interface SkillGateConfig {
 }
 
 const keys = new Set(["version", "skillRoots", "candidateLimit", "policyPath", "adapters", "adapterOptions"]);
-const sensitiveOption = /(?:secret|token|password|api[_-]?key|credential|private[_-]?key)/i;
+// Adapter options and signed URLs may contain credentials under HTTP/auth names.
+// Dotted and space-delimited keys (api.key, access key) are also sensitive.
+// Keep public config output fail-closed for those keys, without mutating the
+// effective configuration used internally by adapters.
+const sensitiveOption = /(?:secret|token|pass(?:word|wd|phrase)|pwd|api[._\s-]?key|credential|private[._\s-]?key|access[._\s-]?key|authorization|auth|bearer|cookie|session|signature|(?:^|[._\s-])(?:sig|key)(?:$|[._\s-]))/i;
+
+// OAuth authorization codes, PKCE verifiers, and SAML assertions are credentials even
+// when their parameter names do not include token, key, or secret.
+const sensitiveUrlParameter = /^(?:code|code_verifier|samlresponse|client_assertion)$/i;
+// These credentials are sensitive as standalone adapter settings too, while
+// an ordinary option named "code" must remain visible.
+const sensitiveAssertionOption = /^(?:code_verifier|samlresponse|client_assertion)$/i;
+
+/** URLSearchParams decodes once, but nested encodings can conceal a
+ * credential key for several more passes. Bound the work and fail closed if
+ * a malformed or excessively nested escape sequence remains.
+ */
+function isNestedEncodedCredentialKey(key: string, context: "option" | "url" = "option"): boolean {
+  const isSensitive = (decoded: string): boolean =>
+    sensitiveOption.test(decoded) ||
+    (context === "url" ? sensitiveUrlParameter : sensitiveAssertionOption).test(decoded);
+  let decoded = key;
+  for (let depth = 0; depth < 8; depth++) {
+    if (isSensitive(decoded)) return true;
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return true;
+    }
+    if (next === decoded) return false;
+    decoded = next;
+  }
+  return isSensitive(decoded) || decoded.includes("%");
+}
+
+/** URL values can embed credentials even under innocuous option names such as
+ * endpoint or registry. Never echo URL userinfo or credential-bearing query/
+ * fragment parameters in public config output. Keep ordinary URLs intact.
+ */
+function hasEmbeddedUrlCredentials(value: string, depth = 0, allowRelative = false): boolean {
+  // A malformed absolute URL may still contain userinfo credentials. If URL
+  // parsing rejects it, fail closed rather than returning its raw value in
+  // public config output. Ordinary non-URL option values remain untouched.
+  // Protocol-relative URLs can carry userinfo and signed parameters too.
+  // Parse them against an explicit scheme without changing the original value.
+  const schemeRelative = value.startsWith("//");
+  // Redirect parameters can contain relative callback paths or query-only URLs.
+  // Parse them only when reached through an enclosing URL; do not reinterpret
+  // arbitrary standalone adapter option strings as relative URLs.
+  const relativeUrl = allowRelative && (value.startsWith("/") || value.startsWith("?") ||
+    value.startsWith("./") || value.startsWith("../") || /^[^/?#\s][^?#\s]*\?/.test(value));
+  const looksLikeUrl = schemeRelative || relativeUrl || /^[a-z][a-z\d+.-]*:\/{1,2}/i.test(value);
+  try {
+    const url = relativeUrl ? new URL(value, "https://skillgate.invalid/") :
+      new URL(schemeRelative ? `https:${value}` : value);
+    // OAuth fragments may be key/value data, hash-router queries, or both.
+    // Parsing only the suffix after "?" can hide an earlier access_token or
+    // authorization code when a later fragment value contains a question mark.
+    // Hash-router callbacks can encode the query delimiters themselves
+    // (#/callback%3Fcode%3D...). Inspect each bounded decoding layer, not
+    // only the raw fragment, or authorization codes may reach public output.
+    const parameters = [...url.searchParams.entries()];
+    let fragmentView = url.hash.slice(1);
+    for (let decodeDepth = 0; decodeDepth <= 4; decodeDepth++) {
+      parameters.push(...new URLSearchParams(fragmentView).entries());
+      if (fragmentView.includes("?")) {
+        parameters.push(...new URLSearchParams(fragmentView.slice(fragmentView.indexOf("?") + 1)).entries());
+      }
+      if (!fragmentView.includes("%")) break;
+      // Further encodings could hide another sensitive query delimiter.
+      if (decodeDepth === 4) return true;
+      try {
+        const decoded = decodeURIComponent(fragmentView);
+        if (decoded === fragmentView) break;
+        fragmentView = decoded;
+      } catch {
+        return true;
+      }
+    }
+    if (url.username || url.password ||
+        parameters.some(([key]) => isNestedEncodedCredentialKey(key, "url"))) return true;
+    // An innocuous outer parameter such as "redirect" may contain a URL with
+    // userinfo or signed credentials. Inspect nested URL values with bounded
+    // recursion and decoding, while preserving safe redirect destinations.
+    return parameters.some(([, raw]) => {
+      let candidate = raw;
+      for (let encodingDepth = 0; encodingDepth < 4; encodingDepth++) {
+        if (candidate.startsWith("//") || candidate.includes("://") || candidate.startsWith("http:/") ||
+            candidate.startsWith("https:/") || candidate.startsWith("/") || candidate.startsWith("?") ||
+            candidate.startsWith("./") || candidate.startsWith("../") || /^[^/?#\s][^?#\s]*\?/.test(candidate)) {
+          // At the recursion limit, further redirects may conceal credentials.
+          // Fail closed instead of exposing an uninspected nested URL.
+          if (depth >= 3 || hasEmbeddedUrlCredentials(candidate, depth + 1, true)) return true;
+        }
+        if (!candidate.includes("%")) break;
+        try {
+          const decoded = decodeURIComponent(candidate);
+          if (decoded === candidate) break;
+          candidate = decoded;
+        } catch {
+          return true;
+        }
+      }
+      // Excessive encoding can hide a nested URL past the decode budget.
+      return candidate.includes("%");
+    });
+  } catch {
+    return looksLikeUrl;
+  }
+}
+
+/** A standalone percent-encoded URL can contain userinfo or signed query
+ * credentials even though URL() rejects the encoded scheme. Decode only
+ * URL-shaped values, with a fixed budget; preserve ordinary encoded text.
+ */
+function hasEncodedUrlCredentials(value: string): boolean {
+  if (!/^(?:[a-z][a-z\d+.-]*%(?:25)*3a|%(?:25)*2f%(?:25)*2f)/i.test(value)) return false;
+  let decoded = value;
+  for (let depth = 0; depth < 5; depth++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) return false;
+      decoded = next;
+    } catch {
+      // Malformed encoded URLs must not be emitted as raw configuration.
+      return true;
+    }
+    if (hasEmbeddedUrlCredentials(decoded)) return true;
+    if (!decoded.includes("%")) return false;
+  }
+  // A URL still encoded beyond the budget may conceal credentials.
+  return decoded.includes("%");
+}
 
 export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig {
   return {
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, sensitiveOption.test(key) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (isNestedEncodedCredentialKey(key) || (typeof value === "string" && (hasEmbeddedUrlCredentials(value) || hasEncodedUrlCredentials(value)))) ? "[REDACTED]" : value])),
     ])),
   };
 }

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillGate CLI JSON stdin request v1",
+  "type": "object",
+  "required": [
+    "protocolVersion",
+    "task"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "const": 1
+    },
+    "task": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        }
+      }
+    }
+  }
+}

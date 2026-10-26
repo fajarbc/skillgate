@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,6 +19,45 @@ describe("doctor diagnostics", () => {
     expect(formatted).toContain("Node.js v20.10.0");
 
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("preserves a user-owned file at the former diagnostic probe path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-doc-"));
+    try {
+      const managed = join(root, ".skillgate");
+      await mkdir(managed);
+      const probe = join(managed, ".write-probe");
+      await writeFile(probe, "user-owned sentinel");
+      const report = await runDiagnostics({ root, nodeVersion: "v20.10.0" });
+      expect(report.checks.find((check) => check.name === "filesystem-permissions")?.status).toBe("ok");
+      expect(await readFile(probe, "utf8")).toBe("user-owned sentinel");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not create a managed directory merely to check permissions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-doc-"));
+    try {
+      const report = await runDiagnostics({ root, nodeVersion: "v20.10.0" });
+      expect(report.checks.find((check) => check.name === "filesystem-permissions")?.status).toBe("ok");
+      await expect(access(join(root, ".skillgate"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a non-directory managed path instead of mutating it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-doc-"));
+    try {
+      const managed = join(root, ".skillgate");
+      await writeFile(managed, "user-owned file");
+      const report = await runDiagnostics({ root, nodeVersion: "v20.10.0" });
+      expect(report.checks.find((check) => check.name === "filesystem-permissions")?.status).toBe("fail");
+      expect(await readFile(managed, "utf8")).toBe("user-owned file");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("fails when node version is unsupported", async () => {
