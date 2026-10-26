@@ -12,7 +12,7 @@ describe("strict external-writer lifecycle policy", () => {
   it.each([
     ["Codex", () => new CodexAdapter()],
     ["Claude Code", () => new ClaudeCodeAdapter()],
-  ])("%s public adapter never bypasses strict defaults", async (_name, createAdapter) => {
+  ] as const)("%s public adapter never bypasses strict defaults", async (_name, createAdapter) => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-strict-public-"));
     const sentinel = join(root, "user-owned.txt");
     try {
