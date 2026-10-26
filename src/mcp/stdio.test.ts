@@ -49,6 +49,34 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, result: { tools: [] } });
   });
 
+  it("resumes after stdout backpressure drains", async () => {
+    const lines: string[] = [];
+    const output = new Writable({
+      highWaterMark: 1,
+      write(chunk: Buffer, _encoding, callback) {
+        lines.push(chunk.toString("utf8"));
+        setImmediate(callback);
+      },
+    });
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    await runMcpStdio(Readable.from([Buffer.from(ping)]), output);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
+  });
+
+  it("rejects a closed stdout instead of hanging while waiting for drain", async () => {
+    const output = new Writable({
+      highWaterMark: 1,
+      write(_chunk, _encoding, _callback) {
+        // Simulate a stalled client: the write never drains.
+      },
+    });
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const pending = runMcpStdio(Readable.from([Buffer.from(ping)]), output);
+    setImmediate(() => output.destroy());
+    await expect(pending).rejects.toThrow("MCP output closed");
+  });
+
   it("fails closed on malformed UTF-8 without emitting a JSON-RPC response", async () => {
     const { output, lines } = outputCollector();
     await expect(runMcpStdio(Readable.from([Buffer.from([0xff, 10])]), output)).rejects.toThrow();
