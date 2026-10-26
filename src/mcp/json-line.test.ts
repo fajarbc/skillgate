@@ -13,12 +13,12 @@ describe("MCP stdio framing", () => {
 
   it("streams one frame before parsing the next frame in the same chunk", () => {
     const decoder = new McpJsonLineDecoder();
-    const frames = decoder.decode(bytes('{"jsonrpc":"2.0","id":1,"method":"ping"}\\n{invalid}\\n'));
+    const frames = decoder.decode(bytes('{"jsonrpc":"2.0","id":1,"method":"ping"}\n{invalid}\n'));
     expect(frames.next()).toEqual({
       done: false, value: { jsonrpc: "2.0", id: 1, method: "ping" },
     });
     expect(() => frames.next()).toThrow(new McpFramingError("invalid_json"));
-    expect(() => decoder.push(bytes('{"jsonrpc":"2.0"}\\n')))
+    expect(() => decoder.push(bytes('{"jsonrpc":"2.0"}\n')))
       .toThrow(new McpFramingError("incomplete"));
   });
 
