@@ -98,7 +98,13 @@ export class McpJsonRpcSession {
     const requestId = id as string | number;
     if (method === "initialize") {
       if (this.state !== "new") return failure(requestId, -32600, "Already initialized");
-      if (!record(value.params) || typeof value.params.protocolVersion !== "string" ||
+      if (!record(value.params) ||
+          // Unknown initialization fields must not silently acquire meaning
+          // as workspace selectors or authorization hints in future tools.
+          Object.keys(value.params).some((key) =>
+            !["protocolVersion", "capabilities", "clientInfo", "_meta"].includes(key)) ||
+          (value.params._meta !== undefined && !record(value.params._meta)) ||
+          typeof value.params.protocolVersion !== "string" ||
           value.params.protocolVersion.length === 0 ||
           !record(value.params.capabilities) || !record(value.params.clientInfo) ||
           typeof value.params.clientInfo.name !== "string" ||
@@ -114,7 +120,15 @@ export class McpJsonRpcSession {
         serverInfo: { name: "skillgate", version: "0.0.0" },
       });
     }
-    if (method === "ping") return response(requestId, {});
+    if (method === "ping") {
+      // Ping has no operational arguments. Only MCP request metadata is valid.
+      // Reject unexpected fields instead of silently accepting future controls.
+      if (record(value.params) && (Object.keys(value.params).some((key) => key !== "_meta") ||
+          (value.params._meta !== undefined && !record(value.params._meta)))) {
+        return failure(requestId, -32602, "Invalid ping parameters");
+      }
+      return response(requestId, {});
+    }
     if (this.state !== "ready") return failure(requestId, -32002, "Server not initialized");
     if (method === "tools/list") {
       // No skill or filesystem tool may bypass pending root/policy authorization.
