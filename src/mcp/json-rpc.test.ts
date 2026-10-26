@@ -66,11 +66,14 @@ describe("MCP JSON-RPC session", () => {
 
   it("rejects lossy or fractional JSON-RPC numeric IDs before initialization", () => {
     const session = new McpJsonRpcSession();
-    for (const id of [1.5, -0.5, Number.MAX_SAFE_INTEGER + 1, Number.MIN_SAFE_INTEGER - 1, Infinity, NaN]) {
+    for (const id of [-0, 1.5, -0.5, Number.MAX_SAFE_INTEGER + 1, Number.MIN_SAFE_INTEGER - 1, Infinity, NaN]) {
       expect(session.handle(initialize(id))).toEqual({
         jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" },
       });
     }
+    // JSON.parse preserves negative zero, but JSON.stringify would change its ID to 0.
+    expect(session.handle(JSON.parse('{"jsonrpc":"2.0","id":-0,"method":"initialize"}')))
+      .toEqual({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
     // Valid IDs still round-trip exactly; invalid IDs must not consume initialize.
     expect(session.handle(initialize(Number.MAX_SAFE_INTEGER))).toMatchObject({
       id: Number.MAX_SAFE_INTEGER, result: { protocolVersion: MCP_PROTOCOL_VERSION },
