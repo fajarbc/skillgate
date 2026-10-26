@@ -22,6 +22,26 @@ describe("MCP stdio framing", () => {
     decoder.finish();
   });
 
+  it("handles a long line fragmented into single-byte chunks within its byte budget", () => {
+    const payload = { jsonrpc: "2.0", id: 7, method: "ping", data: "x".repeat(65536) };
+    const line = bytes(JSON.stringify(payload) + "\\n");
+    const decoder = new McpJsonLineDecoder(line.length - 1);
+    for (let index = 0; index < line.length - 1; index += 1) {
+      expect(decoder.push(line.subarray(index, index + 1))).toEqual([]);
+    }
+    expect(decoder.push(line.subarray(line.length - 1))).toEqual([payload]);
+    expect(() => decoder.finish()).not.toThrow();
+  });
+
+  it("rejects a byte over the limit after fragmented input and stays closed", () => {
+    const decoder = new McpJsonLineDecoder(4);
+    for (const byte of bytes("1234")) {
+      expect(decoder.push(new Uint8Array([byte]))).toEqual([]);
+    }
+    expect(() => decoder.push(bytes("5\\n"))).toThrow(new McpFramingError("too_large"));
+    expect(() => decoder.push(bytes("{}\\n"))).toThrow(new McpFramingError("incomplete"));
+  });
+
   it("rejects malformed UTF-8 and JSON rather than replacing bytes", () => {
     expect(() => new McpJsonLineDecoder().push(new Uint8Array([0xff, 10])))
       .toThrow(new McpFramingError("invalid_utf8"));
