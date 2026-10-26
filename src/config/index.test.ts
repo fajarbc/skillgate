@@ -520,6 +520,32 @@ describe("parseConfiguration", () => {
     expect(config.adapterOptions.codex).toEqual(options);
   });
 
+  it("redacts standalone percent-encoded URL credentials without hiding safe options", () => {
+    const options = {
+      encodedUserinfo: encodeURIComponent("https://alice:secret-canary@example.org/docs"),
+      twiceEncodedToken: encodeURIComponent(encodeURIComponent("https://example.org/callback?access_token=secret-canary")),
+      encodedSigned: encodeURIComponent("//example.org/object?X-Amz-Signature=secret-canary"),
+      safeEncoded: encodeURIComponent("https://example.org/docs?mode=read"),
+      safeDoubleEncoded: encodeURIComponent(encodeURIComponent("https://example.org/docs?mode=read")),
+      ordinaryEncoded: "ordinary%20value",
+    };
+    const config = {
+      version: 1 as const, skillRoots: ["/workspace"], candidateLimit: 10,
+      adapters: ["codex"], adapterOptions: { codex: options },
+    };
+    const sanitized = sanitizeConfiguration(config);
+    expect(sanitized.adapterOptions.codex).toEqual({
+      encodedUserinfo: "[REDACTED]",
+      twiceEncodedToken: "[REDACTED]",
+      encodedSigned: "[REDACTED]",
+      safeEncoded: options.safeEncoded,
+      safeDoubleEncoded: options.safeDoubleEncoded,
+      ordinaryEncoded: options.ordinaryEncoded,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret-canary");
+    expect(config.adapterOptions.codex).toEqual(options);
+  });
+
   it("validates adapter option values", () => {
     expect(parseConfiguration('{"version":1,"adapterOptions":{"codex":{"enabled":true,"limit":3,"mode":"safe"}}}', "config.json").adapterOptions).toEqual({ codex: { enabled: true, limit: 3, mode: "safe" } });
     expect(() => parseConfiguration('{"version":1,"adapterOptions":{"codex":{"unsafe":null}}}', "config.json")).toThrow("adapterOptions");
