@@ -24,8 +24,14 @@ filesystem-free, read-only diagnostic with an empty-object input schema:
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"skillgate/status","arguments":{}}}
 ```
 
-Its text content is JSON containing `protocolVersion`,
-`skillToolsAvailable: false`, and `filesystemAccess: "disabled"`.
+Its text content is JSON containing `schemaVersion: "1"`,
+`protocolVersion`, `skillToolsAvailable: false`, and
+`filesystemAccess: "disabled"`. The same object is returned in
+`structuredContent` for clients supporting structured MCP tool results;
+`tools/list` advertises a closed `outputSchema` with these four required
+fields. The text response remains available for older clients. This status
+schema version is separate from the MCP transport protocol version.
+
 It does not inspect the workspace, environment, configuration, or skills.
 Unknown tool names, non-object arguments, and unexpected status arguments
 return JSON-RPC invalid-params errors. The discovery, policy enforcement,
