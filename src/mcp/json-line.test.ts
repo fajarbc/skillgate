@@ -22,6 +22,18 @@ describe("MCP stdio framing", () => {
       .toThrow(new McpFramingError("incomplete"));
   });
 
+  it("iterates thousands of frames from one chunk without collecting a batch", () => {
+    const decoder = new McpJsonLineDecoder();
+    const line = JSON.stringify({ jsonrpc: "2.0", method: "ping" }) + "\n";
+    let count = 0;
+    for (const frame of decoder.decode(bytes(line.repeat(2000)))) {
+      expect(frame).toEqual({ jsonrpc: "2.0", method: "ping" });
+      count++;
+    }
+    expect(count).toBe(2000);
+    expect(() => decoder.finish()).not.toThrow();
+  });
+
   it("preserves UTF-8 split across incoming chunks and copies mutable buffers", () => {
     const decoder = new McpJsonLineDecoder();
     const first = bytes('{"task":"💡"}\n');
