@@ -26,7 +26,14 @@ describe("MCP stdio integration", () => {
     expect(lines).toHaveLength(3);
     expect(lines.every((line) => line.endsWith("\n") && !line.slice(0, -1).includes("\n"))).toBe(true);
     expect(JSON.parse(lines[0]!)).toMatchObject({ id: 1, result: { protocolVersion: "2025-06-18" } });
-    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, result: { tools: [{ name: "skillgate/status" }] } });
+    const listed = JSON.parse(lines[1]!);
+    expect(listed).toMatchObject({ id: 2, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(listed.result.tools[0].outputSchema).toMatchObject({
+      type: "object",
+      required: ["schemaVersion", "protocolVersion", "skillToolsAvailable", "filesystemAccess"],
+      properties: { schemaVersion: { const: "1" }, filesystemAccess: { const: "disabled" } },
+      additionalProperties: false,
+    });
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
   });
 
