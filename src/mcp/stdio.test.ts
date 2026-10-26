@@ -48,7 +48,14 @@ describe("MCP stdio integration", () => {
     expect(lines).toHaveLength(3);
     const status = JSON.parse(lines[1]!);
     expect(status).toMatchObject({ id: 2, result: { content: [{ type: "text" }] } });
-    expect(JSON.parse(status.result.content[0].text)).toMatchObject({ skillToolsAvailable: false });
+    const payload = JSON.parse(status.result.content[0].text);
+    expect(payload).toEqual({
+      schemaVersion: "1",
+      protocolVersion: "2025-06-18",
+      skillToolsAvailable: false,
+      filesystemAccess: "disabled",
+    });
+    expect(status.result.structuredContent).toEqual(payload);
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
   });
 
