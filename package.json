@@ -4,7 +4,8 @@
   "description": "Local runtime for selecting, controlling, and inspecting agent skills",
   "type": "module",
   "bin": {
-    "skillgate": "./dist/cli.js"
+    "skillgate": "./dist/cli.js",
+    "skillgate-mcp": "./dist/mcp/stdio.js"
   },
   "files": [
     "dist"
@@ -19,7 +20,8 @@
     "benchmark": "vitest run src/benchmark",
     "smoke:cli": "node scripts/smoke-cli.mjs",
     "prepack": "npm run check && npm run build",
-    "inspect:pack": "npm pack --dry-run"
+    "inspect:pack": "npm pack --dry-run",
+    "smoke:mcp": "node scripts/smoke-mcp.mjs"
   },
   "repository": {
     "type": "git",
