@@ -77,8 +77,10 @@ export class McpJsonRpcSession {
     if (this.state !== "ready") return failure(requestId, -32002, "Server not initialized");
     if (method === "tools/list") {
       // No tool may bypass the pending skill-root and policy authorization work.
-      if (value.params !== undefined && !record(value.params)) {
-        return failure(requestId, -32602, "Invalid tool list parameters");
+      // An empty catalog has no next page. Do not silently accept a caller's
+      // stale or invented cursor as if it had been successfully paginated.
+      if (record(value.params) && Object.prototype.hasOwnProperty.call(value.params, "cursor")) {
+        return failure(requestId, -32602, "Invalid tool list cursor");
       }
       return response(requestId, { tools: [] });
     }
