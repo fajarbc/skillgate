@@ -72,7 +72,7 @@ describe("MCP stdio integration", () => {
         completeWrite = callback;
       },
     });
-    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\\n";
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
     let settled = false;
     const pending = runMcpStdio(Readable.from([Buffer.from(ping)]), output)
       .finally(() => { settled = true; });
@@ -91,7 +91,7 @@ describe("MCP stdio integration", () => {
         setImmediate(() => callback(new Error("secret filesystem detail")));
       },
     });
-    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\\n";
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
     await expect(runMcpStdio(Readable.from([Buffer.from(ping)]), output))
       .rejects.toThrow("MCP output failed");
     // Writable emits its error event after the write callback. It must be
