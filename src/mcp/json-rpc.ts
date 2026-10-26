@@ -36,7 +36,7 @@ function statusResult(): Record<string, unknown> {
     content: [{ type: "text", text: JSON.stringify({
       protocolVersion: MCP_PROTOCOL_VERSION,
       skillToolsAvailable: false,
-      lifecycleMutationSafety: "strict-fail-closed",
+      filesystemAccess: "disabled",
     }) }],
   };
 }
