@@ -1,3 +1,4 @@
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { link, lstat, mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, truncate, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -99,7 +100,7 @@ describe("adapter ownership manifest validation", () => {
       await mkdir(lockPath, { mode: 0o777 });
       const { chmod } = await import("node:fs/promises");
       await chmod(lockPath, 0o777);
-      await expect(new CodexAdapter().apply({ task: "lock", root, skills: [] }))
+      await expect(legacyCooperativeAdapter(new CodexAdapter()).apply({ task: "lock", root, skills: [] }))
         .rejects.toThrow(/Unsafe SkillGate adapter lock entry/);
     } finally {
       await rm(lockPath, { recursive: true, force: true });
@@ -114,7 +115,7 @@ describe("adapter ownership manifest validation", () => {
       `skillgate-adapter-${createHash("sha256").update(agentRoot).digest("hex")}.lock`);
     try {
       await writeFile(lockPath, "not a lock directory");
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       await expect(adapter.apply({ task: "lock", root, skills: [] }))
         .rejects.toThrow(/Unsafe SkillGate adapter lock entry/);
       expect(await readFile(lockPath, "utf8")).toBe("not a lock directory");
@@ -234,7 +235,7 @@ describe("adapter ownership manifest validation", () => {
       await writeFile(source, "# Managed");
       const context = { task: "locked", root, skills: [{ path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] } }] };
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const results = await Promise.all(Array.from({ length: 4 }, () => adapter.apply(context)));
       expect(results).toHaveLength(4);
       expect(results.every((result) => result.filesWritten.length > 0)).toBe(true);
@@ -253,7 +254,7 @@ describe("adapter ownership manifest validation", () => {
       const context = { task: "locked", root, skills: [{ path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] } }] };
       await mkdir(lockPath);
-      const apply = new CodexAdapter().apply(context);
+      const apply = legacyCooperativeAdapter(new CodexAdapter()).apply(context);
       await new Promise((resolve) => setTimeout(resolve, 120));
       expect(await readPreviousManifest(join(root, ".codex", "skills.json"), "codex")).toBeNull();
       await rmdir(lockPath);
@@ -271,7 +272,7 @@ describe("adapter ownership manifest validation", () => {
       await mkdir(dir, { recursive: true });
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const context = { task: "digest", root, skills: [{ path: source, score: 1, reasons: [], metadata: { name: "sample", description: "sample", capabilities: [] } }] };
       await adapter.apply(context);
       const target = join(dir, "SKILL.md");
@@ -340,7 +341,7 @@ describe("adapter ownership manifest validation", () => {
         managedFiles: [target, manifestPath], skills: [],
       });
       await writeFile(manifestPath, manifest);
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const context = { task: "new", root, skills: [] };
       expect((await adapter.plan(context)).conflicts).toContain(manifestPath);
       await expect(adapter.apply(context)).rejects.toThrow();
@@ -366,7 +367,7 @@ describe("adapter ownership manifest validation", () => {
         task: "interrupted", updatedAt: "2026-01-01",
         managedFiles: [target, missing, manifestPath], skills: [],
       }));
-      const result = await new CodexAdapter().cleanup({ task: "recover", root, skills: [] });
+      const result = await legacyCooperativeAdapter(new CodexAdapter()).cleanup({ task: "recover", root, skills: [] });
       expect(result.filesRemoved).not.toContain(target);
       expect(result.filesRemoved).not.toContain(manifestPath);
       expect(result.filesRemoved).not.toContain(missing);
@@ -394,7 +395,7 @@ describe("adapter ownership manifest validation", () => {
         managedFiles: [target, manifestPath], skills: [],
       });
       await writeFile(manifestPath, legacyManifest);
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const context = { task: "new", root, skills: [{
         path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] },
@@ -422,7 +423,7 @@ describe("adapter ownership manifest validation", () => {
         skills: [{ path: source, score: 1, reasons: [],
           metadata: { name: "sample", description: "sample", capabilities: [] } }],
       };
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       expect((await adapter.plan(context)).conflicts).toContain(destination);
       await expect(adapter.apply(context)).rejects.toThrow();
       expect(await readFile(destination, "utf8")).toBe(userContent);
@@ -465,7 +466,7 @@ describe("adapter ownership manifest validation", () => {
       };
       await writeFile(target, OWNERSHIP_HEADER + "# User changed");
       await writeFile(manifestPath, JSON.stringify(manifest));
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const context = { task: "recover", root, skills: [] };
       const first = await adapter.cleanup(context);
       expect(first.filesRemoved).not.toContain(target);
@@ -495,7 +496,7 @@ describe("adapter ownership manifest validation", () => {
         fileDigests: { [target]: hash(OWNERSHIP_HEADER + "# New") },
         previousFileDigests: { [target]: hash(oldContent) }, phase: "pending", skills: [],
       }));
-      const result = await new CodexAdapter().cleanup({ task: "cleanup", root, skills: [] });
+      const result = await legacyCooperativeAdapter(new CodexAdapter()).cleanup({ task: "cleanup", root, skills: [] });
       expect(result.filesRemoved).toContain(target);
       expect(result.filesRemoved).toContain(manifestPath);
     } finally {
@@ -523,7 +524,7 @@ describe("adapter ownership manifest validation", () => {
       await writeFile(target, edited);
       await writeFile(manifestPath, JSON.stringify(pending));
       expect(await isManagedFile(target, pending)).toBe(false);
-      const result = await new CodexAdapter().cleanup({ task: "cleanup", root, skills: [] });
+      const result = await legacyCooperativeAdapter(new CodexAdapter()).cleanup({ task: "cleanup", root, skills: [] });
       expect(result.filesRemoved).not.toContain(target);
       expect(await readFile(target, "utf8")).toBe(edited);
       await writeFile(target, oldContent);
@@ -544,7 +545,7 @@ describe("adapter ownership manifest validation", () => {
         managedFiles: [manifestPath], skills: [],
       });
       await writeFile(manifestPath, legacy);
-      const result = await new CodexAdapter().cleanup({ task: "cleanup", root, skills: [] });
+      const result = await legacyCooperativeAdapter(new CodexAdapter()).cleanup({ task: "cleanup", root, skills: [] });
       expect(result.filesRemoved).not.toContain(manifestPath);
       expect(await readFile(manifestPath, "utf8")).toBe(legacy);
     } finally {
@@ -563,7 +564,7 @@ describe("adapter ownership manifest validation", () => {
         managedFiles: [manifestPath], fileDigests: {}, skills: [],
       };
       await writeFile(manifestPath, JSON.stringify(manifest));
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       // Cleanup of an unchanged manifest remains supported.
       const result = await adapter.cleanup({ task: "cleanup", root, skills: [] });
       expect(result.filesRemoved).toContain(manifestPath);
@@ -586,7 +587,7 @@ describe("adapter ownership manifest validation", () => {
         path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] },
       }] };
-      await expect(new CodexAdapter().apply(context)).rejects.toThrow();
+      await expect(legacyCooperativeAdapter(new CodexAdapter()).apply(context)).rejects.toThrow();
       const { lstat } = await import("node:fs/promises");
       expect((await lstat(destination)).isSymbolicLink()).toBe(true);
     } finally {
@@ -617,7 +618,7 @@ describe("adapter ownership manifest validation", () => {
         path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] },
       }] };
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       await adapter.apply(context);
       const destination = join(root, ".codex", "skills", "sample", "SKILL.md");
       const edited = OWNERSHIP_HEADER + "# User edited";
@@ -666,7 +667,7 @@ describe("adapter ownership manifest validation", () => {
       await writeFile(manifestPath, JSON.stringify(manifest));
       expect(await readPreviousManifest(manifestPath, "codex")).not.toBeNull();
 
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const context = { task: "invalid", root, skills: [] };
       expect((await adapter.plan(context)).removals).not.toContain(outside);
       await adapter.apply(context);
@@ -683,7 +684,7 @@ describe("adapter ownership manifest validation", () => {
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const skill = { path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] } };
       const initial = { task: "stale", root, skills: [skill] };
@@ -720,7 +721,7 @@ describe("adapter ownership manifest validation", () => {
         metadata: { name: "same-name", description: "Duplicate", capabilities: [] },
       });
       const context = { task: "duplicate", root, skills: [makeSkill(first), makeSkill(second)] };
-      await expect(new CodexAdapter().apply(context)).rejects.toThrow(/Skill name collision/);
+      await expect(legacyCooperativeAdapter(new CodexAdapter()).apply(context)).rejects.toThrow(/Skill name collision/);
       await expect(readFile(join(root, ".codex", "skills.json"), "utf8"))
         .rejects.toMatchObject({ code: "ENOENT" });
       await expect(readFile(join(root, ".codex", "skills", "same-name", "SKILL.md"), "utf8"))
@@ -737,7 +738,7 @@ describe("adapter ownership manifest validation", () => {
       await writeFile(source, "# Planned");
       const context = { task: "plan-only", root, skills: [{ path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] } }] };
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const first = await adapter.plan(context);
       expect(await adapter.plan(context)).toEqual(first);
       expect(first.conflicts).toEqual([]);
@@ -757,7 +758,7 @@ describe("adapter ownership manifest validation", () => {
       await writeFile(source, "# Stable");
       const context = { task: "stable", root, skills: [{ path: source, score: 1, reasons: [],
         metadata: { name: "sample", description: "sample", capabilities: [] } }] };
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       await adapter.apply(context);
       const manifestPath = join(root, ".codex", "skills.json");
       const skillPath = join(root, ".codex", "skills", "sample", "SKILL.md");
@@ -789,7 +790,7 @@ describe("adapter ownership manifest validation", () => {
       await symlink(outside, join(root, ".codex", "skills", "sample"), "dir");
       const context = { task: "symlink-dir", root, skills: [{ path: source, score: 1,
         reasons: [], metadata: { name: "sample", description: "sample", capabilities: [] } }] };
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       await expect(adapter.plan(context)).rejects.toThrow();
       await expect(adapter.apply(context)).rejects.toThrow();
       expect(await readFile(externalFile, "utf8")).toBe("# External user file");
@@ -810,7 +811,7 @@ describe("adapter ownership manifest validation", () => {
         path: source, score: 1, reasons: [],
         metadata: { name: "Café", description: "unicode", capabilities: [] },
       }] };
-      const adapter = new CodexAdapter();
+      const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const target = join(root, ".codex", "skills", "café", "SKILL.md");
       await adapter.apply(context);
       expect(await readFile(target, "utf8")).toBe(OWNERSHIP_HEADER + "# Managed");
@@ -835,7 +836,7 @@ describe("adapter ownership manifest validation", () => {
       const first = makeSkill(firstSource, "first");
       const second = makeSkill(secondSource, "second");
       const initial = { task: "claude-lifecycle", root, skills: [first, second] };
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const manifestPath = join(root, ".claude", "skills.json");
       const firstTarget = join(root, ".claude", "skills", "first", "SKILL.md");
       const secondTarget = join(root, ".claude", "skills", "second", "SKILL.md");
