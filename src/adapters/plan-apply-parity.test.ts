@@ -1,3 +1,4 @@
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,8 +8,8 @@ import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("adapter plan/apply parity", () => {
   it.each([
-    ["Codex", ".codex", () => new CodexAdapter()],
-    ["Claude Code", ".claude", () => new ClaudeCodeAdapter()],
+    ["Codex", ".codex", () => legacyCooperativeAdapter(new CodexAdapter())],
+    ["Claude Code", ".claude", () => legacyCooperativeAdapter(new ClaudeCodeAdapter())],
   ])("keeps %s dry-run results consistent with reconciliation", async (_name, managedDir, createAdapter) => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-plan-parity-"));
     try {
