@@ -93,8 +93,8 @@ export class McpJsonRpcSession {
     if (method === "ping") return response(requestId, {});
     if (this.state !== "ready") return failure(requestId, -32002, "Server not initialized");
     if (method === "tools/list") {
-      // No tool may bypass the pending skill-root and policy authorization work.
-      // An empty catalog has no next page. Do not silently accept a caller's
+      // No skill or filesystem tool may bypass pending root/policy authorization.
+      // The static status-only catalog has no next page. Reject a caller's
       // stale or invented cursor as if it had been successfully paginated.
       if (record(value.params) && Object.prototype.hasOwnProperty.call(value.params, "cursor")) {
         return failure(requestId, -32602, "Invalid tool list cursor");
