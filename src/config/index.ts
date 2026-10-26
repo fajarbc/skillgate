@@ -132,12 +132,35 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0, allowRelative = fal
   }
 }
 
+/** A standalone percent-encoded URL can contain userinfo or signed query
+ * credentials even though URL() rejects the encoded scheme. Decode only
+ * URL-shaped values, with a fixed budget; preserve ordinary encoded text.
+ */
+function hasEncodedUrlCredentials(value: string): boolean {
+  if (!/^(?:[a-z][a-z\\d+.-]*%(?:25)*3a|%(?:25)*2f%(?:25)*2f)/i.test(value)) return false;
+  let decoded = value;
+  for (let depth = 0; depth < 5; depth++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) return false;
+      decoded = next;
+    } catch {
+      // Malformed encoded URLs must not be emitted as raw configuration.
+      return true;
+    }
+    if (hasEmbeddedUrlCredentials(decoded)) return true;
+    if (!decoded.includes("%")) return false;
+  }
+  // A URL still encoded beyond the budget may conceal credentials.
+  return decoded.includes("%");
+}
+
 export function sanitizeConfiguration(config: SkillGateConfig): SkillGateConfig {
   return {
     ...config,
     adapterOptions: Object.fromEntries(Object.entries(config.adapterOptions).map(([adapter, options]) => [
       adapter,
-      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (isNestedEncodedCredentialKey(key) || (typeof value === "string" && hasEmbeddedUrlCredentials(value))) ? "[REDACTED]" : value])),
+      Object.fromEntries(Object.entries(options).map(([key, value]) => [key, (isNestedEncodedCredentialKey(key) || (typeof value === "string" && (hasEmbeddedUrlCredentials(value) || hasEncodedUrlCredentials(value)))) ? "[REDACTED]" : value])),
     ])),
   };
 }
