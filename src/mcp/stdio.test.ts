@@ -85,6 +85,34 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
   });
 
+  it("enforces closed tool parameter shapes over the stdio transport", async () => {
+    const { output, lines } = outputCollector();
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-06-18", capabilities: {},
+        clientInfo: { name: "client", version: "1" },
+      } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: { path: "/etc/passwd" } },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: {
+        name: "skillgate/status", arguments: {}, path: "/etc/passwd",
+      } },
+      { jsonrpc: "2.0", id: 4, method: "tools/list", params: { _meta: { "client/trace": "ok" } } },
+      { jsonrpc: "2.0", id: 5, method: "tools/call", params: {
+        name: "skillgate/status", arguments: {}, _meta: { "client/trace": "ok" },
+      } },
+    ];
+    await runMcpStdio(Readable.from(messages.map((value) =>
+      Buffer.from(JSON.stringify(value) + "\n"))), output);
+    expect(lines).toHaveLength(5);
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, error: { code: -32602 } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
+    expect(JSON.parse(lines[3]!)).toMatchObject({ id: 4, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(JSON.parse(lines[4]!)).toMatchObject({
+      id: 5, result: { structuredContent: { filesystemAccess: "disabled" } },
+    });
+  });
+
   it("rejects stale tools/list cursors over the stdio transport", async () => {
     const { output, lines } = outputCollector();
     const messages = [
