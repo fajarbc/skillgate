@@ -8,7 +8,7 @@ const initialize = (id: string | number = 1) => ({
 });
 
 describe("MCP JSON-RPC session", () => {
-  it("negotiates initialization, then exposes no unsafe tools", () => {
+  it("negotiates initialization, then exposes only the filesystem-free status tool", () => {
     const session = new McpJsonRpcSession();
     expect(session.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" }))
       .toMatchObject({ error: { code: -32002 } });
@@ -21,10 +21,10 @@ describe("MCP JSON-RPC session", () => {
     });
     expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }))
-      .toEqual({ jsonrpc: "2.0", id: 2, result: { tools: [] } });
+      .toMatchObject({ jsonrpc: "2.0", id: 2, result: { tools: [{ name: "skillgate/status" }] } });
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/call",
       params: { name: "filesystem/read", arguments: { path: "/etc/passwd" } } }))
-      .toEqual({ jsonrpc: "2.0", id: 3, error: { code: -32601, message: "Method not found" } });
+      .toEqual({ jsonrpc: "2.0", id: 3, error: { code: -32602, message: "Unknown tool" } });
   });
 
   it("rejects malformed request params and empty initialization identity", () => {
@@ -61,7 +61,7 @@ describe("MCP JSON-RPC session", () => {
     expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }))
       .toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
-      .toMatchObject({ id: 3, result: { tools: [] } });
+      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
   });
 
   it("rejects pagination cursors for the deliberately empty tool catalog", () => {
@@ -73,9 +73,35 @@ describe("MCP JSON-RPC session", () => {
         .toEqual({ jsonrpc: "2.0", id: 2, error: { code: -32602, message: "Invalid tool list cursor" } });
     }
     // No cursor means the one and only page; the failed requests do not
-    // invalidate the initialized session or expose a tool.
+    // invalidate the initialized session or expose any filesystem tool.
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }))
-      .toEqual({ jsonrpc: "2.0", id: 3, result: { tools: [] } });
+      .toMatchObject({ jsonrpc: "2.0", id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+  });
+
+  it("serves status without exposing filesystem data and rejects unknown or malformed calls", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+    const result = session.handle({ jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "skillgate/status", arguments: {} } });
+    expect(result).toMatchObject({ id: 2, result: { content: [{ type: "text" }] } });
+    const text = (result?.result?.content as { text: string }[])[0]!.text;
+    expect(JSON.parse(text)).toEqual({
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      skillToolsAvailable: false,
+      lifecycleMutationSafety: "strict-fail-closed",
+    });
+    for (const params of [
+      { name: "filesystem/read", arguments: { path: "/etc/passwd" } },
+      { name: "skillgate/status", arguments: { path: "/etc/passwd" } },
+      { name: "skillgate/status", arguments: [] },
+      { name: "skillgate/status", arguments: null },
+      { name: "skillgate/status", arguments: "secret" },
+      { name: 42 },
+    ]) {
+      expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params }))
+        .toMatchObject({ id: 3, error: { code: -32602 } });
+    }
   });
 
   it("rejects lossy or fractional JSON-RPC numeric IDs before initialization", () => {
