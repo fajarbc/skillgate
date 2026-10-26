@@ -64,6 +64,20 @@ describe("MCP JSON-RPC session", () => {
       .toMatchObject({ id: 3, result: { tools: [] } });
   });
 
+  it("rejects pagination cursors for the deliberately empty tool catalog", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+    for (const cursor of ["next-page", "", null, 123]) {
+      expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { cursor } }))
+        .toEqual({ jsonrpc: "2.0", id: 2, error: { code: -32602, message: "Invalid tool list cursor" } });
+    }
+    // No cursor means the one and only page; the failed requests do not
+    // invalidate the initialized session or expose a tool.
+    expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }))
+      .toEqual({ jsonrpc: "2.0", id: 3, result: { tools: [] } });
+  });
+
   it("rejects lossy or fractional JSON-RPC numeric IDs before initialization", () => {
     const session = new McpJsonRpcSession();
     for (const id of [-0, 1.5, -0.5, Number.MAX_SAFE_INTEGER + 1, Number.MIN_SAFE_INTEGER - 1, Infinity, NaN]) {
