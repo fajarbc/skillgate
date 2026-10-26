@@ -34,8 +34,10 @@ fields. The text response remains available for older clients. This status
 schema version is separate from the MCP transport protocol version.
 
 It does not inspect the workspace, environment, configuration, or skills.
-Unknown tool names, non-object arguments, and unexpected status arguments
-return JSON-RPC invalid-params errors. The discovery, policy enforcement,
+Unknown tool names, non-object arguments, unexpected status arguments, and
+unrecognized `tools/list` or `tools/call` parameter fields return JSON-RPC
+invalid-params errors. Standard MCP object-valued `_meta` request metadata is
+accepted; malformed metadata is rejected. The discovery, policy enforcement,
 and approved-skill-read APIs remain unavailable pending #30 authorization
 and integration tests. Do not configure this preview as a functional MCP
 skill integration yet.
