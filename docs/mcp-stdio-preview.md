@@ -37,7 +37,10 @@ It does not inspect the workspace, environment, configuration, or skills.
 Unknown tool names, non-object arguments, unexpected status arguments, and
 unrecognized `tools/list` or `tools/call` parameter fields return JSON-RPC
 invalid-params errors. Standard MCP object-valued `_meta` request metadata is
-accepted; malformed metadata is rejected. The discovery, policy enforcement,
+accepted; malformed metadata is rejected. The
+`notifications/initialized` handshake likewise accepts only optional
+object-valued `_meta` parameters: unexpected fields and malformed metadata
+cannot transition the session to ready. The discovery, policy enforcement,
 and approved-skill-read APIs remain unavailable pending #30 authorization
 and integration tests. Do not configure this preview as a functional MCP
 skill integration yet.
