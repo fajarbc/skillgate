@@ -171,8 +171,8 @@ describe("MCP stdio integration", () => {
 
   it("emits an earlier valid response before a later malformed frame in one input chunk", async () => {
     const { output, lines } = outputCollector();
-    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\\n";
-    const malformed = "{invalid}\\n";
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const malformed = "{invalid}\n";
     await expect(runMcpStdio(Readable.from([Buffer.from(ping + malformed)]), output))
       .rejects.toThrow();
     expect(lines).toHaveLength(1);
