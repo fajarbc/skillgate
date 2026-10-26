@@ -49,6 +49,21 @@ describe("MCP JSON-RPC session", () => {
       .toEqual({ jsonrpc: "2.0", id: 7, result: {} });
   });
 
+  it("does not advance handshake for malformed initialized notifications", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
+    for (const params of [null, 42, [], "invalid"]) {
+      expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized", params }))
+        .toBeNull();
+      expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }))
+        .toMatchObject({ id: 2, error: { code: -32002 } });
+    }
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }))
+      .toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
+      .toMatchObject({ id: 3, result: { tools: [] } });
+  });
+
   it("rejects invalid requests and does not reflect client-controlled strings", () => {
     const session = new McpJsonRpcSession();
     expect(session.handle({ jsonrpc: "2.0", id: null, method: "initialize" }))
