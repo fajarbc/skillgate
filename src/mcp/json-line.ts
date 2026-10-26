@@ -27,9 +27,15 @@ export class McpJsonLineDecoder {
     }
   }
 
+  /** Compatibility helper for callers that need a collected batch. The stdio
+   * transport uses decode() to avoid retaining all messages in a large chunk.
+   */
   push(chunk: Uint8Array): unknown[] {
+    return Array.from(this.decode(chunk));
+  }
+
+  *decode(chunk: Uint8Array): IterableIterator<unknown> {
     if (this.closed) throw new McpFramingError("incomplete");
-    const messages: unknown[] = [];
     let start = 0;
     try {
       for (let i = 0; i < chunk.byteLength; i++) {
@@ -55,12 +61,11 @@ export class McpJsonLineDecoder {
         if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
           throw new McpFramingError("invalid_json");
         }
-        messages.push(parsed);
         this.size = 0;
+        yield parsed;
         start = i + 1;
       }
       this.append(chunk.subarray(start));
-      return messages;
     } catch (error) {
       this.closed = true;
       this.size = 0;
