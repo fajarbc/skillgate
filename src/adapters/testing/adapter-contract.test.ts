@@ -45,6 +45,31 @@ export async function writeSkill(skill: RankedSkill, content = "# Instructions\n
 // leak into the production build. Keep one small self-test so Vitest can also
 // discover the helper module directly without reporting an empty suite.
 describe("adapter contract fixtures", () => {
+  it("passes explicit cooperative mode through legacy fixtures without discarding force", async () => {
+    const seen: LifecycleOptions[] = [];
+    const fake: AgentAdapter = {
+      name: "fake",
+      format: () => "",
+      plan: async () => ({ agent: "fake", writes: [], removals: [], conflicts: [], skills: [], summary: "" }),
+      apply: async (_context, options) => {
+        seen.push(options ?? {});
+        return { agent: "fake", filesWritten: [], exposedSkills: [], summary: "" };
+      },
+      cleanup: async (_context, options) => {
+        seen.push(options ?? {});
+        return { agent: "fake", filesRemoved: [], summary: "" };
+      },
+    };
+    const adapter = legacyCooperativeAdapter(fake);
+    const context: AdapterContext = { task: "test", root: "/unused", skills: [] };
+    await adapter.apply(context, { force: true });
+    await adapter.cleanup(context);
+    expect(seen).toEqual([
+      { force: true, concurrency: "cooperative" },
+      { concurrency: "cooperative" },
+    ]);
+  });
+
   it("creates a valid ranked skill fixture", async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "skillgate-fixture-"));
     try {
