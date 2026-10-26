@@ -169,6 +169,16 @@ describe("MCP stdio integration", () => {
     await expect(pending).rejects.toThrow("MCP output closed");
   });
 
+  it("emits an earlier valid response before a later malformed frame in one input chunk", async () => {
+    const { output, lines } = outputCollector();
+    const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\\n";
+    const malformed = "{invalid}\\n";
+    await expect(runMcpStdio(Readable.from([Buffer.from(ping + malformed)]), output))
+      .rejects.toThrow();
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
+  });
+
   it("fails closed on malformed UTF-8 without emitting a JSON-RPC response", async () => {
     const { output, lines } = outputCollector();
     await expect(runMcpStdio(Readable.from([Buffer.from([0xff, 10])]), output)).rejects.toThrow();
