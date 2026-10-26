@@ -40,9 +40,9 @@ and approved-skill-read APIs remain unavailable pending #30 authorization
 and integration tests. Do not configure this preview as a functional MCP
 skill integration yet.
 
-The package now exposes a separate \`skillgate-mcp\` executable in addition to
-\`skillgate\`. It is **still a status-only preview**: do not configure it as a
-functional skill integration. After \`npm run build\`, run \`npm run smoke:mcp\`
+The package now exposes a separate `skillgate-mcp` executable in addition to
+`skillgate`. It is **still a status-only preview**: do not configure it as a
+functional skill integration. After `npm run build`, run `npm run smoke:mcp`
 to exercise the actual built entrypoint, framing, rejection, stdout/stderr
 isolation, and no-workspace-write behavior. This smoke is not a substitute for
 full Vitest/typecheck or adversarial authorization tests.
