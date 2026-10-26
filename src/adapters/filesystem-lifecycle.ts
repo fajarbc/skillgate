@@ -308,6 +308,14 @@ export async function writeManagedFile(path: string, content: string, options?: 
           originalEntry.ctimeMs !== currentEntry.ctimeMs || originalEntry.nlink !== currentEntry.nlink) {
         throw new AdapterConflictError([path]);
       }
+      // Reapplying identical, verified managed bytes must not replace the inode.
+      // Avoiding unnecessary rename() calls also reduces exposure to the
+      // non-cooperating-writer TOCTOU window (it does not eliminate that race).
+      if (!options?.manifest && !options?.force &&
+          currentEntry.size === Buffer.byteLength(content, "utf8") &&
+          (await readStableOwnershipFile(path)).equals(Buffer.from(content, "utf8"))) {
+        return;
+      }
       // Still only safe against cooperating writers; rename is not compare-and-swap.
       await rename(temporaryPath, path);
     } else {
