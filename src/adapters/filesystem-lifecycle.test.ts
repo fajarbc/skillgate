@@ -1,4 +1,4 @@
-import { link, mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, truncate, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, readFile, realpath, rm, rmdir, symlink, truncate, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -760,9 +760,17 @@ describe("adapter ownership manifest validation", () => {
       const adapter = new CodexAdapter();
       await adapter.apply(context);
       const manifestPath = join(root, ".codex", "skills.json");
+      const skillPath = join(root, ".codex", "skills", "sample", "SKILL.md");
       const first = await readFile(manifestPath, "utf8");
+      const firstSkill = await readFile(skillPath, "utf8");
+      const before = await lstat(skillPath);
       await adapter.apply(context);
+      const after = await lstat(skillPath);
       expect(await readFile(manifestPath, "utf8")).toBe(first);
+      expect(await readFile(skillPath, "utf8")).toBe(firstSkill);
+      // Identical applies must not unnecessarily rename a verified managed
+      // destination: preserve the inode and its filesystem change timestamp.
+      expect([after.dev, after.ino, after.ctimeMs]).toEqual([before.dev, before.ino, before.ctimeMs]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
