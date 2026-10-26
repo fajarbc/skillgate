@@ -43,6 +43,9 @@ async function writeResponse(output: Writable, line: string): Promise<void> {
     const onClose = () => finish(new Error("MCP output closed"));
     output.once("error", onError);
     output.once("close", onClose);
+    // A custom Writable can emit "drain" synchronously from write().
+    // Subscribe before calling write so the event cannot be missed.
+    output.once("drain", onDrain);
     try {
       const canWrite = output.write(line, (error) => {
         if (error) {
@@ -52,8 +55,7 @@ async function writeResponse(output: Writable, line: string): Promise<void> {
         callbackDone = true;
         succeed();
       });
-      drained = canWrite;
-      if (!canWrite && !settled) output.once("drain", onDrain);
+      drained ||= canWrite;
       // The stream may have closed between write() and listener registration.
       if (output.destroyed || output.writableEnded) onClose();
       else succeed();
