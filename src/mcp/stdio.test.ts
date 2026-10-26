@@ -49,6 +49,20 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, result: { tools: [] } });
   });
 
+  it("rejects a wire-format negative-zero ID without rewriting it to zero", async () => {
+    const { output, lines } = outputCollector();
+    const messages = [
+      '{"jsonrpc":"2.0","id":-0,"method":"ping"}\\n',
+      '{"jsonrpc":"2.0","id":0,"method":"ping"}\\n',
+    ];
+    await runMcpStdio(Readable.from(messages.map((value) => Buffer.from(value))), output);
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[0]!)).toEqual({
+      jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" },
+    });
+    expect(JSON.parse(lines[1]!)).toEqual({ jsonrpc: "2.0", id: 0, result: {} });
+  });
+
   it("resumes after stdout backpressure drains", async () => {
     const lines: string[] = [];
     const output = new Writable({
