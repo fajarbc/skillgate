@@ -25,7 +25,7 @@ filesystem-free, read-only diagnostic with an empty-object input schema:
 ```
 
 Its text content is JSON containing `protocolVersion`,
-`skillToolsAvailable: false`, and `lifecycleMutationSafety: "strict-fail-closed"`.
+`skillToolsAvailable: false`, and `filesystemAccess: "disabled"`.
 It does not inspect the workspace, environment, configuration, or skills.
 Unknown tool names, non-object arguments, and unexpected status arguments
 return JSON-RPC invalid-params errors. The discovery, policy enforcement,
