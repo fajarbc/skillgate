@@ -896,10 +896,17 @@ async function cleanupFilesystemAdapterUnlocked(
   };
 }
 
-/** Strict mode must never silently fall back to path-based rename/unlink. */
+/**
+ * Option B is the default: path-based replacement/removal is not atomic with
+ * ownership verification. Never infer consent to cooperative-only safety from
+ * an omitted policy, including when force=true.
+ *
+ * Explicit cooperative mode is retained solely for existing callers and is
+ * NOT an implementation of the strict external-writer guarantee.
+ */
 function assertSupportedMutationConcurrency(options?: LifecycleOptions): void {
-  if (options?.concurrency === "strict") {
-    throw new Error("Strict external-writer lifecycle safety is not supported by the current filesystem backend; no workspace mutation attempted.");
+  if (options?.concurrency !== "cooperative") {
+    throw new Error("Strict external-writer lifecycle safety is not supported by the current filesystem backend; no workspace mutation attempted. Explicit cooperative mode does not protect against unrelated writers.");
   }
 }
 
