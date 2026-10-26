@@ -137,7 +137,7 @@ function hasEmbeddedUrlCredentials(value: string, depth = 0, allowRelative = fal
  * URL-shaped values, with a fixed budget; preserve ordinary encoded text.
  */
 function hasEncodedUrlCredentials(value: string): boolean {
-  if (!/^(?:[a-z][a-z\\d+.-]*%(?:25)*3a|%(?:25)*2f%(?:25)*2f)/i.test(value)) return false;
+  if (!/^(?:[a-z][a-z\d+.-]*%(?:25)*3a|%(?:25)*2f%(?:25)*2f)/i.test(value)) return false;
   let decoded = value;
   for (let depth = 0; depth < 5; depth++) {
     try {
