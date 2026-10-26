@@ -119,6 +119,31 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[1]!)).toEqual({ jsonrpc: "2.0", id: 0, result: {} });
   });
 
+  it.each(["before", "after"] as const)(
+    "does not miss a synchronous drain emitted %s the write callback",
+    async (order) => {
+      const lines: string[] = [];
+      const output = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+      // Some Writable implementations emit drain inside write() itself.
+      // A listener installed after write() returns can never observe it.
+      Object.defineProperty(output, "write", {
+        configurable: true,
+        value: (chunk: string, callback: (error?: Error | null) => void) => {
+          lines.push(chunk);
+          if (order === "before") output.emit("drain");
+          callback();
+          if (order === "after") output.emit("drain");
+          return false;
+        },
+      });
+      const ping = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+      await runMcpStdio(Readable.from([Buffer.from(ping)]), output);
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
+      expect(output.listenerCount("drain")).toBe(0);
+    },
+  );
+
   it("resumes after stdout backpressure drains", async () => {
     const lines: string[] = [];
     const output = new Writable({
