@@ -1,3 +1,4 @@
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,7 @@ it.skipIf(process.platform === "win32")("resolves symlinked TMPDIR", async () =>
     await symlink(join(base, "actual"), join(base, "alias"), "dir");
     process.env.TMPDIR = join(base, "alias");
     const context = { task: "test", root: join(base, "workspace"), skills: [] };
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     expect((await adapter.apply(context)).filesWritten.length).toBeGreaterThan(0);
     await adapter.cleanup(context);
   } finally {
