@@ -119,6 +119,32 @@ describe("MCP stdio integration", () => {
     });
   });
 
+  it("rejects unauthorized initialize/ping fields on the wire without losing the session", async () => {
+    const { output, lines } = outputCollector();
+    const client = { protocolVersion: "2025-06-18", capabilities: {},
+      clientInfo: { name: "client", version: "1" } };
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize",
+        params: { ...client, root: "/etc" } },
+      { jsonrpc: "2.0", id: 2, method: "initialize",
+        params: { ...client, _meta: { "client/trace": "safe" } } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 3, method: "ping",
+        params: { path: "/etc/passwd" } },
+      { jsonrpc: "2.0", id: 4, method: "ping",
+        params: { _meta: { "client/trace": "safe" } } },
+      { jsonrpc: "2.0", id: 5, method: "tools/list" },
+    ];
+    await runMcpStdio(Readable.from(messages.map((message) =>
+      Buffer.from(JSON.stringify(message) + "\n"))), output);
+    expect(lines).toHaveLength(5);
+    expect(JSON.parse(lines[0]!)).toMatchObject({ id: 1, error: { code: -32602 } });
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, result: { protocolVersion: "2025-06-18" } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
+    expect(JSON.parse(lines[3]!)).toEqual({ jsonrpc: "2.0", id: 4, result: {} });
+    expect(JSON.parse(lines[4]!)).toMatchObject({ id: 5, result: { tools: [{ name: "skillgate/status" }] } });
+  });
+
   it("rejects stale tools/list cursors over the stdio transport", async () => {
     const { output, lines } = outputCollector();
     const messages = [
