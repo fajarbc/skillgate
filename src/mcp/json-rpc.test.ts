@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { McpJsonRpcSession, MCP_PROTOCOL_VERSION } from "./json-rpc.js";
+import { McpJsonRpcSession, MCP_PROTOCOL_VERSION, MCP_STATUS_SCHEMA_VERSION } from "./json-rpc.js";
 
 const initialize = (id: string | number = 1) => ({
   jsonrpc: "2.0", id, method: "initialize",
@@ -86,10 +86,26 @@ describe("MCP JSON-RPC session", () => {
       params: { name: "skillgate/status", arguments: {} } });
     expect(result).toMatchObject({ id: 2, result: { content: [{ type: "text" }] } });
     const text = (result?.result?.content as { text: string }[])[0]!.text;
-    expect(JSON.parse(text)).toEqual({
+    const expected = {
+      schemaVersion: MCP_STATUS_SCHEMA_VERSION,
       protocolVersion: MCP_PROTOCOL_VERSION,
       skillToolsAvailable: false,
       filesystemAccess: "disabled",
+    };
+    expect(JSON.parse(text)).toEqual(expected);
+    expect(result?.result?.structuredContent).toEqual(expected);
+    const catalog = session.handle({ jsonrpc: "2.0", id: 4, method: "tools/list" });
+    const tool = (catalog?.result?.tools as Array<{ outputSchema: Record<string, unknown> }>)[0]!;
+    expect(tool.outputSchema).toEqual({
+      type: "object",
+      properties: {
+        schemaVersion: { const: MCP_STATUS_SCHEMA_VERSION },
+        protocolVersion: { const: MCP_PROTOCOL_VERSION },
+        skillToolsAvailable: { const: false },
+        filesystemAccess: { const: "disabled" },
+      },
+      required: ["schemaVersion", "protocolVersion", "skillToolsAvailable", "filesystemAccess"],
+      additionalProperties: false,
     });
     for (const params of [
       { name: "filesystem/read", arguments: { path: "/etc/passwd" } },
