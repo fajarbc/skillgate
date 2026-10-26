@@ -52,7 +52,8 @@ describe("MCP JSON-RPC session", () => {
   it("does not advance handshake for malformed initialized notifications", () => {
     const session = new McpJsonRpcSession();
     expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
-    for (const params of [null, 42, [], "invalid"]) {
+    for (const params of [null, 42, [], "invalid",
+      { path: "/etc/passwd" }, { _meta: null }, { _meta: [] }]) {
       expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized", params }))
         .toBeNull();
       expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }))
@@ -62,6 +63,14 @@ describe("MCP JSON-RPC session", () => {
       .toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
       .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+
+    // Standard object-valued MCP metadata remains accepted on initialized.
+    const withMeta = new McpJsonRpcSession();
+    expect(withMeta.handle(initialize(4))).toMatchObject({ id: 4, result: {} });
+    expect(withMeta.handle({ jsonrpc: "2.0", method: "notifications/initialized",
+      params: { _meta: { "client/trace": "safe" } } })).toBeNull();
+    expect(withMeta.handle({ jsonrpc: "2.0", id: 5, method: "tools/list" }))
+      .toMatchObject({ id: 5, result: { tools: [{ name: "skillgate/status" }] } });
   });
 
   it("rejects pagination cursors for the deliberately empty tool catalog", () => {
