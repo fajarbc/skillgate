@@ -1,5 +1,5 @@
-/** MCP JSON-RPC handshake and a deliberately empty, fail-closed tool catalog.
- * No filesystem tools are enabled until their #30 authorization boundary is tested.
+/** MCP JSON-RPC handshake with one filesystem-free status tool.
+ * Skill discovery and file reads remain disabled until #30 authorization tests.
  */
 export const MCP_PROTOCOL_VERSION = "2025-06-18" as const;
 
@@ -24,6 +24,23 @@ function failure(id: JsonId, code: number, message: string): JsonRpcResponse {
 }
 
 /** One instance per client connection. Notifications never produce a response. */
+const STATUS_TOOL = {
+  name: "skillgate/status",
+  description: "Report this local SkillGate MCP preview's safe capabilities without reading workspace files.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+} as const;
+
+/** A static, non-sensitive response: this tool does not read config or files. */
+function statusResult(): Record<string, unknown> {
+  return {
+    content: [{ type: "text", text: JSON.stringify({
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      skillToolsAvailable: false,
+      lifecycleMutationSafety: "strict-fail-closed",
+    }) }],
+  };
+}
+
 export class McpJsonRpcSession {
   private state: "new" | "initializing" | "ready" = "new";
 
@@ -82,7 +99,20 @@ export class McpJsonRpcSession {
       if (record(value.params) && Object.prototype.hasOwnProperty.call(value.params, "cursor")) {
         return failure(requestId, -32602, "Invalid tool list cursor");
       }
-      return response(requestId, { tools: [] });
+      return response(requestId, { tools: [STATUS_TOOL] });
+    }
+    if (method === "tools/call") {
+      if (!record(value.params) || typeof value.params.name !== "string" ||
+          (value.params.arguments !== undefined && !record(value.params.arguments))) {
+        return failure(requestId, -32602, "Invalid tool call parameters");
+      }
+      if (value.params.name !== STATUS_TOOL.name) {
+        return failure(requestId, -32602, "Unknown tool");
+      }
+      if (record(value.params.arguments) && Object.keys(value.params.arguments).length !== 0) {
+        return failure(requestId, -32602, "Invalid status arguments");
+      }
+      return response(requestId, statusResult());
     }
     return failure(requestId, -32601, "Method not found");
   }
