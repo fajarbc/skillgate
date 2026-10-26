@@ -44,7 +44,7 @@ describe("MCP stdio integration", () => {
         params: { name: "filesystem/read", arguments: { path: "/etc/passwd" } } },
     ];
     await runMcpStdio(Readable.from(messages.map((message) =>
-      Buffer.from(JSON.stringify(message) + "\\n"))), output);
+      Buffer.from(JSON.stringify(message) + "\n"))), output);
     expect(lines).toHaveLength(3);
     const status = JSON.parse(lines[1]!);
     expect(status).toMatchObject({ id: 2, result: { content: [{ type: "text" }] } });
