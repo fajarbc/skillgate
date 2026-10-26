@@ -31,9 +31,9 @@ export class McpJsonRpcSession {
     if (!record(value)) return failure(null, -32600, "Invalid Request");
     const id = value.id;
     const hasId = Object.prototype.hasOwnProperty.call(value, "id");
-    // JSON-RPC numeric IDs must round-trip without fractional or precision loss.
+    // JSON-RPC numeric IDs must round-trip without fractional, precision, or\n    // signed-zero loss: JSON.stringify(-0) serializes as 0.
     const validId = typeof id === "string" ||
-      (typeof id === "number" && Number.isSafeInteger(id));
+      (typeof id === "number" && Number.isSafeInteger(id) && !Object.is(id, -0));
     if (value.jsonrpc !== "2.0" || typeof value.method !== "string" ||
         (hasId && !validId)) {
       return failure(null, -32600, "Invalid Request");
