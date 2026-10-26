@@ -27,6 +27,28 @@ describe("MCP JSON-RPC session", () => {
       .toEqual({ jsonrpc: "2.0", id: 3, error: { code: -32601, message: "Method not found" } });
   });
 
+  it("rejects malformed request params and empty initialization identity", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle({ jsonrpc: "2.0", id: 1, method: "ping", params: 42 }))
+      .toMatchObject({ id: 1, error: { code: -32602, message: "Invalid params" } });
+    expect(session.handle({ jsonrpc: "2.0", id: 2, method: "ping", params: [] }))
+      .toMatchObject({ id: 2, error: { code: -32602 } });
+    expect(session.handle({ ...initialize(3), params: {
+      protocolVersion: "", capabilities: {}, clientInfo: { name: "client", version: "1" },
+    } })).toMatchObject({ id: 3, error: { code: -32602 } });
+    expect(session.handle({ ...initialize(4), params: {
+      protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "", version: "1" },
+    } })).toMatchObject({ id: 4, error: { code: -32602 } });
+    expect(session.handle({ ...initialize(5), params: {
+      protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "client", version: "" },
+    } })).toMatchObject({ id: 5, error: { code: -32602 } });
+    // Invalid requests must not advance the session to the initialized state.
+    expect(session.handle(initialize(6))).toMatchObject({ id: 6, result: { protocolVersion: MCP_PROTOCOL_VERSION } });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 7, method: "ping" }))
+      .toEqual({ jsonrpc: "2.0", id: 7, result: {} });
+  });
+
   it("rejects invalid requests and does not reflect client-controlled strings", () => {
     const session = new McpJsonRpcSession();
     expect(session.handle({ jsonrpc: "2.0", id: null, method: "initialize" }))
