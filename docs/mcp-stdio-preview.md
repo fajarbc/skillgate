@@ -17,9 +17,20 @@ a generic diagnostic is written to stderr, never stdout.
 
 The server currently supports `initialize` (protocol version
 `2025-06-18`), `notifications/initialized`, `ping`, and `tools/list`.
-The tool list is deliberately empty and `tools/call` is rejected until the
-read-only discovery, policy enforcement, and approved-skill-read API is
-implemented and validated. Do not configure this preview as a functional MCP
+The tool list currently exposes **only** `skillgate/status`. It is a
+filesystem-free, read-only diagnostic with an empty-object input schema:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"skillgate/status","arguments":{}}}
+```
+
+Its text content is JSON containing `protocolVersion`,
+`skillToolsAvailable: false`, and `lifecycleMutationSafety: "strict-fail-closed"`.
+It does not inspect the workspace, environment, configuration, or skills.
+Unknown tool names, non-object arguments, and unexpected status arguments
+return JSON-RPC invalid-params errors. The discovery, policy enforcement,
+and approved-skill-read APIs remain unavailable pending #30 authorization
+and integration tests. Do not configure this preview as a functional MCP
 skill integration yet.
 
 The full MCP acceptance criteria, end-to-end integration tests, and package
