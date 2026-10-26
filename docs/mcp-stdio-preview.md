@@ -8,6 +8,7 @@ After building with `npm run build`, a local MCP client can launch:
 
 ```sh
 node dist/mcp/stdio.js
+# Or, after installing the package: skillgate-mcp
 ```
 
 The server reads strict UTF-8, newline-delimited JSON-RPC messages from stdin
@@ -39,5 +40,12 @@ and approved-skill-read APIs remain unavailable pending #30 authorization
 and integration tests. Do not configure this preview as a functional MCP
 skill integration yet.
 
-The full MCP acceptance criteria, end-to-end integration tests, and package
-entrypoint remain pending. No GitHub Actions workflow changes are required.
+The package now exposes a separate \`skillgate-mcp\` executable in addition to
+\`skillgate\`. It is **still a status-only preview**: do not configure it as a
+functional skill integration. After \`npm run build\`, run \`npm run smoke:mcp\`
+to exercise the actual built entrypoint, framing, rejection, stdout/stderr
+isolation, and no-workspace-write behavior. This smoke is not a substitute for
+full Vitest/typecheck or adversarial authorization tests.
+
+The full MCP acceptance criteria and end-to-end integration tests remain
+pending. No GitHub Actions workflow changes are required.
