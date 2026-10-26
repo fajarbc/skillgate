@@ -896,6 +896,13 @@ async function cleanupFilesystemAdapterUnlocked(
   };
 }
 
+/** Strict mode must never silently fall back to path-based rename/unlink. */
+function assertSupportedMutationConcurrency(options?: LifecycleOptions): void {
+  if (options?.concurrency === "strict") {
+    throw new Error("Strict external-writer lifecycle safety is not supported by the current filesystem backend; no workspace mutation attempted.");
+  }
+}
+
 /** Mutating lifecycle operations for the same adapter root are serialized. */
 export async function applyFilesystemAdapter(
   agentName: string,
@@ -903,6 +910,7 @@ export async function applyFilesystemAdapter(
   context: AdapterContext,
   options?: LifecycleOptions,
 ): Promise<AdapterResult> {
+  assertSupportedMutationConcurrency(options);
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   return withAdapterMutationLock(agentRoot, () =>
     applyFilesystemAdapterUnlocked(agentName, managedDirName, context, options));
@@ -914,6 +922,7 @@ export async function cleanupFilesystemAdapter(
   context: AdapterContext,
   options?: LifecycleOptions,
 ): Promise<CleanupResult> {
+  assertSupportedMutationConcurrency(options);
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   return withAdapterMutationLock(agentRoot, () =>
     cleanupFilesystemAdapterUnlocked(agentName, managedDirName, context, options));
