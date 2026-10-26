@@ -2,8 +2,24 @@ import { mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentAdapter, AdapterContext } from "../types.js";
+import type { AgentAdapter, AdapterContext, LifecycleOptions } from "../types.js";
 import type { RankedSkill } from "../../ranking/index.js";
+
+/**
+ * Legacy lifecycle tests intentionally exercise the cooperating-writer backend.
+ * Production adapters are strict-by-default; never use this fixture for
+ * strict-policy tests or mistake these tests for Option B concurrency evidence.
+ */
+export function legacyCooperativeAdapter<T extends AgentAdapter>(adapter: T): T {
+  const apply = adapter.apply.bind(adapter);
+  const cleanup = adapter.cleanup.bind(adapter);
+  return Object.assign(adapter, {
+    apply: (context: AdapterContext, options?: LifecycleOptions) =>
+      apply(context, { ...options, concurrency: "cooperative" }),
+    cleanup: (context: AdapterContext, options?: LifecycleOptions) =>
+      cleanup(context, { ...options, concurrency: "cooperative" }),
+  });
+}
 
 export interface AdapterContractConfig {
   readonly label: string;
