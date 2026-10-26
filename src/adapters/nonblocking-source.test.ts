@@ -1,3 +1,4 @@
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { spawnSync } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ it.skipIf(process.platform === "win32")("rejects FIFO skill sources without crea
     const created = spawnSync("mkfifo", [source], { timeout: 3000 });
     if ((created.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
     expect(created.status).toBe(0);
-    await expect(new CodexAdapter().apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -33,7 +34,7 @@ it("rejects directory skill sources without creating ownership state", async () 
   try {
     const source = join(root, "source");
     await mkdir(source);
-    await expect(new CodexAdapter().apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -46,7 +47,7 @@ it.each([32 * 1024 * 1024, 32 * 1024 * 1024 + 1])("rejects oversized skill sourc
     const source = join(root, "large.md");
     await writeFile(source, "x");
     await truncate(source, size);
-    await expect(new CodexAdapter().apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -59,7 +60,7 @@ it.each([0, 32 * 1024 * 1024 - Buffer.byteLength(OWNERSHIP_HEADER)])("accepts re
     const source = join(root, "source.md");
     await writeFile(source, "");
     await truncate(source, size);
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const result = await adapter.apply(context(root, source));
     expect(result.filesWritten.length).toBeGreaterThan(0);
     expect((await adapter.plan(context(root, source))).conflicts).toEqual([]);
@@ -75,7 +76,7 @@ it("rejects oversized pending manifests before creating the adapter root", async
     await writeFile(source, "small");
     const ctx = context(root, source);
     ctx.skills[0]!.metadata.description = "x".repeat(32 * 1024 * 1024);
-    await expect(new CodexAdapter().apply(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).apply(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(stat(join(root, ".codex"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -100,7 +101,7 @@ it.skipIf(process.platform === "win32")("plan rejects FIFO sources without creat
     const created = spawnSync("mkfifo", [source], { timeout: 3000 });
     if ((created.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
     expect(created.status).toBe(0);
-    await expect(new CodexAdapter().plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -112,11 +113,11 @@ it("plan rejects directory and oversized sources without creating ownership stat
   try {
     const directory = join(root, "directory");
     await mkdir(directory);
-    await expect(new CodexAdapter().plan(context(root, directory))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).plan(context(root, directory))).rejects.toBeInstanceOf(AdapterConflictError);
     const oversized = join(root, "oversized.md");
     await writeFile(oversized, "x");
     await truncate(oversized, 32 * 1024 * 1024 + 1);
-    await expect(new CodexAdapter().plan(context(root, oversized))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).plan(context(root, oversized))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -129,7 +130,7 @@ it("rejects small malformed UTF-8 skill sources consistently in plan and apply",
     const source = join(root, "invalid.md");
     // An invalid continuation byte must not be silently replaced with U+FFFD.
     await writeFile(source, Buffer.from([0x23, 0x20, 0x80, 0x0a]));
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     await expect(adapter.plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(adapter.apply(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -143,7 +144,7 @@ it("plan rejects UTF-8 replacement expansion beyond the managed-source limit", a
   try {
     const source = join(root, "invalid.md");
     await writeFile(source, Buffer.alloc(32 * 1024 * 1024, 0xff));
-    await expect(new CodexAdapter().plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
+    await expect(legacyCooperativeAdapter(new CodexAdapter()).plan(context(root, source))).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(readFile(join(root, ".codex", "skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -230,7 +231,7 @@ it("preserves metadata fallback only for a source absent at the initial path che
   const root = await mkdtemp(join(tmpdir(), "skillgate-absent-source-fallback-"));
   try {
     const missing = join(root, "missing.md");
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const ctx = context(root, missing);
     expect((await adapter.plan(ctx)).conflicts).toEqual([]);
     await adapter.apply(ctx);
@@ -248,7 +249,7 @@ it("escapes fallback metadata so it cannot inject frontmatter or instructions", 
     const missing = join(root, "missing.md");
     const ctx = context(root, missing);
     ctx.skills[0]!.metadata.description = "safe\n---\n# injected instruction";
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     expect((await adapter.plan(ctx)).conflicts).toEqual([]);
     await adapter.apply(ctx);
     const exposed = await readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8");
@@ -267,7 +268,7 @@ it("escapes YAML Unicode line separators in fallback metadata", async () => {
     const ctx = context(root, missing);
     const description = "safe\u2028---\u2028# injected\u0085continuation";
     ctx.skills[0]!.metadata.description = description;
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     expect((await adapter.plan(ctx)).conflicts).toEqual([]);
     await adapter.apply(ctx);
     const exposed = await readFile(join(root, ".codex", "skills", "sample", "SKILL.md"), "utf8");
@@ -285,7 +286,7 @@ it("rejects oversized manifest task metadata in both plan and apply without writ
   try {
     // This cannot fit the 32 MiB ownership manifest even before path/digest fields.
     const task = "x".repeat(32 * 1024 * 1024 + 1);
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const ctx = { root, task, skills: [] };
     await expect(adapter.plan(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(adapter.apply(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
@@ -303,7 +304,7 @@ it("rejects a near-limit task when the full pending manifest exceeds 32 MiB", as
     // The old metadata-only preflight accepted this, although the pending
     // manifest adds required ownership fields and pretty-printing overhead.
     expect(Buffer.byteLength(JSON.stringify({ task, skills: [] }), "utf8")).toBeLessThan(limit);
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const ctx = { root, task, skills: [] };
     await expect(adapter.plan(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
     await expect(adapter.apply(ctx)).rejects.toBeInstanceOf(AdapterConflictError);
@@ -316,7 +317,7 @@ it("rejects a near-limit task when the full pending manifest exceeds 32 MiB", as
 it("rejects an oversized pending manifest during plan when ownership already exists", async () => {
   const root = await mkdtemp(join(tmpdir(), "skillgate-existing-manifest-limit-"));
   try {
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const manifestPath = join(root, ".codex", "skills.json");
     await adapter.apply({ root, task: "seed", skills: [] });
     const before = await readFile(manifestPath, "utf8");
