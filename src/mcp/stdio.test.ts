@@ -43,7 +43,7 @@ describe("MCP stdio integration", () => {
       { jsonrpc: "2.0", id: 3, method: "tools/list" },
     ];
     await runMcpStdio(Readable.from(messages.map((value) =>
-      Buffer.from(JSON.stringify(value) + "\\n"))), output);
+      Buffer.from(JSON.stringify(value) + "\n"))), output);
     expect(lines).toHaveLength(3);
     expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, error: { code: -32002 } });
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, result: { tools: [] } });
