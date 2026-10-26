@@ -27,6 +27,48 @@ describe("MCP JSON-RPC session", () => {
       .toEqual({ jsonrpc: "2.0", id: 3, error: { code: -32602, message: "Unknown tool" } });
   });
 
+  it("rejects unknown initialize fields and malformed metadata before the handshake", () => {
+    const session = new McpJsonRpcSession();
+    for (const extra of [
+      { root: "/etc" },
+      { path: "/etc/passwd" },
+      { _meta: null },
+      { _meta: [] },
+    ]) {
+      expect(session.handle({ ...initialize(1), params: { ...initialize(1).params, ...extra } }))
+        .toMatchObject({ id: 1, error: { code: -32602, message: "Invalid initialize parameters" } });
+    }
+    // Failed requests cannot consume initialization; standard MCP metadata is allowed.
+    expect(session.handle({ ...initialize(2), params: {
+      ...initialize(2).params, _meta: { "client/trace": "safe" },
+    } })).toMatchObject({ id: 2, result: { protocolVersion: MCP_PROTOCOL_VERSION } });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
+      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+  });
+
+  it("rejects unexpected ping parameters without breaking a valid session", () => {
+    const session = new McpJsonRpcSession();
+    for (const params of [
+      { root: "/etc" },
+      { path: "/etc/passwd" },
+      { _meta: null },
+      { _meta: [] },
+    ]) {
+      expect(session.handle({ jsonrpc: "2.0", id: 1, method: "ping", params }))
+        .toEqual({ jsonrpc: "2.0", id: 1,
+          error: { code: -32602, message: "Invalid ping parameters" } });
+    }
+    for (const params of [undefined, {}, { _meta: { "client/trace": "safe" } }]) {
+      expect(session.handle({ jsonrpc: "2.0", id: 2, method: "ping", ...(params === undefined ? {} : { params }) }))
+        .toEqual({ jsonrpc: "2.0", id: 2, result: {} });
+    }
+    expect(session.handle(initialize(3))).toMatchObject({ id: 3, result: {} });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 4, method: "tools/list" }))
+      .toMatchObject({ id: 4, result: { tools: [{ name: "skillgate/status" }] } });
+  });
+
   it("rejects malformed request params and empty initialization identity", () => {
     const session = new McpJsonRpcSession();
     expect(session.handle({ jsonrpc: "2.0", id: 1, method: "ping", params: 42 }))
