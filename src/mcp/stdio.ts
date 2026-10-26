@@ -12,21 +12,54 @@ import { McpJsonRpcSession } from "./json-rpc.js";
  */
 async function writeResponse(output: Writable, line: string): Promise<void> {
   if (output.destroyed || output.writableEnded) throw new Error("MCP output closed");
-  if (output.write(line)) return;
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let callbackDone = false;
+    let drained = false;
     const cleanup = () => {
       output.off("drain", onDrain);
       output.off("error", onError);
       output.off("close", onClose);
     };
-    const onDrain = () => { cleanup(); resolve(); };
-    const onError = () => { cleanup(); reject(new Error("MCP output failed")); };
-    const onClose = () => { cleanup(); reject(new Error("MCP output closed")); };
-    output.once("drain", onDrain);
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (error) {
+        output.off("drain", onDrain);
+        output.off("close", onClose);
+        // Writable can invoke its write callback with an error *before*
+        // emitting the stream's error event. Keep the error listener through
+        // that event so a failed write cannot crash the MCP process.
+        setImmediate(cleanup);
+        reject(error);
+      } else {
+        cleanup();
+        resolve();
+      }
+    };
+    const succeed = () => { if (callbackDone && drained) finish(); };
+    const onDrain = () => { drained = true; succeed(); };
+    const onError = () => finish(new Error("MCP output failed"));
+    const onClose = () => finish(new Error("MCP output closed"));
     output.once("error", onError);
     output.once("close", onClose);
-    // The writable may have closed between write() and listener setup.
-    if (output.destroyed || output.writableEnded) onClose();
+    try {
+      const canWrite = output.write(line, (error) => {
+        if (error) {
+          finish(new Error("MCP output failed"));
+          return;
+        }
+        callbackDone = true;
+        succeed();
+      });
+      drained = canWrite;
+      if (!canWrite && !settled) output.once("drain", onDrain);
+      // The stream may have closed between write() and listener registration.
+      if (output.destroyed || output.writableEnded) onClose();
+      else succeed();
+    } catch {
+      finish(new Error("MCP output failed"));
+    }
   });
 }
 
