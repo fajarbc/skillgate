@@ -15,7 +15,9 @@ export class McpFramingError extends Error {
  */
 export class McpJsonLineDecoder {
   private readonly decoder = new TextDecoder("utf-8", { fatal: true });
-  private readonly parts: Uint8Array[] = [];
+  // Keep one bounded reusable buffer instead of one allocation per input chunk.
+  // A malicious client can send a megabyte in single-byte chunks.
+  private buffer = new Uint8Array(0);
   private size = 0;
   private closed = false;
 
@@ -34,12 +36,7 @@ export class McpJsonLineDecoder {
         if (chunk[i] !== 10) continue;
         const segment = chunk.subarray(start, i);
         this.append(segment);
-        const bytes = new Uint8Array(this.size);
-        let offset = 0;
-        for (const part of this.parts) {
-          bytes.set(part, offset);
-          offset += part.byteLength;
-        }
+        const bytes = this.buffer.subarray(0, this.size);
         // CRLF is accepted, but CR still counts toward the size bound.
         const end = bytes.length && bytes[bytes.length - 1] === 13 ? bytes.length - 1 : bytes.length;
         let text: string;
@@ -59,7 +56,6 @@ export class McpJsonLineDecoder {
           throw new McpFramingError("invalid_json");
         }
         messages.push(parsed);
-        this.parts.length = 0;
         this.size = 0;
         start = i + 1;
       }
@@ -67,7 +63,6 @@ export class McpJsonLineDecoder {
       return messages;
     } catch (error) {
       this.closed = true;
-      this.parts.length = 0;
       this.size = 0;
       throw error;
     }
@@ -76,7 +71,6 @@ export class McpJsonLineDecoder {
   finish(): void {
     this.closed = true;
     if (this.size !== 0) {
-      this.parts.length = 0;
       this.size = 0;
       throw new McpFramingError("incomplete");
     }
@@ -87,8 +81,17 @@ export class McpJsonLineDecoder {
       throw new McpFramingError("too_large");
     }
     if (bytes.byteLength > 0) {
-      this.parts.push(bytes.slice()); // caller may reuse the input buffer
-      this.size += bytes.byteLength;
+      const required = this.size + bytes.byteLength;
+      if (required > this.buffer.byteLength) {
+        // Geometric growth bounds allocations even for single-byte chunks,
+        // while never reserving more than the configured message limit.
+        const capacity = Math.min(this.maxBytes, Math.max(required, 64, this.buffer.byteLength * 2));
+        const next = new Uint8Array(capacity);
+        next.set(this.buffer.subarray(0, this.size));
+        this.buffer = next;
+      }
+      this.buffer.set(bytes, this.size); // caller may reuse the input buffer
+      this.size = required;
     }
   }
 }
