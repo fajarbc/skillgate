@@ -1,3 +1,4 @@
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +15,7 @@ describe("adapter lifecycle", () => {
     const skillPath = join(root, "my-skill.md");
     await writeFile(skillPath, "---\nname: my-skill\ndescription: Test skill\n---\n# Docs");
 
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const context = {
       task: "build",
       root,
@@ -44,7 +45,7 @@ describe("adapter lifecycle", () => {
     const skillPath = join(root, "my-skill.md");
     await writeFile(skillPath, "---\nname: my-skill\ndescription: Test skill\n---\n# Docs");
 
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
     const context = {
       task: "build",
       root,
@@ -77,7 +78,7 @@ describe("adapter lifecycle", () => {
     const userOwnedFile = join(destDir, "SKILL.md");
     await writeFile(userOwnedFile, "User-owned original notes", "utf8");
 
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const context = {
       task: "build",
       root,
@@ -109,7 +110,7 @@ describe("adapter lifecycle", () => {
     await writeFile(skill1, "---\nname: skill-one\ndescription: Skill one\n---\n");
     await writeFile(skill2, "---\nname: skill-two\ndescription: Skill two\n---\n");
 
-    const adapter = new CodexAdapter();
+    const adapter = legacyCooperativeAdapter(new CodexAdapter());
 
     await adapter.apply({
       task: "task1",
@@ -165,7 +166,7 @@ describe("adapter lifecycle", () => {
     const skill = join(root, "skill.md");
     await writeFile(skill, "---\nname: my-skill\ndescription: Skill\n---\n");
 
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
     const context = {
       task: "build",
       root,
