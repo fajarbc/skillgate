@@ -44,7 +44,10 @@ export class McpJsonRpcSession {
       return failure(id as string | number, -32602, "Invalid params");
     }
     if (!hasId) {
-      if (method === "notifications/initialized" && this.state === "initializing") {
+      // Only a well-formed initialized notification may complete the handshake.
+      // Reject malformed params without replying to the notification.
+      if (method === "notifications/initialized" && this.state === "initializing" &&
+          (value.params === undefined || record(value.params))) {
         this.state = "ready";
       }
       // JSON-RPC notifications cannot be acknowledged, including invalid ones.
