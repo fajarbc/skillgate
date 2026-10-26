@@ -78,6 +78,38 @@ describe("MCP JSON-RPC session", () => {
       .toMatchObject({ jsonrpc: "2.0", id: 3, result: { tools: [{ name: "skillgate/status" }] } });
   });
 
+  it("rejects unexpected tool request fields but permits MCP request metadata", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+
+    for (const params of [
+      { path: "/etc/passwd" },
+      { unexpected: true },
+      { _meta: null },
+      { _meta: [] },
+    ]) {
+      expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list", params }))
+        .toMatchObject({ id: 2, error: { code: -32602 } });
+    }
+    expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list",
+      params: { _meta: { "client/trace": "safe" } } }))
+      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+
+    for (const params of [
+      { name: "skillgate/status", arguments: {}, path: "/etc/passwd" },
+      { name: "skillgate/status", arguments: {}, unexpected: true },
+      { name: "skillgate/status", _meta: null },
+      { name: "skillgate/status", _meta: [] },
+    ]) {
+      expect(session.handle({ jsonrpc: "2.0", id: 4, method: "tools/call", params }))
+        .toMatchObject({ id: 4, error: { code: -32602 } });
+    }
+    expect(session.handle({ jsonrpc: "2.0", id: 5, method: "tools/call",
+      params: { name: "skillgate/status", arguments: {}, _meta: { "client/trace": "safe" } } }))
+      .toMatchObject({ id: 5, result: { structuredContent: { filesystemAccess: "disabled" } } });
+  });
+
   it("serves status without exposing filesystem data and rejects unknown or malformed calls", () => {
     const session = new McpJsonRpcSession();
     expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
