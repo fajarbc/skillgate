@@ -26,8 +26,30 @@ describe("MCP stdio integration", () => {
     expect(lines).toHaveLength(3);
     expect(lines.every((line) => line.endsWith("\n") && !line.slice(0, -1).includes("\n"))).toBe(true);
     expect(JSON.parse(lines[0]!)).toMatchObject({ id: 1, result: { protocolVersion: "2025-06-18" } });
-    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, result: { tools: [] } });
-    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32601 } });
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
+  });
+
+  it("executes only the filesystem-free status tool over stdio", async () => {
+    const { output, lines } = outputCollector();
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-06-18", capabilities: {},
+        clientInfo: { name: "client", version: "1" },
+      } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/call",
+        params: { name: "skillgate/status", arguments: {} } },
+      { jsonrpc: "2.0", id: 3, method: "tools/call",
+        params: { name: "filesystem/read", arguments: { path: "/etc/passwd" } } },
+    ];
+    await runMcpStdio(Readable.from(messages.map((message) =>
+      Buffer.from(JSON.stringify(message) + "\\n"))), output);
+    expect(lines).toHaveLength(3);
+    const status = JSON.parse(lines[1]!);
+    expect(status).toMatchObject({ id: 2, result: { content: [{ type: "text" }] } });
+    expect(JSON.parse(status.result.content[0].text)).toMatchObject({ skillToolsAvailable: false });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
   });
 
   it("does not unlock tool requests after a malformed initialized notification", async () => {
@@ -46,7 +68,7 @@ describe("MCP stdio integration", () => {
       Buffer.from(JSON.stringify(value) + "\n"))), output);
     expect(lines).toHaveLength(3);
     expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, error: { code: -32002 } });
-    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, result: { tools: [] } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
   });
 
   it("rejects stale tools/list cursors over the stdio transport", async () => {
@@ -66,7 +88,7 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[1]!)).toEqual({
       jsonrpc: "2.0", id: 2, error: { code: -32602, message: "Invalid tool list cursor" },
     });
-    expect(JSON.parse(lines[2]!)).toEqual({ jsonrpc: "2.0", id: 3, result: { tools: [] } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ jsonrpc: "2.0", id: 3, result: { tools: [{ name: "skillgate/status" }] } });
   });
 
   it("rejects a wire-format negative-zero ID without rewriting it to zero", async () => {
