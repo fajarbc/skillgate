@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { isDeepStrictEqual } from "node:util";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +6,19 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const fixtureDir = join(root, "fixtures", "cli-json-v1");
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
+
+/** JSON Schema equality ignores object property order and treats -0 as 0.
+ * Node's deepStrictEqual incorrectly distinguishes signed zero for JSON data.
+ */
+function jsonEqual(left, right) {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== typeof right ||
+      typeof left !== "object") return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => Object.hasOwn(right, key) && jsonEqual(left[key], right[key]));
+}
 
 // Intentionally strict evaluator for the schema keywords used by these fixtures.
 // Unsupported keywords must fail instead of silently weakening the checks.
@@ -29,8 +41,8 @@ export function validate(schema, value, path = "$") {
       `${path}: invalid allOf schema`);
     for (const variant of schema.allOf) validate(variant, value, path);
   }
-  if ("const" in schema) assert.deepEqual(value, schema.const, `${path}: constant mismatch`);
-  if (schema.enum) assert.ok(schema.enum.some((candidate) => isDeepStrictEqual(candidate, value)),
+  if ("const" in schema) assert.ok(jsonEqual(value, schema.const), `${path}: constant mismatch`);
+  if (schema.enum) assert.ok(schema.enum.some((candidate) => jsonEqual(candidate, value)),
     `${path}: unexpected enum value`);
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
