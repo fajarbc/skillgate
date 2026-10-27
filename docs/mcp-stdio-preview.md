@@ -72,6 +72,9 @@ invalid-params errors. `initialize` accepts only `protocolVersion`, `capabilitie
 `clientInfo`, and optional object-valued `_meta` at the top level of its
 parameters. `ping` accepts no operational parameters, only optional object-valued
 `_meta`. Unexpected fields and malformed metadata fail closed without changing
+Initialization protocol/client identity strings must be
+nonblank, well-formed Unicode without ASCII control characters or DEL;
+invalid identities receive `-32602` and do not advance initialization.
 the handshake state. Standard MCP object-valued `_meta` request metadata is
 accepted; malformed metadata is rejected. The
 `notifications/initialized` handshake likewise accepts only optional
