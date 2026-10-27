@@ -424,7 +424,7 @@ describe("MCP stdio integration", () => {
       } },
     ];
     await runMcpStdio(Readable.from(messages.map((message) =>
-      Buffer.from(JSON.stringify(message) + "\\n"))), output);
+      Buffer.from(JSON.stringify(message) + "\n"))), output);
     expect(lines).toHaveLength(4);
     expect(JSON.parse(lines[1]!)).toMatchObject({
       id: 2, result: { structuredContent: { ranked: [] } },
