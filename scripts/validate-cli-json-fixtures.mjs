@@ -90,7 +90,7 @@ async function validateFixtures() {
   const bounded = {
     type: "object",
     properties: {
-      name: { type: "string", maxLength: 2, pattern: "\\\\S" },
+      name: { type: "string", maxLength: 2, pattern: "\\S" },
       count: { type: "integer", minimum: 1, maximum: 3 },
       entries: { type: "array", maxItems: 1, items: { type: "string" } },
     },
