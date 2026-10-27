@@ -40,9 +40,11 @@ on metadata explicitly supplied by the MCP client. It does not discover skills,
 load policy, authorize skill use, or read instructions. Its output explicitly
 sets `policyEvaluated: false` and `filesystemAccess: "disabled"`; callers MUST
 NOT interpret a positive score as policy approval. Input is limited to a
-nonempty task (at most 4,096 UTF-16 code units), up to 64 client-supplied
-skills with opaque IDs, names, and descriptions, and an optional result limit
-of 1–8. Paths, root selectors, unexpected fields, and duplicate IDs are
+nonempty task (at most 4,096 Unicode code points), up to 64 client-supplied
+skills with opaque IDs, names (at most 128 code points), and descriptions
+(at most 512 code points), and an optional result limit of 1–8. Unpaired
+UTF-16 surrogates are rejected in these text fields; non-whitespace task and
+name values are required. These limits match the advertised JSON Schemas. Paths, root selectors, unexpected fields, and duplicate IDs are
 rejected. The input and output JSON schemas are closed, and the output carries
 an independent `schemaVersion: "1"`.
 
