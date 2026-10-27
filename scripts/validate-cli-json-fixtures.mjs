@@ -52,24 +52,26 @@ export function validate(schema, value, path = "$") {
       : type === "number" ? typeof value === "number" && Number.isFinite(value)
       : type === actual), `${path}: expected ${types.join("|")}, got ${actual}`);
   }
-  if (schema.minLength !== undefined || schema.maxLength !== undefined) {
-    assert.equal(typeof value, "string", `${path}: expected string`);
+  // String-specific assertions do not apply to non-string JSON instances.
+  // A sibling "type" constraint, when present, handles type rejection.
+  if (typeof value === "string" &&
+      (schema.minLength !== undefined || schema.maxLength !== undefined)) {
     // JSON Schema measures string lengths in Unicode code points, not UTF-16 units.
     const length = Array.from(value).length;
     if (schema.minLength !== undefined) assert.ok(length >= schema.minLength, `${path}: too short`);
     if (schema.maxLength !== undefined) assert.ok(length <= schema.maxLength, `${path}: too long`);
   }
-  if (schema.pattern) {
-    assert.equal(typeof value, "string", `${path}: expected string`);
+  if (schema.pattern && typeof value === "string") {
     assert.match(value, new RegExp(schema.pattern), `${path}: pattern mismatch`);
   }
-  if (schema.minItems !== undefined || schema.maxItems !== undefined) {
-    assert.ok(Array.isArray(value), `${path}: expected array`);
+  if (Array.isArray(value) &&
+      (schema.minItems !== undefined || schema.maxItems !== undefined)) {
     if (schema.minItems !== undefined) assert.ok(value.length >= schema.minItems, `${path}: too few items`);
     if (schema.maxItems !== undefined) assert.ok(value.length <= schema.maxItems, `${path}: too many items`);
   }
-  if (schema.minimum !== undefined || schema.maximum !== undefined) {
-    assert.ok(typeof value === "number" && Number.isFinite(value), `${path}: expected finite number`);
+  if (typeof value === "number" &&
+      (schema.minimum !== undefined || schema.maximum !== undefined)) {
+    assert.ok(Number.isFinite(value), `${path}: expected finite number`);
     if (schema.minimum !== undefined) assert.ok(value >= schema.minimum, `${path}: below minimum`);
     if (schema.maximum !== undefined) assert.ok(value <= schema.maximum, `${path}: above maximum`);
   }
@@ -80,7 +82,7 @@ export function validate(schema, value, path = "$") {
       for (const key of Object.keys(value)) assert.ok(allowed.has(key), `${path}: unexpected property ${key}`);
     }
   }
-  if (schema.required) {
+  if (schema.required && value !== null && typeof value === "object" && !Array.isArray(value)) {
     for (const key of schema.required) assert.ok(Object.hasOwn(value, key), `${path}: missing ${key}`);
   }
   if (schema.properties && value && typeof value === "object" && !Array.isArray(value)) {
@@ -197,6 +199,38 @@ async function validateFixtures() {
   assert.throws(() => validate({ allOf: [] }, "ok"), /invalid allOf schema/);
   assert.throws(() => validate({ type: "object", allOf: [{ required: ["name"] }] }, {}),
     /missing name/);
+  // JSON Schema 2020-12: validation keywords are conditional on the instance
+  // type. In particular, required does not reject null/array/string values,
+  // and string/array/numeric constraints do not implicitly impose a type.
+  const typeScoped = {
+    minLength: 2, maxLength: 4, pattern: "^ab",
+    minItems: 1, maxItems: 2, minimum: 2, maximum: 4,
+    required: ["name"],
+  };
+  for (const instance of [null, true, "ab", 3, ["ok"], { name: "safe" }]) {
+    // Each instance is checked against the relevant subset of keywords only.
+    validate(typeScoped, instance);
+  }
+  validate({ required: ["name"] }, null);
+  validate({ required: ["name"] }, "text");
+  validate({ required: ["name"] }, ["text"]);
+  validate({ minLength: 10, pattern: "^never" }, 42);
+  validate({ minItems: 5 }, "text");
+  validate({ minimum: 99 }, "text");
+  for (const invalid of [
+    ["a", { minLength: 2 }],
+    ["abcde", { maxLength: 4 }],
+    ["no", { pattern: "^ab" }],
+    [[], { minItems: 1 }],
+    [[1, 2, 3], { maxItems: 2 }],
+    [1, { minimum: 2 }],
+    [5, { maximum: 4 }],
+    [{}, { required: ["name"] }],
+  ]) assert.throws(() => validate(invalid[1], invalid[0]));
+  // Explicit types still reject wrong-instance types.
+  assert.throws(() => validate({ type: "object", required: ["name"] }, "text"));
+  assert.throws(() => validate({ type: "string", minLength: 2 }, 42));
+  assert.throws(() => validate({ type: "array", minItems: 1 }, null));
   console.log(`CLI JSON v1 schema fixtures passed (${names.length} fixtures)`);
 }
 
