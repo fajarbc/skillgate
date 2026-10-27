@@ -14,17 +14,7 @@ const SKILL_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
  * bidirectional overrides without restricting ordinary international text.
  * The same JSON Schema pattern is enforced at runtime.
  */
-const SAFE_DISPLAY_NAME_PATTERN = String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069])[\s\S]*/** Pure ranking preview for caller-supplied metadata. No filesystem, discovery,
- * policy, configuration, environment, or skill-instruction access is possible.
- * A score is NOT a policy authorization decision.
- */
-import { rankSkills } from "../ranking/index.js";
-
-export const MCP_RANK_PREVIEW_SCHEMA_VERSION = "1" as const;
-const MAX_TASK_LENGTH = 4096;
-const MAX_SKILLS = 64;
-const MAX_RESULTS = 8;
-;
+const SAFE_DISPLAY_NAME_PATTERN = String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069])[\s\S]*$`;
 const SAFE_DISPLAY_NAME = new RegExp(SAFE_DISPLAY_NAME_PATTERN);
 
 function record(value: unknown): value is Record<string, unknown> {
