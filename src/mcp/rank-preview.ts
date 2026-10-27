@@ -14,20 +14,38 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** JSON Schema maxLength counts Unicode code points, not UTF-16 units.
+ * Reject lone surrogates, which JSON.parse can admit through \\u escapes.
+ */
+function validTextLength(value: string, maximum: number): boolean {
+  let points = 0;
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      if (++index >= value.length) return false;
+      const low = value.charCodeAt(index);
+      if (low < 0xdc00 || low > 0xdfff) return false;
+    }
+    if (++points > maximum) return false;
+  }
+  return true;
+}
+
 export const RANK_PREVIEW_TOOL = {
   name: "skillgate/rank-metadata",
   description: "Score client-provided skill metadata using SkillGate ranking. Not discovery or policy approval; never reads files.",
   inputSchema: {
     type: "object",
     properties: {
-      task: { type: "string", minLength: 1, maxLength: MAX_TASK_LENGTH },
+      task: { type: "string", minLength: 1, maxLength: MAX_TASK_LENGTH, pattern: "\\S" },
       skills: {
         type: "array", maxItems: MAX_SKILLS,
         items: {
           type: "object",
           properties: {
             id: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
-            name: { type: "string", minLength: 1, maxLength: 128 },
+            name: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S" },
             description: { type: "string", maxLength: 512 },
           },
           required: ["id", "name", "description"],
@@ -80,7 +98,7 @@ export const RANK_PREVIEW_TOOL = {
 /** Invalid arguments fail closed; never pass unvalidated objects into core. */
 export function rankPreviewResult(value: unknown): Record<string, unknown> | null {
   if (!record(value) || Object.keys(value).some((key) => !["task", "skills", "limit"].includes(key)) ||
-      typeof value.task !== "string" || !value.task.trim() || value.task.length > MAX_TASK_LENGTH ||
+      typeof value.task !== "string" || !value.task.trim() || !validTextLength(value.task, MAX_TASK_LENGTH) ||
       !Array.isArray(value.skills) || value.skills.length > MAX_SKILLS ||
       (value.limit !== undefined && (!Number.isSafeInteger(value.limit) ||
         (value.limit as number) < 1 || (value.limit as number) > MAX_RESULTS))) {
@@ -92,8 +110,8 @@ export function rankPreviewResult(value: unknown): Record<string, unknown> | nul
   for (const item of value.skills) {
     if (!record(item) || Object.keys(item).some((key) => !["id", "name", "description"].includes(key)) ||
         typeof item.id !== "string" || !SKILL_ID.test(item.id) || ids.has(item.id) ||
-        typeof item.name !== "string" || !item.name.trim() || item.name.length > 128 ||
-        typeof item.description !== "string" || item.description.length > 512) {
+        typeof item.name !== "string" || !item.name.trim() || !validTextLength(item.name, 128) ||
+        typeof item.description !== "string" || !validTextLength(item.description, 512)) {
       return null;
     }
     ids.add(item.id);
