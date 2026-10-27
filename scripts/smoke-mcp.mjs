@@ -45,7 +45,16 @@ try {
         task: "react", skills: [], path: "/etc/passwd",
       } } },
   ];
-  const ok = invoke(messages.map((value) => JSON.stringify(value) + "\n").join(""));
+  // Malformed no-id notification objects must not create unsolicited JSON-RPC
+  // responses, including before and during initialization.
+  const malformedNotifications = [
+    { jsonrpc: "1.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", method: 42 },
+  ];
+  const wireMessages = [
+    ...malformedNotifications, messages[0], ...malformedNotifications, ...messages.slice(1),
+  ];
+  const ok = invoke(wireMessages.map((value) => JSON.stringify(value) + "\n").join(""));
   assert.equal(ok.stderr, "", "successful MCP sessions must not log diagnostics");
   assert.ok(ok.stdout.endsWith("\n"));
   const lines = ok.stdout.split("\n");
