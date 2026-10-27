@@ -85,3 +85,33 @@ describe("rank metadata Unicode and schema length parity", () => {
     expect(rankPreviewResult({ task: "react", skills: skill(" ") })).toBeNull();
   });
 });
+
+
+describe("rank-metadata reflected display-name safety", () => {
+  const schema = RANK_PREVIEW_TOOL.inputSchema.properties.skills.items.properties.name;
+  const safeName = new RegExp(schema.allOf[0].pattern);
+  const skill = (name: string) => [{ id: "react", name, description: "React components" }];
+
+  it.each(["\u0000", "\u001b[31m", "\n", "\r", "\u0085", "\u009f",
+    "\u202a", "\u202e", "\u2066", "\u2069"])(
+    "rejects terminal controls and bidirectional overrides in returned names", (control) => {
+      const name = "React" + control + " Components";
+      expect(safeName.test(name)).toBe(false);
+      expect(rankPreviewResult({ task: "react", skills: skill(name) })).toBeNull();
+    },
+  );
+
+  it("rejects a trailing newline (including the JSON Schema end-anchor edge case)", () => {
+    const name = "React Components\n";
+    expect(safeName.test(name)).toBe(false);
+    expect(rankPreviewResult({ task: "react", skills: skill(name) })).toBeNull();
+  });
+
+  it("preserves ordinary international names and multiline task text", () => {
+    for (const name of ["React Components", "תכנות React", "東京 React 🛡️"]) {
+      expect(safeName.test(name)).toBe(true);
+      const result = rankPreviewResult({ task: "react\ncomponents", skills: skill(name) });
+      expect(result).not.toBeNull();
+    }
+  });
+});
