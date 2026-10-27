@@ -310,3 +310,28 @@ describe("malformed no-id MCP notifications", () => {
         error: { code: -32600, message: "Invalid Request" } });
   });
 });
+
+
+describe("MCP reflected request-ID safety", () => {
+  it.each(["\u0000", "\u001b[31m", "\n", "\u0085", "\u009f",
+    "\u202a", "\u202e", "\u2066", "\u2069"])(
+    "rejects control and bidi characters before echoing a JSON-RPC ID", (control) => {
+      const session = new McpJsonRpcSession();
+      expect(session.handle({ jsonrpc: "2.0", id: "request" + control,
+        method: "ping" })).toEqual({
+        jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" },
+      });
+      expect(session.handle(initialize("safe"))).toMatchObject({
+        id: "safe", result: { protocolVersion: MCP_PROTOCOL_VERSION },
+      });
+    },
+  );
+
+  it("allows ordinary international IDs and the empty string ID", () => {
+    const session = new McpJsonRpcSession();
+    for (const id of ["", "request-1", "東京 🛡️", "בקשה"]) {
+      expect(session.handle({ jsonrpc: "2.0", id, method: "ping" }))
+        .toEqual({ jsonrpc: "2.0", id, result: {} });
+    }
+  });
+});
