@@ -4,7 +4,7 @@
  * adapters instead of adding an alternate authorization implementation.
  */
 import { RANK_PREVIEW_TOOL, rankPreviewResult } from "./rank-preview.js";
-import { POLICY_PREVIEW_TOOL, policyPreviewResult } from "./policy-preview.js";
+import { POLICY_PREVIEW_TOOL, policyPreviewResult, validPreviewCapabilities } from "./policy-preview.js";
 
 export const MCP_RECOMMEND_PREVIEW_SCHEMA_VERSION = "1" as const;
 
@@ -66,14 +66,15 @@ export function recommendPreviewResult(value: unknown): Record<string, unknown> 
 
   // Validate the complete candidate set and task *before* evaluating any
   // candidate policy. Invalid IDs, duplicate IDs, malformed descriptions,
-  // unknown fields, and oversized tasks must fail before policy work begins,
+  // malformed capabilities, unknown fields, and oversized tasks must fail before policy work begins,
   // even when the malformed candidate would have been denied.
   const all: Array<{ id: string; name: string; description: string }> = [];
   for (const candidate of value.skills) {
     if (!record(candidate) || Object.keys(candidate).some((key) =>
       !["id", "name", "description", "capabilities"].includes(key)) ||
       typeof candidate.id !== "string" || typeof candidate.name !== "string" ||
-      typeof candidate.description !== "string") {
+      typeof candidate.description !== "string" ||
+      !validPreviewCapabilities(candidate.capabilities)) {
       return null;
     }
     all.push({ id: candidate.id, name: candidate.name, description: candidate.description });
