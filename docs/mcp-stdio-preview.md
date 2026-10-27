@@ -14,8 +14,12 @@ node dist/mcp/stdio.js
 The server reads strict UTF-8, newline-delimited JSON-RPC messages from stdin
 (maximum 1 MiB per message), and writes only JSON-RPC responses to stdout.
 A stdout disconnect or write failure is treated as a failed session, including
-when the disconnect happens between responses immediately before stdin EOF;
-output listeners are removed when the session exits. A successful session
+when the disconnect happens between responses immediately before stdin EOF.
+A client that remains connected but stops acknowledging output cannot stall the
+server indefinitely: each response write has a 30-second deadline. On expiry
+the session terminates with the same generic stderr-only diagnostic as other
+transport failures; output listeners and timers are cleaned up. This timeout
+bounds a single response write, not the entire client session. A successful session
 never writes human diagnostics to stdout.
 Notifications do not produce responses, including malformed no-ID JSON objects
 (such as an initialized notification with an invalid JSON-RPC version or method).
