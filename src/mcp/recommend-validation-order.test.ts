@@ -28,6 +28,15 @@ describe("MCP recommendation validation precedes candidate policy evaluation", (
       policy: { deniedSkills: ["Python"] } }],
     ["malformed description", { ...valid,
       skills: [candidates[0], { ...candidates[1], description: "x".repeat(513) }] }],
+    ["invalid capability type in later candidate", { ...valid,
+      skills: [candidates[0], { ...candidates[1], capabilities: [42] }] }],
+    ["oversized capability list in later candidate", { ...valid,
+      skills: [candidates[0], { ...candidates[1], capabilities: Array(17).fill("network") }] }],
+    ["unsafe denied capability in later candidate", { ...valid,
+      skills: [candidates[0], { ...candidates[1], capabilities: ["network\\u202e"] }],
+      policy: { deniedSkills: ["Python"] } }],
+    ["blank capability in later candidate", { ...valid,
+      skills: [candidates[0], { ...candidates[1], capabilities: [" "] }] }],
   ])("rejects %s before candidate policy evaluation", (_label, input) => {
     expect(recommendPreviewResult(input)).toBeNull();
     // The initial policy-shape check is permitted, but no candidate should
