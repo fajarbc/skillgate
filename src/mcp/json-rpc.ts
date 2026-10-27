@@ -34,7 +34,7 @@ function wellFormedUnicode(value: string): boolean {
  */
 function safeProtocolCharacters(value: string): boolean {
   return wellFormedUnicode(value) &&
-    !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value);
+    !/[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u202a-\u202e\u2066-\u2069]/.test(value);
 }
 
 /** Protocol identifiers must be usable text, not blank or terminal controls. */
