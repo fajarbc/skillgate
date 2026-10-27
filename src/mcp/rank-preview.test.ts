@@ -93,7 +93,7 @@ describe("rank-metadata reflected display-name safety", () => {
   const skill = (name: string) => [{ id: "react", name, description: "React components" }];
 
   it.each(["\u0000", "\u001b[31m", "\n", "\r", "\u0085", "\u009f",
-    "\u202a", "\u202e", "\u2066", "\u2069"])(
+    "\u061c", "\u200e", "\u200f", "\u202a", "\u202e", "\u2066", "\u2069"])(
     "rejects terminal controls and bidirectional overrides in returned names", (control) => {
       const name = "React" + control + " Components";
       expect(safeName.test(name)).toBe(false);
