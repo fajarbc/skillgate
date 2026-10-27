@@ -11,7 +11,7 @@ const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 // Unsupported keywords must fail instead of silently weakening the checks.
 // A full standards-compliant JSON Schema validator is still needed for release.
 export function validate(schema, value, path = "$") {
-  const supported = new Set(["$schema", "title", "description", "oneOf", "type", "const", "enum", "required", "properties", "items", "minLength", "pattern"]);
+  const supported = new Set(["$schema", "title", "description", "oneOf", "type", "const", "enum", "required", "properties", "items", "minLength", "maxLength", "pattern", "minItems", "maxItems", "minimum", "maximum", "additionalProperties"]);
   for (const keyword of Object.keys(schema)) {
     assert.ok(supported.has(keyword), `Unsupported fixture schema keyword: ${keyword}`);
   }
@@ -27,15 +27,37 @@ export function validate(schema, value, path = "$") {
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
     const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-    assert.ok(types.includes(actual), `${path}: expected ${types.join("|")}, got ${actual}`);
+    assert.ok(types.some((type) => type === "integer"
+      ? typeof value === "number" && Number.isSafeInteger(value)
+      : type === actual), `${path}: expected ${types.join("|")}, got ${actual}`);
   }
-  if (schema.minLength !== undefined) {
+  if (schema.minLength !== undefined || schema.maxLength !== undefined) {
     assert.equal(typeof value, "string", `${path}: expected string`);
-    assert.ok(value.length >= schema.minLength, `${path}: too short`);
+    // JSON Schema measures string lengths in Unicode code points, not UTF-16 units.
+    const length = Array.from(value).length;
+    if (schema.minLength !== undefined) assert.ok(length >= schema.minLength, `${path}: too short`);
+    if (schema.maxLength !== undefined) assert.ok(length <= schema.maxLength, `${path}: too long`);
   }
   if (schema.pattern) {
     assert.equal(typeof value, "string", `${path}: expected string`);
     assert.match(value, new RegExp(schema.pattern), `${path}: pattern mismatch`);
+  }
+  if (schema.minItems !== undefined || schema.maxItems !== undefined) {
+    assert.ok(Array.isArray(value), `${path}: expected array`);
+    if (schema.minItems !== undefined) assert.ok(value.length >= schema.minItems, `${path}: too few items`);
+    if (schema.maxItems !== undefined) assert.ok(value.length <= schema.maxItems, `${path}: too many items`);
+  }
+  if (schema.minimum !== undefined || schema.maximum !== undefined) {
+    assert.ok(typeof value === "number" && Number.isFinite(value), `${path}: expected finite number`);
+    if (schema.minimum !== undefined) assert.ok(value >= schema.minimum, `${path}: below minimum`);
+    if (schema.maximum !== undefined) assert.ok(value <= schema.maximum, `${path}: above maximum`);
+  }
+  if (schema.additionalProperties !== undefined) {
+    assert.equal(typeof schema.additionalProperties, "boolean", `${path}: unsupported additionalProperties schema`);
+    if (schema.additionalProperties === false && value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const allowed = new Set(Object.keys(schema.properties ?? {}));
+      for (const key of Object.keys(value)) assert.ok(allowed.has(key), `${path}: unexpected property ${key}`);
+    }
   }
   if (schema.required) {
     for (const key of schema.required) assert.ok(Object.hasOwn(value, key), `${path}: missing ${key}`);
