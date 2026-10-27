@@ -49,15 +49,15 @@ describe("filesystem-free MCP recommendation preview", () => {
     { ...args, root: "/etc" },
     { ...args, skills: [...skills, { ...skills[0] }] },
     { ...args, skills: [{ ...skills[0], path: "/etc/passwd" }] },
-    { ...args, skills: [{ ...skills[0], name: "bad\\u202e" }] },
-    { ...args, skills: [{ ...skills[0], capabilities: ["bad\\ud800"] }] },
+    { ...args, skills: [{ ...skills[0], name: "bad\u202e" }] },
+    { ...args, skills: [{ ...skills[0], capabilities: ["bad\ud800"] }] },
     { ...args, skills: [{ ...skills[0], id: "../escape" }] },
     { ...args, skills: [{ ...skills[0], description: "x".repeat(513) }] },
     { ...args, skills: Array.from({ length: 65 }, (_, i) =>
       ({ id: "s" + i, name: "React", description: "" })) },
     { ...args, limit: 9 },
     { ...args, policy: { defaultAction: "allow", policyPath: "/etc/policy" } },
-    { ...args, policy: { deniedSkills: ["bad\\udc00"] } },
+    { ...args, policy: { deniedSkills: ["bad\udc00"] } },
     { ...args, task: "" },
   ])("fails closed for malformed or unauthorized metadata %#", (input) => {
     expect(recommendPreviewResult(input)).toBeNull();
@@ -107,8 +107,8 @@ describe("filesystem-free MCP recommendation preview", () => {
     const writable = new Writable({ write(chunk, _encoding, callback) {
       output += chunk.toString(); callback();
     } });
-    await runMcpStdio(Readable.from([Buffer.from(requests.map((r) => JSON.stringify(r)).join("\\n") + "\\n")]), writable);
-    const responses = output.trim().split("\\n").map((line) => JSON.parse(line));
+    await runMcpStdio(Readable.from([Buffer.from(requests.map((r) => JSON.stringify(r)).join("\n") + "\n")]), writable);
+    const responses = output.trim().split("\n").map((line) => JSON.parse(line));
     expect(responses).toHaveLength(2);
     expect(responses[1]).toMatchObject({ id: 2, result: {
       structuredContent: { authorizationGranted: false, ranked: [{ id: "react" }] },
