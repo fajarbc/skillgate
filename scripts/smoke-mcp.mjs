@@ -73,7 +73,7 @@ try {
   assert.equal(responses[1].id, "list\u2028separator");
   assert.ok(lines[1].includes("\\u2028"), "line separators must be escaped on the wire");
   assert.deepEqual(responses[1].result.tools.map((tool) => tool.name),
-    ["skillgate/status", "skillgate/rank-metadata", "skillgate/evaluate-metadata-policy"]);
+    ["skillgate/status", "skillgate/rank-metadata", "skillgate/evaluate-metadata-policy", "skillgate/recommend-metadata"]);
   const rankTool = responses[1].result.tools[1];
   assert.equal(rankTool.inputSchema.additionalProperties, false);
   assert.equal(rankTool.outputSchema.additionalProperties, false);
@@ -245,6 +245,52 @@ try {
   for (const code of [0x061c, 0x200e, 0x200f]) {
     assert.ok(!directionalRun.stdout.includes(String.fromCharCode(code)));
   }
+
+  // Validate actual built recommendation responses against the advertised
+  // schema and prove that denied client-supplied skills cannot leak into output.
+  const recommendationTool = responses[1].result.tools[3];
+  const recommendationArgs = {
+    task: "react",
+    skills: [
+      { id: "react", name: "React Components", description: "Build components", capabilities: ["filesystem"] },
+      { id: "network", name: "React Network", description: "Build components", capabilities: ["network"] },
+    ],
+    policy: { defaultAction: "allow", deniedCapabilities: ["network"] },
+    limit: 8,
+  };
+  validate(recommendationTool.inputSchema, recommendationArgs);
+  assert.throws(() => validate(recommendationTool.inputSchema,
+    { ...recommendationArgs, root: "/etc" }), /unexpected property/);
+  const recommendationFrames = [
+    messages[0], messages[1],
+    { jsonrpc: "2.0", id: 40, method: "tools/call", params: {
+      name: "skillgate/recommend-metadata", arguments: recommendationArgs,
+    } },
+    { jsonrpc: "2.0", id: 41, method: "tools/call", params: {
+      name: "skillgate/recommend-metadata", arguments: {
+        ...recommendationArgs, skills: [
+          { ...recommendationArgs.skills[1], id: "../invalid-denied" },
+        ],
+      },
+    } },
+  ];
+  const recommendationRun = invoke(recommendationFrames.map((message) =>
+    JSON.stringify(message) + String.fromCharCode(10)).join(""));
+  assert.equal(recommendationRun.stderr, "");
+  const recommendationResponses = recommendationRun.stdout.trimEnd()
+    .split(String.fromCharCode(10)).map((line) => JSON.parse(line));
+  assert.equal(recommendationResponses.length, 3);
+  const recommendation = recommendationResponses[1].result.structuredContent;
+  validate(recommendationTool.outputSchema, recommendation);
+  assert.equal(recommendation.schemaVersion, "1");
+  assert.equal(recommendation.policySource, "client-supplied");
+  assert.equal(recommendation.authorizationGranted, false);
+  assert.equal(recommendation.filesystemAccess, "disabled");
+  assert.deepEqual(recommendation.ranked.map((skill) => skill.id), ["react"]);
+  assert.deepEqual(JSON.parse(recommendationResponses[1].result.content[0].text), recommendation);
+  assert.equal(recommendationResponses[2].error.code, -32602);
+  assert.ok(!recommendationRun.stdout.includes("React Network"));
+  assert.ok(!recommendationRun.stdout.includes("../invalid-denied"));
 
   assert.deepEqual(await readdir(workspace), [], "preview must not mutate the workspace");
   console.log("Built MCP entrypoint smoke passed (framing, status, metadata ranking, policy preview, denial, stdout isolation).");
