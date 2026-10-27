@@ -388,7 +388,7 @@ describe("MCP stdio integration", () => {
       } },
     ];
     await runMcpStdio(Readable.from(messages.map((message) =>
-      Buffer.from(JSON.stringify(message) + "\\n"))), output);
+      Buffer.from(JSON.stringify(message) + "\n"))), output);
     expect(lines).toHaveLength(4);
     const catalog = JSON.parse(lines[1]!);
     expect(catalog.result.tools.map((tool: { name: string }) => tool.name))
