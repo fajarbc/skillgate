@@ -13,8 +13,12 @@ node dist/mcp/stdio.js
 
 The server reads strict UTF-8, newline-delimited JSON-RPC messages from stdin
 (maximum 1 MiB per message), and writes only JSON-RPC responses to stdout.
-Notifications do not produce responses. Invalid framing terminates the session;
-a generic diagnostic is written to stderr, never stdout.
+Notifications do not produce responses, including malformed no-ID JSON objects
+(such as an initialized notification with an invalid JSON-RPC version or method).
+These objects cannot complete the handshake. Malformed requests **with IDs**
+receive JSON-RPC Invalid Request errors; non-object JSON input remains an
+Invalid Request. Invalid framing terminates the session; a generic diagnostic
+is written to stderr, never stdout.
 
 The server currently supports `initialize` (protocol version
 `2025-06-18`), `notifications/initialized`, `ping`, and `tools/list`.
