@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +30,8 @@ export function validate(schema, value, path = "$") {
     for (const variant of schema.allOf) validate(variant, value, path);
   }
   if ("const" in schema) assert.deepEqual(value, schema.const, `${path}: constant mismatch`);
-  if (schema.enum) assert.ok(schema.enum.includes(value), `${path}: unexpected enum value`);
+  if (schema.enum) assert.ok(schema.enum.some((candidate) => isDeepStrictEqual(candidate, value)),
+    `${path}: unexpected enum value`);
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
     const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
