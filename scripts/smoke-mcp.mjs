@@ -142,6 +142,7 @@ try {
   assert.ok(Array.isArray(identityResponses[3].result.tools));
   assert.ok(!identityRun.stdout.includes("bad"), "invalid identity must not be reflected");
   for (const bad of [Buffer.from([0xff, 10]), Buffer.from("{invalid}\n"),
+    ...["[]", "null", "42", "true", '"string"'].map((value) => Buffer.from(value + "\n")),
     Buffer.from('{"jsonrpc":"2.0","method":"ping"}')]) {
     const rejected = invoke(bad, 1);
     assert.equal(rejected.stdout, "", "invalid framing must never leak into stdout");
