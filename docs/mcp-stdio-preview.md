@@ -34,6 +34,12 @@ fields. The text response remains available for older clients. This status
 schema version is separate from the MCP transport protocol version.
 
 It does not inspect the workspace, environment, configuration, or skills.
+The JSON-RPC envelope itself is also closed to `jsonrpc`, `id`, `method`,
+and optional `params`. Extra top-level fields (including a misplaced `_meta`,
+workspace root, or path) are rejected before a request is processed. Such
+fields on `notifications/initialized` cannot complete the handshake; malformed
+notifications remain silent. MCP metadata must be inside `params._meta`.
+
 Unknown tool names, non-object arguments, unexpected status arguments, and
 unrecognized `tools/list` or `tools/call` parameter fields return JSON-RPC
 invalid-params errors. `initialize` accepts only `protocolVersion`, `capabilities`,
