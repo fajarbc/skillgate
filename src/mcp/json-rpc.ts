@@ -3,6 +3,7 @@
  */
 import { RANK_PREVIEW_TOOL, rankPreviewResult } from "./rank-preview.js";
 import { POLICY_PREVIEW_TOOL, policyPreviewResult } from "./policy-preview.js";
+import { RECOMMEND_PREVIEW_TOOL, recommendPreviewResult } from "./recommend-preview.js";
 export const MCP_PROTOCOL_VERSION = "2025-06-18" as const;
 
 type JsonId = string | number | null;
@@ -198,7 +199,7 @@ export class McpJsonRpcSession {
           (value.params._meta !== undefined && !record(value.params._meta)))) {
         return failure(requestId, -32602, "Invalid tool list parameters");
       }
-      return response(requestId, { tools: [STATUS_TOOL, RANK_PREVIEW_TOOL, POLICY_PREVIEW_TOOL] });
+      return response(requestId, { tools: [STATUS_TOOL, RANK_PREVIEW_TOOL, POLICY_PREVIEW_TOOL, RECOMMEND_PREVIEW_TOOL] });
     }
     if (method === "tools/call") {
       if (!record(value.params) || typeof value.params.name !== "string" ||
@@ -210,6 +211,11 @@ export class McpJsonRpcSession {
       if (Object.keys(value.params).some((key) => !["name", "arguments", "_meta"].includes(key)) ||
           (value.params._meta !== undefined && !record(value.params._meta))) {
         return failure(requestId, -32602, "Invalid tool call parameters");
+      }
+      if (value.params.name === RECOMMEND_PREVIEW_TOOL.name) {
+        const preview = recommendPreviewResult(value.params.arguments);
+        return preview === null ? failure(requestId, -32602, "Invalid recommendation metadata arguments") :
+          response(requestId, preview);
       }
       if (value.params.name === POLICY_PREVIEW_TOOL.name) {
         const preview = policyPreviewResult(value.params.arguments);
