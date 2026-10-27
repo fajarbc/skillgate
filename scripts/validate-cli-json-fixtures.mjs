@@ -30,6 +30,7 @@ export function validate(schema, value, path = "$") {
     const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
     assert.ok(types.some((type) => type === "integer"
       ? typeof value === "number" && Number.isSafeInteger(value)
+      : type === "number" ? typeof value === "number" && Number.isFinite(value)
       : type === actual), `${path}: expected ${types.join("|")}, got ${actual}`);
   }
   if (schema.minLength !== undefined || schema.maxLength !== undefined) {
@@ -130,6 +131,14 @@ async function validateFixtures() {
     /missing token/);
   assert.throws(() => validate({ ...combined, type: "array" }, { kind: "safe" }),
     /expected array/);
+  // A JavaScript number is not necessarily a representable JSON number.
+  // Never approve NaN/Infinity before an MCP result is serialized to JSON.
+  validate({ type: "number" }, 0);
+  validate({ type: "number" }, 1.25);
+  for (const invalid of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => validate({ type: "number" }, invalid), /expected number/);
+    assert.throws(() => validate({ type: ["number", "null"] }, invalid), /expected number\\|null/);
+  }
   assert.throws(() => validate({ type: "object", unevaluatedProperties: false }, {}),
     /Unsupported fixture schema keyword/);
   console.log(`CLI JSON v1 schema fixtures passed (${names.length} fixtures)`);
