@@ -39,15 +39,15 @@ describe("MCP caller-supplied policy preview", () => {
   it.each([
     null, [], {}, { ...request, path: "/etc/passwd" },
     { ...request, name: "" }, { ...request, name: " " },
-    { ...request, name: "safe\\u202e" }, { ...request, name: "bad\\ud800" },
+    { ...request, name: "safe\u202e" }, { ...request, name: "bad\ud800" },
     { ...request, name: "x".repeat(129) }, { ...request, policy: null },
     { ...request, policy: { defaultAction: "invalid" } },
     { ...request, policy: { deniedSkills: ["safe"], policyPath: "/etc" } },
-    { ...request, policy: { deniedSkills: ["/etc\\n"] } },
-    { ...request, policy: { deniedSkills: ["bad\\udc00"] } },
+    { ...request, policy: { deniedSkills: ["/etc\n"] } },
+    { ...request, policy: { deniedSkills: ["bad\udc00"] } },
     { ...request, policy: { deniedSkills: Array(33).fill("safe") } },
     { ...request, capabilities: Array(17).fill("network") },
-    { ...request, capabilities: ["safe", "\\u202e"] },
+    { ...request, capabilities: ["safe", "\u202e"] },
     { ...request, capabilities: "network" },
   ])("fails closed for invalid policy preview arguments %#", (args) => {
     expect(policyPreviewResult(args)).toBeNull();
@@ -99,9 +99,9 @@ describe("MCP caller-supplied policy preview", () => {
       { jsonrpc: "2.0", id: 3, method: "tools/call",
         params: { name: POLICY_PREVIEW_TOOL.name, arguments: { ...request, path: "/etc/passwd" } } },
     ];
-    await runMcpStdio(Readable.from(lines.map((line) => Buffer.from(JSON.stringify(line) + "\\n"))), writer);
+    await runMcpStdio(Readable.from(lines.map((line) => Buffer.from(JSON.stringify(line) + "\n"))), writer);
     expect(output).toHaveLength(3);
-    expect(output.every((line) => line.endsWith("\\n") && !line.slice(0, -1).includes("\\n"))).toBe(true);
+    expect(output.every((line) => line.endsWith("\n") && !line.slice(0, -1).includes("\n"))).toBe(true);
     expect(JSON.parse(output[1]!)).toMatchObject({
       id: 2, result: { structuredContent: { decision: "deny", authorizationGranted: false } },
     });
