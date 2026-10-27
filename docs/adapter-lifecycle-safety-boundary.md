@@ -10,13 +10,29 @@ SkillGate's Codex and Claude Code adapters expose skills through a plan/apply/cl
 - `cleanup` checks recorded ownership before removal. A user-edited managed file with different bytes must be retained, even when it still has the SkillGate header.
 - Explicit `force` is an intentional overwrite option; it is not a substitute for validating ownership during ordinary cleanup.
 
+## Strict-by-default mutation gate (current implementation)
+
+The public adapter `apply` and `cleanup` methods **fail closed by default**,
+including when `force: true` is supplied. The current Node filesystem backend
+cannot atomically compare ownership and replace or remove an arbitrary
+concurrently modified destination. The default `concurrency: "strict"` mode
+therefore rejects mutation **before** workspace changes; this is an intentional
+breaking restriction, not an implemented arbitrary-writer CAS guarantee.
+
+Legacy callers can explicitly opt into `concurrency: "cooperative"` when they
+control all writers to the adapter root. That mode uses the cooperative lock
+and ownership checks described below, but **does not** protect against
+non-cooperating writers. `force` does not promote cooperative mode to strict
+safety. Do not expose this opt-in to untrusted clients as a substitute for
+ownership enforcement. `plan` remains read-only.
+
 ## Concurrency boundary (important)
 
 A temporary-directory lock serializes **cooperating SkillGate processes** targeting the same adapter root. It does not lock out unrelated processes or another actor with write access to the workspace.
 
 Ownership is checked before a path-based `rename` or `rm`. A non-cooperating writer can replace the destination **after the final check but before the mutation** (time-of-check/time-of-use race). Consequently, SkillGate must **not** claim an unconditional guarantee that it cannot replace or delete user-owned content when arbitrary concurrent writers are present. No amount of rechecking the path alone makes the check and mutation atomic.
 
-Until the issue is resolved, use apply/cleanup only in a workspace without untrusted concurrent filesystem writers. Stop on ownership conflicts; do not use `force` to conceal them. Treat symlink checks and digest checks as defense in depth, not an atomic compare-and-swap.
+Until the issue is resolved, the strict default intentionally prevents apply/cleanup. Only explicitly opt into cooperative mode in a workspace where all writers are trusted and coordinated. Stop on ownership conflicts; do not use `force` to conceal them. Treat symlink checks and digest checks as defense in depth, not an atomic compare-and-swap.
 
 ## Acceptance evidence still needed for #28
 
