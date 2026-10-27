@@ -50,3 +50,38 @@ describe("filesystem-free MCP rank-metadata preview", () => {
     expect(rankPreviewResult(args)).toBeNull();
   });
 });
+
+
+describe("rank metadata Unicode and schema length parity", () => {
+  const emoji = "🛡";
+  const loneHigh = String.fromCharCode(0xd800);
+  const loneLow = String.fromCharCode(0xdc00);
+  const skill = (name: string, description = "") => [{ id: "safe", name, description }];
+
+  it("accepts astral characters up to JSON Schema code-point limits", () => {
+    expect(rankPreviewResult({ task: emoji.repeat(4096), skills: [] })).not.toBeNull();
+    expect(rankPreviewResult({ task: "react", skills: skill(emoji.repeat(128), emoji.repeat(512)) }))
+      .not.toBeNull();
+  });
+
+  it("rejects strings above advertised code-point limits", () => {
+    expect(rankPreviewResult({ task: emoji.repeat(4097), skills: [] })).toBeNull();
+    expect(rankPreviewResult({ task: "react", skills: skill(emoji.repeat(129)) })).toBeNull();
+    expect(rankPreviewResult({ task: "react", skills: skill("safe", emoji.repeat(513)) })).toBeNull();
+  });
+
+  it.each([loneHigh, loneLow, "a" + loneHigh + "b"])(
+    "rejects unpaired UTF-16 surrogates in any metadata text", (invalid) => {
+      expect(rankPreviewResult({ task: "react" + invalid, skills: [] })).toBeNull();
+      expect(rankPreviewResult({ task: "react", skills: skill("safe" + invalid) })).toBeNull();
+      expect(rankPreviewResult({ task: "react", skills: skill("safe", invalid) })).toBeNull();
+    },
+  );
+
+  it("advertises the same non-whitespace rule enforced at runtime", () => {
+    expect(RANK_PREVIEW_TOOL.inputSchema.properties.task.pattern).toBe("\\S");
+    expect(RANK_PREVIEW_TOOL.inputSchema.properties.skills.items.properties.name.pattern).toBe("\\S");
+    expect(rankPreviewResult({ task: " ", skills: [] })).toBeNull();
+    expect(rankPreviewResult({ task: "react", skills: skill(" ") })).toBeNull();
+  });
+});
