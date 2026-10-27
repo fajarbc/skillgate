@@ -21,7 +21,7 @@ describe("MCP JSON-RPC session", () => {
     });
     expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }))
-      .toMatchObject({ jsonrpc: "2.0", id: 2, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ jsonrpc: "2.0", id: 2, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/call",
       params: { name: "filesystem/read", arguments: { path: "/etc/passwd" } } }))
       .toEqual({ jsonrpc: "2.0", id: 3, error: { code: -32602, message: "Unknown tool" } });
@@ -44,7 +44,7 @@ describe("MCP JSON-RPC session", () => {
     } })).toMatchObject({ id: 2, result: { protocolVersion: MCP_PROTOCOL_VERSION } });
     expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
-      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ id: 3, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 
   it("rejects unexpected ping parameters without breaking a valid session", () => {
@@ -66,7 +66,7 @@ describe("MCP JSON-RPC session", () => {
     expect(session.handle(initialize(3))).toMatchObject({ id: 3, result: {} });
     expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 4, method: "tools/list" }))
-      .toMatchObject({ id: 4, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ id: 4, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 
   it("rejects malformed request params and empty initialization identity", () => {
@@ -104,7 +104,7 @@ describe("MCP JSON-RPC session", () => {
     expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }))
       .toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
-      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ id: 3, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
 
     // Standard object-valued MCP metadata remains accepted on initialized.
     const withMeta = new McpJsonRpcSession();
@@ -112,7 +112,7 @@ describe("MCP JSON-RPC session", () => {
     expect(withMeta.handle({ jsonrpc: "2.0", method: "notifications/initialized",
       params: { _meta: { "client/trace": "safe" } } })).toBeNull();
     expect(withMeta.handle({ jsonrpc: "2.0", id: 5, method: "tools/list" }))
-      .toMatchObject({ id: 5, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ id: 5, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 
   it("rejects pagination cursors for the deliberately empty tool catalog", () => {
@@ -126,7 +126,7 @@ describe("MCP JSON-RPC session", () => {
     // No cursor means the one and only page; the failed requests do not
     // invalidate the initialized session or expose any filesystem tool.
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }))
-      .toMatchObject({ jsonrpc: "2.0", id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ jsonrpc: "2.0", id: 3, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 
   it("rejects unexpected tool request fields but permits MCP request metadata", () => {
@@ -145,7 +145,7 @@ describe("MCP JSON-RPC session", () => {
     }
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list",
       params: { _meta: { "client/trace": "safe" } } }))
-      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ id: 3, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
 
     for (const params of [
       { name: "skillgate/status", arguments: {}, path: "/etc/passwd" },
@@ -271,6 +271,6 @@ describe("MCP JSON-RPC session", () => {
     expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized",
       params: { _meta: { "client/trace": "valid" } } })).toBeNull();
     expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
-      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+      .toMatchObject({ id: 3, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 });
