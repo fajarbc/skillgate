@@ -22,7 +22,8 @@ is written to stderr, never stdout.
 
 The server currently supports `initialize` (protocol version
 `2025-06-18`), `notifications/initialized`, `ping`, and `tools/list`.
-The tool list exposes `skillgate/status` and `skillgate/rank-metadata`.
+The tool list exposes `skillgate/status`, `skillgate/rank-metadata`, and
+`skillgate/evaluate-metadata-policy`.
 The status tool is a filesystem-free diagnostic with an empty-object input schema:
 
 ```json
@@ -37,7 +38,7 @@ Its text content is JSON containing `schemaVersion: "1"`,
 fields. The text response remains available for older clients. This status
 schema version is separate from the MCP transport protocol version.
 
-Neither tool inspects the workspace, environment, configuration, or skill files.
+None of these tools inspects the workspace, environment, configuration, or skill files.
 
 `skillgate/rank-metadata` calls the **same ranking core** as the CLI, but only
 on metadata explicitly supplied by the MCP client. It does not discover skills,
@@ -60,6 +61,27 @@ Example after completing the MCP handshake:
 ```json
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"skillgate/rank-metadata","arguments":{"task":"react component","skills":[{"id":"react","name":"React Tools","description":"Build components"}],"limit":1}}}
 ```
+
+The `skillgate/evaluate-metadata-policy` tool uses the **same policy evaluation core**
+as the CLI, but receives both the policy and skill metadata from the MCP client.
+It does **not** load the server's effective policy or grant access to a skill.
+The v1 result explicitly includes `policySource: "client-supplied"`,
+`authorizationGranted: false`, and `filesystemAccess: "disabled"` alongside
+`decision` and `reason`. A reported `allow` is only a hypothetical result
+under the caller's policy, **never permission to read a skill**.
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"skillgate/evaluate-metadata-policy","arguments":{"name":"Build API","capabilities":["network"],"policy":{"defaultAction":"allow","deniedCapabilities":["network"]}}}}
+```
+
+The policy preview accepts a nonblank skill name (at most 128 Unicode code
+points), at most 16 capability strings, and an explicit policy object with
+optional default action and allow/deny lists (at most 32 patterns per list).
+All names, capabilities, and patterns reject unpaired surrogates, C0/C1
+controls, DEL, and bidirectional formatting controls. The schema rejects
+unknown fields and caller-supplied filesystem paths; all policy inputs are
+bounded. Neither the preview nor the MCP server evaluates this caller-supplied
+policy as an authorization grant.
 
 This preview ranks client-provided metadata, **not discovered or policy-approved
 skills**. It is not a substitute for the full authorized MCP APIs in #30.
@@ -95,7 +117,8 @@ The package exposes a separate `skillgate-mcp` executable in addition to
 it as a functional skill integration. After `npm run build`, run `npm run smoke:mcp`
 to exercise the actual built entrypoint, framing, rejection, stdout/stderr
 isolation, no-workspace-write behavior, and strict schema-subset validation of
-actual `skillgate/status` and `skillgate/rank-metadata` outputs. The subset
+actual `skillgate/status`, `skillgate/rank-metadata`, and
+`skillgate/evaluate-metadata-policy` outputs. The subset
 validator rejects unsupported JSON Schema keywords and checks nested closed
 objects, array limits, integer bounds, and Unicode code-point string lengths.
 It is **not** an independent JSON Schema 2020-12 implementation or a substitute
