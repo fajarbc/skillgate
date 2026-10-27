@@ -274,3 +274,39 @@ describe("MCP JSON-RPC session", () => {
       .toMatchObject({ id: 3, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 });
+
+
+describe("malformed no-id MCP notifications", () => {
+  it("never emits unsolicited responses for invalid notification envelopes", () => {
+    const session = new McpJsonRpcSession();
+    const invalid = [
+      { jsonrpc: "1.0", method: "notifications/initialized" },
+      { jsonrpc: null, method: "notifications/initialized" },
+      { jsonrpc: "2.0", method: 42 },
+      { jsonrpc: "2.0", method: "ping" + String.fromCharCode(0xd800) },
+    ];
+    for (const message of invalid) {
+      expect(session.handle(message)).toBeNull();
+    }
+    // Malformed notifications cannot consume the one-time initialize request.
+    expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
+    expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }))
+      .toMatchObject({ id: 2, error: { code: -32002 } });
+    for (const message of invalid) expect(session.handle(message)).toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
+      .toMatchObject({ id: 3, error: { code: -32002 } });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 4, method: "tools/list" }))
+      .toMatchObject({ id: 4, result: { tools: expect.any(Array) } });
+  });
+
+  it("still returns Invalid Request for malformed requests with IDs and non-objects", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle({ jsonrpc: "1.0", id: 7, method: "ping" }))
+      .toEqual({ jsonrpc: "2.0", id: null,
+        error: { code: -32600, message: "Invalid Request" } });
+    expect(session.handle(42))
+      .toEqual({ jsonrpc: "2.0", id: null,
+        error: { code: -32600, message: "Invalid Request" } });
+  });
+});
