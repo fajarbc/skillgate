@@ -38,6 +38,14 @@ const safeTextSchema = {
   type: "string", minLength: 1, maxLength: MAX_TEXT, pattern: "\\S",
   allOf: [{ pattern: SAFE_TEXT_PATTERN }],
 } as const;
+/** Validate every candidate's capabilities before any recommendation policy decision.
+ * Reuse the same bounded text rules as the policy-preview endpoint.
+ */
+export function validPreviewCapabilities(value: unknown): boolean {
+  return value === undefined ||
+    (Array.isArray(value) && value.length <= MAX_CAPABILITIES && value.every(validText));
+}
+
 const patternListSchema = {
   type: "array", maxItems: MAX_PATTERNS, items: safeTextSchema,
 } as const;
@@ -87,9 +95,7 @@ export function policyPreviewResult(value: unknown): Record<string, unknown> | n
       Object.keys(value.policy).some((key) => !(POLICY_FIELDS as readonly string[]).includes(key)) ||
       (value.policy.defaultAction !== undefined &&
         value.policy.defaultAction !== "allow" && value.policy.defaultAction !== "deny") ||
-      (value.capabilities !== undefined &&
-        (!Array.isArray(value.capabilities) || value.capabilities.length > MAX_CAPABILITIES ||
-          !value.capabilities.every(validText)))) {
+      !validPreviewCapabilities(value.capabilities)) {
     return null;
   }
   for (const field of POLICY_ARRAY_FIELDS) {
