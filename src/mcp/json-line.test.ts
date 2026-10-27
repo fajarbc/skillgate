@@ -72,7 +72,7 @@ describe("MCP stdio framing", () => {
     const hugeChunk = new Proxy({ byteLength: 2 ** 31 }, {
       get(target, key) {
         if (key === "byteLength") return target.byteLength;
-        if (typeof key === "string" && /^\\d+$/.test(key)) {
+        if (typeof key === "string" && /^\d+$/.test(key)) {
           inspected++;
           if (inspected > 6) throw new Error("scanned past the byte budget");
           return 65; // 'A', with no newline in the prefix.
@@ -85,16 +85,16 @@ describe("MCP stdio framing", () => {
     expect(() => decoder.push(hugeChunk)).toThrow(new McpFramingError("too_large"));
     // Three pending bytes plus six examined bytes: the sixth is rejected.
     expect(inspected).toBe(6);
-    expect(() => decoder.push(bytes("{}\\n"))).toThrow(new McpFramingError("incomplete"));
+    expect(() => decoder.push(bytes("{}\n"))).toThrow(new McpFramingError("incomplete"));
   });
 
   it("allows a frame exactly at its byte limit before LF, but counts CR in CRLF", () => {
     const exact = new McpJsonLineDecoder(2);
-    expect(exact.push(bytes("{}\\n"))).toEqual([{}]);
+    expect(exact.push(bytes("{}\n"))).toEqual([{}]);
     expect(() => exact.finish()).not.toThrow();
 
     const withCr = new McpJsonLineDecoder(2);
-    expect(() => withCr.push(bytes("{}\\r\\n"))).toThrow(new McpFramingError("too_large"));
+    expect(() => withCr.push(bytes("{}\r\n"))).toThrow(new McpFramingError("too_large"));
   });
 
   it("rejects malformed UTF-8 and JSON rather than replacing bytes", () => {
