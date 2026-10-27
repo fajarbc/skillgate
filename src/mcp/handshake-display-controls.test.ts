@@ -7,7 +7,8 @@ const initialize = (protocolVersion: string, name: string, version: string) => (
 });
 
 describe("MCP handshake identifier display safety", () => {
-  it.each([0x0085, 0x009f, 0x061c, 0x200e, 0x200f, 0x202e, 0x202a, 0x2066, 0x2069]\n    .map((code) => String.fromCharCode(code)))(
+  it.each([0x0085, 0x009f, 0x061c, 0x200e, 0x200f, 0x202e, 0x202a, 0x2066, 0x2069]
+    .map((code) => String.fromCharCode(code)))(
     "rejects invisible and bidirectional formatting controls in protocol identifiers", (control) => {
       for (const [protocol, name, version] of [
         ["2025-06-18" + control, "client", "1"],
