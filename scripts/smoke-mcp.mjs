@@ -232,9 +232,9 @@ try {
     } },
   ];
   const directionalRun = invoke(directionalFrames.map((message) =>
-    JSON.stringify(message) + "\\n").join(""));
+    JSON.stringify(message) + "\n").join(""));
   assert.equal(directionalRun.stderr, "");
-  const directionalResponses = directionalRun.stdout.trimEnd().split("\\n").map((line) => JSON.parse(line));
+  const directionalResponses = directionalRun.stdout.trimEnd().split("\n").map((line) => JSON.parse(line));
   assert.equal(directionalResponses.length, 5);
   assert.equal(directionalResponses[1].id, null);
   assert.equal(directionalResponses[1].error.code, -32600);
