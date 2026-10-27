@@ -314,7 +314,7 @@ describe("malformed no-id MCP notifications", () => {
 
 describe("MCP reflected request-ID safety", () => {
   it.each(["\u0000", "\u001b[31m", "\n", "\u0085", "\u009f",
-    "\u202a", "\u202e", "\u2066", "\u2069"])(
+    "\u061c", "\u200e", "\u200f", "\u202a", "\u202e", "\u2066", "\u2069"])(
     "rejects control and bidi characters before echoing a JSON-RPC ID", (control) => {
       const session = new McpJsonRpcSession();
       expect(session.handle({ jsonrpc: "2.0", id: "request" + control,
