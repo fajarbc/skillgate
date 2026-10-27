@@ -150,7 +150,10 @@ export class McpJsonRpcSession {
           !validProtocolText(value.params.protocolVersion) ||
           !record(value.params.capabilities) || !record(value.params.clientInfo) ||
           !validProtocolText(value.params.clientInfo.name) ||
-          !validProtocolText(value.params.clientInfo.version)) {
+          !validProtocolText(value.params.clientInfo.version) ||
+          value.params.protocolVersion.length > 64 ||
+          value.params.clientInfo.name.length > 128 ||
+          value.params.clientInfo.version.length > 64) {
         return failure(requestId, -32602, "Invalid initialize parameters");
       }
       this.state = "initializing";
