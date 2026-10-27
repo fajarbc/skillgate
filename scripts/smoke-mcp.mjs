@@ -44,6 +44,15 @@ try {
       params: { name: "skillgate/rank-metadata", arguments: {
         task: "react", skills: [], path: "/etc/passwd",
       } } },
+    { jsonrpc: "2.0", id: 7, method: "tools/call",
+      params: { name: "skillgate/evaluate-metadata-policy", arguments: {
+        name: "Build API", capabilities: ["network"],
+        policy: { defaultAction: "allow", deniedCapabilities: ["network"] },
+      } } },
+    { jsonrpc: "2.0", id: 8, method: "tools/call",
+      params: { name: "skillgate/evaluate-metadata-policy", arguments: {
+        name: "Build API", policy: {}, root: "/etc/passwd",
+      } } },
   ];
   // Malformed no-id notification objects must not create unsolicited JSON-RPC
   // responses, including before and during initialization.
@@ -58,13 +67,13 @@ try {
   assert.equal(ok.stderr, "", "successful MCP sessions must not log diagnostics");
   assert.ok(ok.stdout.endsWith("\n"));
   const lines = ok.stdout.split("\n");
-  assert.equal(lines.length, 7, "exactly six JSON-RPC response lines");
+  assert.equal(lines.length, 9, "exactly eight JSON-RPC response lines");
   const responses = lines.slice(0, -1).map((line) => JSON.parse(line));
   assert.equal(responses[0].result.protocolVersion, "2025-06-18");
   assert.equal(responses[1].id, "list\u2028separator");
   assert.ok(lines[1].includes("\\u2028"), "line separators must be escaped on the wire");
   assert.deepEqual(responses[1].result.tools.map((tool) => tool.name),
-    ["skillgate/status", "skillgate/rank-metadata"]);
+    ["skillgate/status", "skillgate/rank-metadata", "skillgate/evaluate-metadata-policy"]);
   const rankTool = responses[1].result.tools[1];
   assert.equal(rankTool.inputSchema.additionalProperties, false);
   assert.equal(rankTool.outputSchema.additionalProperties, false);
@@ -94,6 +103,20 @@ try {
   assert.deepEqual(ranked.ranked.map((skill) => skill.id), ["react"]);
   assert.deepEqual(JSON.parse(responses[4].result.content[0].text), ranked);
   assert.equal(responses[5].error.code, -32602);
+  const policyTool = responses[1].result.tools[2];
+  assert.equal(policyTool.inputSchema.additionalProperties, false);
+  assert.equal(policyTool.outputSchema.additionalProperties, false);
+  validate(policyTool.inputSchema, messages[7].params.arguments);
+  assert.throws(() => validate(policyTool.inputSchema, messages[8].params.arguments),
+    /unexpected property/);
+  const policyResult = responses[6].result.structuredContent;
+  validate(policyTool.outputSchema, policyResult);
+  assert.equal(policyResult.policySource, "client-supplied");
+  assert.equal(policyResult.authorizationGranted, false);
+  assert.equal(policyResult.filesystemAccess, "disabled");
+  assert.equal(policyResult.decision, "deny");
+  assert.deepEqual(JSON.parse(responses[6].result.content[0].text), policyResult);
+  assert.equal(responses[7].error.code, -32602);
   assert.ok(!ok.stdout.includes("/etc/passwd"), "invalid path must not be echoed to stdout");
   // Invalid client identity cannot complete initialization; a later valid
   // handshake must recover without unsolicited output or diagnostics.
@@ -151,7 +174,7 @@ try {
   assert.ok(!hostileRun.stdout.includes("\u202e"));
   assert.ok(!hostileRun.stdout.includes("\u001b"));
   assert.deepEqual(await readdir(workspace), [], "preview must not mutate the workspace");
-  console.log("Built MCP entrypoint smoke passed (framing, status, metadata ranking, denial, stdout isolation).");
+  console.log("Built MCP entrypoint smoke passed (framing, status, metadata ranking, policy preview, denial, stdout isolation).");
 } finally {
   await rm(workspace, { recursive: true, force: true });
 }
