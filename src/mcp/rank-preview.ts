@@ -10,6 +10,23 @@ const MAX_SKILLS = 64;
 const MAX_RESULTS = 8;
 const SKILL_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
+/** Names are reflected in MCP tool results. Forbid terminal controls and
+ * bidirectional overrides without restricting ordinary international text.
+ * The same JSON Schema pattern is enforced at runtime.
+ */
+const SAFE_DISPLAY_NAME_PATTERN = String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069])[\s\S]*/** Pure ranking preview for caller-supplied metadata. No filesystem, discovery,
+ * policy, configuration, environment, or skill-instruction access is possible.
+ * A score is NOT a policy authorization decision.
+ */
+import { rankSkills } from "../ranking/index.js";
+
+export const MCP_RANK_PREVIEW_SCHEMA_VERSION = "1" as const;
+const MAX_TASK_LENGTH = 4096;
+const MAX_SKILLS = 64;
+const MAX_RESULTS = 8;
+;
+const SAFE_DISPLAY_NAME = new RegExp(SAFE_DISPLAY_NAME_PATTERN);
+
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -45,7 +62,8 @@ export const RANK_PREVIEW_TOOL = {
           type: "object",
           properties: {
             id: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
-            name: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S" },
+            name: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S",
+              allOf: [{ pattern: SAFE_DISPLAY_NAME_PATTERN }] },
             description: { type: "string", maxLength: 512 },
           },
           required: ["id", "name", "description"],
@@ -111,6 +129,7 @@ export function rankPreviewResult(value: unknown): Record<string, unknown> | nul
     if (!record(item) || Object.keys(item).some((key) => !["id", "name", "description"].includes(key)) ||
         typeof item.id !== "string" || !SKILL_ID.test(item.id) || ids.has(item.id) ||
         typeof item.name !== "string" || !item.name.trim() || !validTextLength(item.name, 128) ||
+        !SAFE_DISPLAY_NAME.test(item.name) ||
         typeof item.description !== "string" || !validTextLength(item.description, 512)) {
       return null;
     }
