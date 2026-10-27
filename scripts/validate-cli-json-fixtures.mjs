@@ -23,10 +23,38 @@ function jsonEqual(left, right) {
 // Intentionally strict evaluator for the schema keywords used by these fixtures.
 // Unsupported keywords must fail instead of silently weakening the checks.
 // A full standards-compliant JSON Schema validator is still needed for release.
-export function validate(schema, value, path = "$") {
-  const supported = new Set(["$schema", "title", "description", "oneOf", "allOf", "type", "const", "enum", "required", "properties", "items", "minLength", "maxLength", "pattern", "minItems", "maxItems", "minimum", "maximum", "additionalProperties"]);
+const supportedKeywords = new Set(["$schema", "title", "description", "oneOf", "allOf", "type", "const", "enum", "required", "properties", "items", "minLength", "maxLength", "pattern", "minItems", "maxItems", "minimum", "maximum", "additionalProperties"]);
+
+/** Preflight every branch before oneOf catches ordinary validation failures.
+ * Otherwise a branch with an unsupported keyword can be silently skipped
+ * whenever a different oneOf branch matches, weakening fixture checks.
+ */
+function assertSupportedSchema(schema) {
+  if (typeof schema === "boolean") return; // JSON Schema boolean schemas
+  assert.ok(schema !== null && typeof schema === "object" && !Array.isArray(schema),
+    "Unsupported fixture schema shape");
   for (const keyword of Object.keys(schema)) {
-    assert.ok(supported.has(keyword), `Unsupported fixture schema keyword: ${keyword}`);
+    assert.ok(supportedKeywords.has(keyword), `Unsupported fixture schema keyword: ${keyword}`);
+  }
+  for (const key of ["oneOf", "allOf"]) {
+    if (schema[key] !== undefined) {
+      assert.ok(Array.isArray(schema[key]), `Unsupported fixture schema ${key} shape`);
+      for (const branch of schema[key]) assertSupportedSchema(branch);
+    }
+  }
+  if (schema.properties !== undefined) {
+    assert.ok(schema.properties !== null && typeof schema.properties === "object" &&
+      !Array.isArray(schema.properties), "Unsupported fixture properties shape");
+    for (const child of Object.values(schema.properties)) assertSupportedSchema(child);
+  }
+  if (schema.items !== undefined) assertSupportedSchema(schema.items);
+}
+
+export function validate(schema, value, path = "$") {
+  assertSupportedSchema(schema);
+  if (typeof schema === "boolean") {
+    assert.ok(schema, `${path}: boolean false schema`);
+    return;
   }
   if (schema.oneOf) {
     const matches = schema.oneOf.filter((variant) => {
@@ -199,6 +227,24 @@ async function validateFixtures() {
   assert.throws(() => validate({ allOf: [] }, "ok"), /invalid allOf schema/);
   assert.throws(() => validate({ type: "object", allOf: [{ required: ["name"] }] }, {}),
     /missing name/);
+  // Unsupported nested keywords must never be swallowed by oneOf's
+  // expected mismatch handling. Boolean schemas also have defined semantics.
+  validate(true, { arbitrary: "safe" });
+  assert.throws(() => validate(false, { arbitrary: "unsafe" }), /boolean false schema/);
+  validate({ oneOf: [false, { type: "string" }] }, "safe");
+  assert.throws(() => validate({ oneOf: [false, { type: "number" }] }, "unsafe"),
+    /expected exactly one matching variant/);
+  for (const invalidSchema of [
+    { oneOf: [{ type: "string" }, { type: "number", not: { const: 1 } }] },
+    { properties: { value: { oneOf: [
+      { type: "string" }, { type: "number", not: { const: 1 } },
+    ] } } },
+    { items: { anyOf: [{ type: "string" }] } },
+    { allOf: [{ type: "object" }, { unevaluatedProperties: false }] },
+  ]) assert.throws(() => validate(invalidSchema, { value: "safe" }),
+    /Unsupported fixture schema keyword/);
+  assert.throws(() => validate({ oneOf: [true, { anyOf: [] }] }, "safe"),
+    /Unsupported fixture schema keyword/);
   // JSON Schema 2020-12: validation keywords are conditional on the instance
   // type. In particular, required does not reject null/array/string values,
   // and string/array/numeric constraints do not implicitly impose a type.
