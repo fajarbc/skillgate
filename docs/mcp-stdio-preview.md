@@ -48,8 +48,11 @@ nonempty task (at most 4,096 Unicode code points), up to 64 client-supplied
 skills with opaque IDs, names (at most 128 code points), and descriptions
 (at most 512 code points), and an optional result limit of 1–8. Unpaired
 UTF-16 surrogates are rejected in these text fields; non-whitespace task and
-name values are required. These limits match the advertised JSON Schemas. Paths, root selectors, unexpected fields, and duplicate IDs are
-rejected. The input and output JSON schemas are closed, and the output carries
+name values are required. Returned skill names additionally reject C0/C1
+terminal controls, DEL, and Unicode bidirectional formatting controls. The
+same restriction is advertised in the name's JSON Schema and enforced at
+runtime; task text may still contain newlines. Paths, root selectors,
+unexpected fields, and duplicate IDs are rejected. The input and output JSON schemas are closed, and the output carries
 an independent `schemaVersion: "1"`.
 
 Example after completing the MCP handshake:
@@ -73,8 +76,11 @@ invalid-params errors. `initialize` accepts only `protocolVersion`, `capabilitie
 parameters. `ping` accepts no operational parameters, only optional object-valued
 `_meta`. Unexpected fields and malformed metadata fail closed without changing
 the handshake state. Initialization protocol/client identity strings must be
-nonblank, well-formed Unicode without ASCII control characters or DEL;
-invalid identities receive `-32602` and do not advance initialization.
+nonblank, well-formed Unicode without C0/C1 controls, DEL, or
+bidirectional formatting controls; invalid identities receive `-32602`
+and do not advance initialization. String request IDs are also checked for
+these unsafe characters before they can be echoed in JSON-RPC responses;
+invalid IDs produce `-32600` with a null response ID.
 Standard MCP object-valued `_meta` request metadata is
 accepted; malformed metadata is rejected. The
 `notifications/initialized` handshake likewise accepts only optional
