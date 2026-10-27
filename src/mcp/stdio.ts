@@ -78,6 +78,9 @@ export async function runMcpStdio(
   let outputFailed = false;
   const onOutputError = () => { outputFailed = true; };
   output.on("error", onOutputError);
+  // A client can close stdout between replies, including immediately before
+  // stdin EOF. Treat this as transport failure rather than silent success.
+  output.on("close", onOutputError);
   try {
     for await (const chunk of input) {
       for (const message of decoder.decode(chunk)) {
@@ -95,6 +98,7 @@ export async function runMcpStdio(
     if (outputFailed) throw new Error("MCP output failed");
   } finally {
     output.off("error", onOutputError);
+    output.off("close", onOutputError);
   }
 }
 
