@@ -434,3 +434,31 @@ describe("MCP stdio integration", () => {
   });
 
 });
+
+
+describe("malformed MCP notification wire behavior", () => {
+  it("keeps stdout silent for malformed no-id objects and preserves handshake isolation", async () => {
+    const { output, lines } = outputCollector();
+    const init = { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+      protocolVersion: "2025-06-18", capabilities: {},
+      clientInfo: { name: "client", version: "1" },
+    } };
+    const messages = [
+      { jsonrpc: "1.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", method: 42 },
+      init,
+      { jsonrpc: "1.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+    ];
+    await runMcpStdio(Readable.from(messages.map((message) =>
+      Buffer.from(JSON.stringify(message) + "\n"))), output);
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[0]!)).toMatchObject({ id: 1, result: {} });
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, error: { code: -32002 } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({
+      id: 3, result: { tools: expect.any(Array) },
+    });
+  });
+});
