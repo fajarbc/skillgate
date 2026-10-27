@@ -27,7 +27,7 @@ describe("MCP stdio integration", () => {
     expect(lines.every((line) => line.endsWith("\n") && !line.slice(0, -1).includes("\n"))).toBe(true);
     expect(JSON.parse(lines[0]!)).toMatchObject({ id: 1, result: { protocolVersion: "2025-06-18" } });
     const listed = JSON.parse(lines[1]!);
-    expect(listed).toMatchObject({ id: 2, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(listed).toMatchObject({ id: 2, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
     expect(listed.result.tools[0].outputSchema).toMatchObject({
       type: "object",
       required: ["schemaVersion", "protocolVersion", "skillToolsAvailable", "filesystemAccess"],
@@ -88,7 +88,7 @@ describe("MCP stdio integration", () => {
     for (let id = 2; id <= 4; id++) {
       expect(JSON.parse(lines[id - 1]!)).toMatchObject({ id, error: { code: -32002 } });
     }
-    expect(JSON.parse(lines[4]!)).toMatchObject({ id: 5, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(JSON.parse(lines[4]!)).toMatchObject({ id: 5, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 
   it("enforces closed tool parameter shapes over the stdio transport", async () => {
@@ -113,7 +113,7 @@ describe("MCP stdio integration", () => {
     expect(lines).toHaveLength(5);
     expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, error: { code: -32602 } });
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
-    expect(JSON.parse(lines[3]!)).toMatchObject({ id: 4, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(JSON.parse(lines[3]!)).toMatchObject({ id: 4, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
     expect(JSON.parse(lines[4]!)).toMatchObject({
       id: 5, result: { structuredContent: { filesystemAccess: "disabled" } },
     });
@@ -142,7 +142,7 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, result: { protocolVersion: "2025-06-18" } });
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
     expect(JSON.parse(lines[3]!)).toEqual({ jsonrpc: "2.0", id: 4, result: {} });
-    expect(JSON.parse(lines[4]!)).toMatchObject({ id: 5, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(JSON.parse(lines[4]!)).toMatchObject({ id: 5, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 
   it("rejects stale tools/list cursors over the stdio transport", async () => {
@@ -162,7 +162,7 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[1]!)).toEqual({
       jsonrpc: "2.0", id: 2, error: { code: -32602, message: "Invalid tool list cursor" },
     });
-    expect(JSON.parse(lines[2]!)).toMatchObject({ jsonrpc: "2.0", id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ jsonrpc: "2.0", id: 3, result: { tools: expect.arrayContaining([{ name: "skillgate/status" }]) } });
   });
 
   it("rejects a wire-format negative-zero ID without rewriting it to zero", async () => {
@@ -368,4 +368,37 @@ describe("MCP stdio integration", () => {
     expect(lines.join("")).not.toContain("\\ud800");
   });
 
+
+  it("ranks client-provided metadata without reading files or accepting path selectors", async () => {
+    const { output, lines } = outputCollector();
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-06-18", capabilities: {},
+        clientInfo: { name: "client", version: "1" },
+      } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: {
+        name: "skillgate/rank-metadata", arguments: {
+          task: "react", skills: [{ id: "react", name: "React Tools", description: "Components" }],
+        },
+      } },
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: {
+        name: "skillgate/rank-metadata", arguments: { task: "react", skills: [], path: "/etc/passwd" },
+      } },
+    ];
+    await runMcpStdio(Readable.from(messages.map((message) =>
+      Buffer.from(JSON.stringify(message) + "\\n"))), output);
+    expect(lines).toHaveLength(4);
+    const catalog = JSON.parse(lines[1]!);
+    expect(catalog.result.tools.map((tool: { name: string }) => tool.name))
+      .toEqual(["skillgate/status", "skillgate/rank-metadata"]);
+    const result = JSON.parse(lines[2]!);
+    expect(result).toMatchObject({ id: 3, result: {
+      structuredContent: { policyEvaluated: false, filesystemAccess: "disabled",
+        ranked: [{ id: "react", score: 5 }] },
+    } });
+    expect(JSON.parse(result.result.content[0].text)).toEqual(result.result.structuredContent);
+    expect(JSON.parse(lines[3]!)).toMatchObject({ id: 4, error: { code: -32602 } });
+  });
 });
