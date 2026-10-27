@@ -37,7 +37,7 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
   });
 
-  it("executes only the filesystem-free status tool over stdio", async () => {
+  it("executes the filesystem-free status tool over stdio", async () => {
     const { output, lines } = outputCollector();
     const messages = [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: {
