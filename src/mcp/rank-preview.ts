@@ -14,7 +14,7 @@ const SKILL_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
  * bidirectional overrides without restricting ordinary international text.
  * The same JSON Schema pattern is enforced at runtime.
  */
-const SAFE_DISPLAY_NAME_PATTERN = String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069])[\s\S]*$`;
+const SAFE_DISPLAY_NAME_PATTERN = String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u202a-\u202e\u2066-\u2069])[\s\S]*$`;
 const SAFE_DISPLAY_NAME = new RegExp(SAFE_DISPLAY_NAME_PATTERN);
 
 function record(value: unknown): value is Record<string, unknown> {
