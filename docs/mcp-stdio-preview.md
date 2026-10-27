@@ -50,7 +50,7 @@ skills with opaque IDs, names (at most 128 code points), and descriptions
 (at most 512 code points), and an optional result limit of 1–8. Unpaired
 UTF-16 surrogates are rejected in these text fields; non-whitespace task and
 name values are required. Returned skill names additionally reject C0/C1
-terminal controls, DEL, and Unicode bidirectional formatting controls. The
+terminal controls, DEL, and Unicode bidirectional formatting controls (including Arabic Letter Mark U+061C and left-to-right/right-to-left marks U+200E/U+200F). The
 same restriction is advertised in the name's JSON Schema and enforced at
 runtime; task text may still contain newlines. Paths, root selectors,
 unexpected fields, and duplicate IDs are rejected. The input and output JSON schemas are closed, and the output carries
