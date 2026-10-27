@@ -28,6 +28,12 @@ function wellFormedUnicode(value: string): boolean {
   return true;
 }
 
+/** Protocol identifiers must be usable text, not blank or terminal controls. */
+function validProtocolText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 &&
+    wellFormedUnicode(value) && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -132,16 +138,10 @@ export class McpJsonRpcSession {
           Object.keys(value.params).some((key) =>
             !["protocolVersion", "capabilities", "clientInfo", "_meta"].includes(key)) ||
           (value.params._meta !== undefined && !record(value.params._meta)) ||
-          typeof value.params.protocolVersion !== "string" ||
-          value.params.protocolVersion.length === 0 ||
+          !validProtocolText(value.params.protocolVersion) ||
           !record(value.params.capabilities) || !record(value.params.clientInfo) ||
-          typeof value.params.clientInfo.name !== "string" ||
-          typeof value.params.clientInfo.version !== "string" ||
-          !wellFormedUnicode(value.params.protocolVersion) ||
-          !wellFormedUnicode(value.params.clientInfo.name) ||
-          !wellFormedUnicode(value.params.clientInfo.version) ||
-          value.params.clientInfo.name.length === 0 ||
-          value.params.clientInfo.version.length === 0) {
+          !validProtocolText(value.params.clientInfo.name) ||
+          !validProtocolText(value.params.clientInfo.version)) {
         return failure(requestId, -32602, "Invalid initialize parameters");
       }
       this.state = "initializing";
