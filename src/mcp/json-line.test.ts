@@ -70,8 +70,14 @@ describe("MCP stdio framing", () => {
       .toThrow(new McpFramingError("invalid_utf8"));
     expect(() => new McpJsonLineDecoder().push(bytes('{broken}\n')))
       .toThrow(new McpFramingError("invalid_json"));
-    expect(() => new McpJsonLineDecoder().push(bytes('[]\n')))
-      .toThrow(new McpFramingError("invalid_json"));
+    for (const primitive of ["[]", "null", "42", "true", '"string"']) {
+      const decoder = new McpJsonLineDecoder();
+      expect(() => decoder.push(bytes(primitive + "\\n")))
+        .toThrow(new McpFramingError("invalid_json"));
+      // An invalid frame poisons the session; a later object cannot resync it.
+      expect(() => decoder.push(bytes("{}\\n")))
+        .toThrow(new McpFramingError("incomplete"));
+    }
   });
 
   it("enforces a per-message byte limit even when a line is split", () => {
