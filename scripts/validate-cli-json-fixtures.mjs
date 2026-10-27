@@ -85,6 +85,32 @@ async function validateFixtures() {
   assert.throws(() => validate(input, { protocolVersion: 1, task: 42 }));
   assert.throws(() => validate(input, { protocolVersion: 1, task: "  " }));
   assert.throws(() => validate(input, { protocolVersion: 1, task: "ok", context: { paths: [" "] } }));
+  // The same strict subset also validates MCP tool schemas in the built smoke.
+  // Exercise each added keyword here, independently of a compiled MCP server.
+  const bounded = {
+    type: "object",
+    properties: {
+      name: { type: "string", maxLength: 2, pattern: "\\\\S" },
+      count: { type: "integer", minimum: 1, maximum: 3 },
+      entries: { type: "array", maxItems: 1, items: { type: "string" } },
+    },
+    required: ["name", "count", "entries"],
+    additionalProperties: false,
+  };
+  const valid = { name: "🛡🛡", count: 2, entries: ["ok"] };
+  validate(bounded, valid);
+  for (const invalid of [
+    { ...valid, name: "🛡🛡🛡" },
+    { ...valid, name: " " },
+    { ...valid, count: 1.5 },
+    { ...valid, count: 0 },
+    { ...valid, count: 4 },
+    { ...valid, entries: ["a", "b"] },
+    { ...valid, extra: true },
+    { name: "ok", count: 1 },
+  ]) assert.throws(() => validate(bounded, invalid));
+  assert.throws(() => validate({ type: "object", unevaluatedProperties: false }, {}),
+    /Unsupported fixture schema keyword/);
   console.log(`CLI JSON v1 schema fixtures passed (${names.length} fixtures)`);
 }
 
