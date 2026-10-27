@@ -56,7 +56,7 @@ describe("MCP request-shape security matrix", () => {
       { root: "/etc/passwd" },
       { task: "test", skills: [], path: "/etc/passwd" },
     ]) {
-      for (const name of ["skillgate/status", "skillgate/rank-metadata", "filesystem/read"]) {
+      for (const name of ["skillgate/status", "skillgate/rank-metadata", "skillgate/evaluate-metadata-policy", "filesystem/read"]) {
         const result = session.handle({
           jsonrpc: "2.0", id: 2, method: "tools/call",
           params: { name, arguments: argumentsValue },
