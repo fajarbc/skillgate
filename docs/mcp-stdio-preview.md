@@ -23,8 +23,8 @@ diagnostic on stderr, never stdout.
 
 The server currently supports `initialize` (protocol version
 `2025-06-18`), `notifications/initialized`, `ping`, and `tools/list`.
-The tool list exposes `skillgate/status`, `skillgate/rank-metadata`, and
-`skillgate/evaluate-metadata-policy`.
+The tool list exposes `skillgate/status`, `skillgate/rank-metadata`,
+`skillgate/evaluate-metadata-policy`, and `skillgate/recommend-metadata`.
 The status tool is a filesystem-free diagnostic with an empty-object input schema:
 
 ```json
@@ -84,6 +84,34 @@ unknown fields and caller-supplied filesystem paths; all policy inputs are
 bounded. Neither the preview nor the MCP server evaluates this caller-supplied
 policy as an authorization grant.
 
+## Policy-filtered recommendation preview
+
+`skillgate/recommend-metadata` composes the same policy and ranking cores used
+by the CLI through the validated metadata-preview adapters. The client supplies
+all skill metadata, task text, and policy; the server does not discover files,
+read the workspace, or load its effective policy. It first validates **every**
+candidate (including candidates that would be denied), evaluates the supplied
+policy, removes hypothetically denied candidates, and ranks the remainder.
+This is a recommendation *preview*, not a policy authorization decision.
+The v1 result always sets `policySource: "client-supplied"`,
+`authorizationGranted: false`, and `filesystemAccess: "disabled"`.
+A hypothetically allowed candidate is **never** approved for filesystem reads.
+
+After initialization, an example request is:
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"skillgate/recommend-metadata","arguments":{"task":"react","skills":[{"id":"react","name":"React Components","description":"Build components","capabilities":["filesystem"]},{"id":"network","name":"React Network","description":"Build components","capabilities":["network"]}],"policy":{"defaultAction":"allow","deniedCapabilities":["network"]},"limit":8}}}
+```
+
+The closed input schema accepts at most 64 skills and 16 capabilities per
+skill; task, name, description, IDs, policy patterns, and result limits inherit
+the bounds and Unicode validation of the underlying preview tools. Duplicate
+IDs, invalid denied candidates, unexpected path/root fields, and malformed
+policy inputs fail closed. The closed output schema advertises
+`schemaVersion: "1"` and at most eight ranked candidates, with the same
+score and reason objects as `skillgate/rank-metadata`. The stdio regression
+covers handshake, notification silence, policy filtering, and structured output.
+
 This preview ranks client-provided metadata, **not discovered or policy-approved
 skills**. It is not a substitute for the full authorized MCP APIs in #30.
 The JSON-RPC envelope itself is also closed to `jsonrpc`, `id`, `method`,
@@ -123,7 +151,7 @@ it as a functional skill integration. After `npm run build`, run `npm run smoke:
 to exercise the actual built entrypoint, framing, rejection, stdout/stderr
 isolation, no-workspace-write behavior, and strict schema-subset validation of
 actual `skillgate/status`, `skillgate/rank-metadata`, and
-`skillgate/evaluate-metadata-policy` outputs. The subset
+`skillgate/evaluate-metadata-policy`, and `skillgate/recommend-metadata` outputs. The subset
 validator rejects unsupported JSON Schema keywords and checks nested closed
 objects, array limits, integer bounds, and Unicode code-point string lengths.
 It is **not** an independent JSON Schema 2020-12 implementation or a substitute
