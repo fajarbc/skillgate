@@ -39,7 +39,15 @@ export class McpJsonLineDecoder {
     let start = 0;
     try {
       for (let i = 0; i < chunk.byteLength; i++) {
-        if (chunk[i] !== 10) continue;
+        if (chunk[i] !== 10) {
+          // Check while scanning, not after traversing an arbitrarily large
+          // input chunk. A single oversized line must consume at most
+          // maxBytes + 1 bytes of CPU work before the session fails closed.
+          if (i - start >= this.maxBytes - this.size) {
+            throw new McpFramingError("too_large");
+          }
+          continue;
+        }
         const segment = chunk.subarray(start, i);
         this.append(segment);
         const bytes = this.buffer.subarray(0, this.size);
