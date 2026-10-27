@@ -108,4 +108,40 @@ describe("MCP caller-supplied policy preview", () => {
     expect(JSON.parse(output[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
     expect(output.join("")).not.toContain("/etc/passwd");
   });
+
+  it("rejects malformed Unicode and bidi controls over actual JSONL framing without echoing them", async () => {
+    const output: string[] = [];
+    const writer = new Writable({ write(chunk: Buffer, _encoding, callback) {
+      output.push(chunk.toString("utf8")); callback();
+    } });
+    const badInputs = [
+      { ...request, name: "Build" + String.fromCharCode(0x202e) + " API" },
+      { ...request, capabilities: ["network", String.fromCharCode(0xd800)] },
+      { ...request, policy: { deniedSkills: ["Build" + String.fromCharCode(0x0085)] } },
+    ];
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" },
+      } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      ...badInputs.map((arguments_, index) => ({
+        jsonrpc: "2.0", id: index + 2, method: "tools/call",
+        params: { name: POLICY_PREVIEW_TOOL.name, arguments: arguments_ },
+      })),
+      { jsonrpc: "2.0", id: 5, method: "tools/call",
+        params: { name: POLICY_PREVIEW_TOOL.name, arguments: request } },
+    ];
+    await runMcpStdio(Readable.from(messages.map((message) =>
+      Buffer.from(JSON.stringify(message) + "\n"))), writer);
+    expect(output).toHaveLength(5);
+    for (let i = 1; i <= 3; i++) {
+      expect(JSON.parse(output[i]!)).toMatchObject({ id: i + 1, error: { code: -32602 } });
+    }
+    expect(JSON.parse(output[4]!)).toMatchObject({
+      id: 5, result: { structuredContent: { decision: "deny", authorizationGranted: false } },
+    });
+    expect(output.join("")).not.toContain(String.fromCharCode(0x202e));
+    expect(output.join("")).not.toContain(String.fromCharCode(0x0085));
+    expect(output.every((line) => line.endsWith("\n"))).toBe(true);
+  });
 });
