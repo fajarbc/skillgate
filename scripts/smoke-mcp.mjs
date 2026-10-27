@@ -173,6 +173,42 @@ try {
   assert.equal(hostileResponses[3].result.structuredContent.ranked[0].name, "React Tools");
   assert.ok(!hostileRun.stdout.includes("\u202e"));
   assert.ok(!hostileRun.stdout.includes("\u001b"));
+  // Exercise policy preview rejection through the actual built MCP process.
+  // JSON.stringify encodes lone surrogates as escapes, which remain valid JSON
+  // but must not be accepted as policy metadata after parsing.
+  const invalidPolicyArguments = [
+    { name: "Build" + String.fromCharCode(0x202e) + " API", policy: {} },
+    { name: "Build API", capabilities: [String.fromCharCode(0xd800)], policy: {} },
+    { name: "Build API", policy: { deniedSkills: ["Build" + String.fromCharCode(0x0085)] } },
+  ];
+  for (const args of invalidPolicyArguments) {
+    assert.throws(() => validate(policyTool.inputSchema, args),
+      /pattern|invalid|surrogate|mismatch/, "advertised policy schema must reject hostile metadata");
+  }
+  const policyFrames = [
+    messages[0], messages[1],
+    ...invalidPolicyArguments.map((args, index) => ({
+      jsonrpc: "2.0", id: index + 20, method: "tools/call",
+      params: { name: "skillgate/evaluate-metadata-policy", arguments: args },
+    })),
+    { jsonrpc: "2.0", id: 23, method: "tools/call",
+      params: { name: "skillgate/evaluate-metadata-policy", arguments: messages[7].params.arguments } },
+  ];
+  const policyRun = invoke(policyFrames.map((value) =>
+    JSON.stringify(value) + "\n").join(""));
+  assert.equal(policyRun.stderr, "");
+  const policyResponses = policyRun.stdout.trimEnd().split("\n").map((line) => JSON.parse(line));
+  assert.equal(policyResponses.length, 5);
+  for (let i = 1; i <= 3; i++) {
+    assert.equal(policyResponses[i].error.code, -32602);
+    assert.equal(policyResponses[i].id, i + 19);
+  }
+  assert.equal(policyResponses[4].result.structuredContent.authorizationGranted, false);
+  assert.equal(policyResponses[4].result.structuredContent.decision, "deny");
+  assert.ok(!policyRun.stdout.includes(String.fromCharCode(0x202e)));
+  assert.ok(!policyRun.stdout.includes(String.fromCharCode(0x0085)));
+  assert.ok(!policyRun.stdout.includes("\\ud800"));
+
   assert.deepEqual(await readdir(workspace), [], "preview must not mutate the workspace");
   console.log("Built MCP entrypoint smoke passed (framing, status, metadata ranking, policy preview, denial, stdout isolation).");
 } finally {
