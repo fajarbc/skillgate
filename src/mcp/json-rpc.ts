@@ -11,6 +11,22 @@ type JsonRpcResponse = {
   error?: { code: number; message: string };
 };
 
+/** JSON.parse accepts escaped lone surrogates even when transport UTF-8 is valid.
+ * Reject malformed Unicode in protocol identifiers instead of reflecting it.
+ */
+function wellFormedUnicode(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xdc00 && code <= 0xdfff) return false;
+    if (code >= 0xd800 && code <= 0xdbff) {
+      if (++i >= value.length) return false;
+      const low = value.charCodeAt(i);
+      if (low < 0xdc00 || low > 0xdfff) return false;
+    }
+  }
+  return true;
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -69,9 +85,9 @@ export class McpJsonRpcSession {
     const id = value.id;
     const hasId = Object.prototype.hasOwnProperty.call(value, "id");
     // JSON-RPC numeric IDs must round-trip without fractional, precision, or\n    // signed-zero loss: JSON.stringify(-0) serializes as 0.
-    const validId = typeof id === "string" ||
+    const validId = (typeof id === "string" && wellFormedUnicode(id)) ||
       (typeof id === "number" && Number.isSafeInteger(id) && !Object.is(id, -0));
-    if (value.jsonrpc !== "2.0" || typeof value.method !== "string" ||
+    if (value.jsonrpc !== "2.0" || typeof value.method !== "string" || !wellFormedUnicode(value.method) ||
         (hasId && !validId)) {
       return failure(null, -32600, "Invalid Request");
     }
@@ -117,6 +133,9 @@ export class McpJsonRpcSession {
           !record(value.params.capabilities) || !record(value.params.clientInfo) ||
           typeof value.params.clientInfo.name !== "string" ||
           typeof value.params.clientInfo.version !== "string" ||
+          !wellFormedUnicode(value.params.protocolVersion) ||
+          !wellFormedUnicode(value.params.clientInfo.name) ||
+          !wellFormedUnicode(value.params.clientInfo.version) ||
           value.params.clientInfo.name.length === 0 ||
           value.params.clientInfo.version.length === 0) {
         return failure(requestId, -32602, "Invalid initialize parameters");
