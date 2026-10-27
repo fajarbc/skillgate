@@ -39,7 +39,9 @@ describe("MCP caller-supplied policy preview", () => {
   it.each([
     null, [], {}, { ...request, path: "/etc/passwd" },
     { ...request, name: "" }, { ...request, name: " " },
-    { ...request, name: "safe\u202e" }, { ...request, name: "safe\u061c" },\n    { ...request, name: "safe\u200e" }, { ...request, name: "safe\u200f" },\n    { ...request, name: "bad\ud800" },
+    { ...request, name: "safe\u202e" }, { ...request, name: "safe\u061c" },
+    { ...request, name: "safe\u200e" }, { ...request, name: "safe\u200f" },
+    { ...request, name: "bad\ud800" },
     { ...request, name: "x".repeat(129) }, { ...request, policy: null },
     { ...request, policy: { defaultAction: "invalid" } },
     { ...request, policy: { deniedSkills: ["safe"], policyPath: "/etc" } },
