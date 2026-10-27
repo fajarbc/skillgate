@@ -31,7 +31,7 @@ function wellFormedUnicode(value: string): boolean {
 /** Protocol identifiers must be usable text, not blank or terminal controls. */
 function validProtocolText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 &&
-    wellFormedUnicode(value) && !/[\u0000-\u001f\u007f]/.test(value);
+    wellFormedUnicode(value) && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value);
 }
 
 function record(value: unknown): value is Record<string, unknown> {
