@@ -335,3 +335,36 @@ describe("MCP reflected request-ID safety", () => {
     }
   });
 });
+
+
+describe("bounded reflected MCP request IDs", () => {
+  it.each([
+    ["ASCII at limit", "r".repeat(128), true],
+    ["ASCII above limit", "r".repeat(129), false],
+    ["astral Unicode at code-point limit", "🛡".repeat(128), true],
+    ["astral Unicode above limit", "🛡".repeat(129), false],
+    ["large reflected payload", "x".repeat(1024 * 1024), false],
+  ])("%s", (_description, id, allowed) => {
+    const session = new McpJsonRpcSession();
+    const result = session.handle({ jsonrpc: "2.0", id, method: "ping" });
+    if (allowed) {
+      expect(result).toEqual({ jsonrpc: "2.0", id, result: {} });
+    } else {
+      expect(result).toEqual({
+        jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" },
+      });
+      // Rejected request IDs must not consume the initialization handshake.
+      expect(session.handle(initialize("safe"))).toMatchObject({
+        id: "safe", result: { protocolVersion: MCP_PROTOCOL_VERSION },
+      });
+    }
+  });
+
+  it("retains valid empty-string IDs and rejects malformed Unicode", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle({ jsonrpc: "2.0", id: "", method: "ping" }))
+      .toEqual({ jsonrpc: "2.0", id: "", result: {} });
+    expect(session.handle({ jsonrpc: "2.0", id: "\\ud800", method: "ping" }))
+      .toMatchObject({ id: null, error: { code: -32600 } });
+  });
+});
