@@ -392,7 +392,7 @@ describe("MCP stdio integration", () => {
     expect(lines).toHaveLength(4);
     const catalog = JSON.parse(lines[1]!);
     expect(catalog.result.tools.map((tool: { name: string }) => tool.name))
-      .toEqual(["skillgate/status", "skillgate/rank-metadata"]);
+      .toEqual(["skillgate/status", "skillgate/rank-metadata", "skillgate/evaluate-metadata-policy"]);
     const result = JSON.parse(lines[2]!);
     expect(result).toMatchObject({ id: 3, result: {
       structuredContent: { policyEvaluated: false, filesystemAccess: "disabled",
