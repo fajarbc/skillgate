@@ -7,16 +7,21 @@ import { pathToFileURL } from "node:url";
 import { McpJsonLineDecoder } from "./json-line.js";
 import { McpJsonRpcSession } from "./json-rpc.js";
 
-/** Abort when a disconnected MCP client cannot drain stdout. Waiting for drain
- * alone can hang indefinitely if the writable closes while backpressured.
+/** Bound stalled writes even when a client stays connected but stops reading.
+ * No transport response may wait indefinitely for a write callback or drain.
  */
+export const MCP_WRITE_TIMEOUT_MS = 30_000;
+
+/** Abort when a disconnected or stalled MCP client cannot drain stdout. */
 async function writeResponse(output: Writable, line: string): Promise<void> {
   if (output.destroyed || output.writableEnded) throw new Error("MCP output closed");
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let callbackDone = false;
     let drained = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
+      if (timeout !== undefined) clearTimeout(timeout);
       output.off("drain", onDrain);
       output.off("error", onError);
       output.off("close", onClose);
@@ -46,6 +51,7 @@ async function writeResponse(output: Writable, line: string): Promise<void> {
     // A custom Writable can emit "drain" synchronously from write().
     // Subscribe before calling write so the event cannot be missed.
     output.once("drain", onDrain);
+    timeout = setTimeout(() => finish(new Error("MCP output timed out")), MCP_WRITE_TIMEOUT_MS);
     try {
       const canWrite = output.write(line, (error) => {
         if (error) {
