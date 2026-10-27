@@ -118,6 +118,22 @@ async function validateFixtures() {
     { ...valid, extra: true },
     { name: "ok", count: 1 },
   ]) assert.throws(() => validate(bounded, invalid));
+  // JSON Schema enum compares JSON values structurally, not by object
+  // identity. A validator that uses Array.includes rejects valid objects.
+  const enumSchema = { enum: [
+    { name: "safe", flags: [true, null] },
+    ["rank", { limit: 2 }],
+    0,
+  ] };
+  validate(enumSchema, { flags: [true, null], name: "safe" });
+  validate(enumSchema, ["rank", { limit: 2 }]);
+  validate(enumSchema, 0);
+  for (const invalid of [
+    { name: "safe", flags: [true, false] },
+    ["rank", { limit: 3 }],
+    "0",
+    { name: "safe", flags: [true, null], secret: "unexpected" },
+  ]) assert.throws(() => validate(enumSchema, invalid), /unexpected enum value/);
   // oneOf must not bypass sibling object/ownership constraints. A value can
   // match exactly one variant and still violate the enclosing schema.
   const combined = {
