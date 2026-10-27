@@ -104,6 +104,10 @@ bidirectional formatting controls; invalid identities receive `-32602`
 and do not advance initialization. String request IDs are also checked for
 these unsafe characters before they can be echoed in JSON-RPC responses;
 invalid IDs produce `-32600` with a null response ID.
+String request IDs are also capped at 128 Unicode code points (not UTF-16
+code units) to bound reflected response size independently of the 1 MiB input
+frame. An oversized ID fails with `-32600` and a null response ID without
+advancing initialization. Empty string IDs remain valid JSON-RPC IDs.
 Standard MCP object-valued `_meta` request metadata is
 accepted; malformed metadata is rejected. The
 `notifications/initialized` handshake likewise accepts only optional
