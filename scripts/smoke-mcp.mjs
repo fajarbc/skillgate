@@ -55,6 +55,11 @@ try {
   assert.ok(lines[1].includes("\\u2028"), "line separators must be escaped on the wire");
   assert.deepEqual(responses[1].result.tools.map((tool) => tool.name),
     ["skillgate/status", "skillgate/rank-metadata"]);
+  const rankTool = responses[1].result.tools[1];
+  assert.equal(rankTool.inputSchema.additionalProperties, false);
+  assert.equal(rankTool.outputSchema.additionalProperties, false);
+  assert.equal(rankTool.outputSchema.properties.schemaVersion.const, "1");
+  assert.equal(rankTool.outputSchema.properties.policyEvaluated.const, false);
   assert.equal(responses[2].result.structuredContent.filesystemAccess, "disabled");
   assert.deepEqual(JSON.parse(responses[2].result.content[0].text),
     responses[2].result.structuredContent);
@@ -65,6 +70,7 @@ try {
   assert.deepEqual(ranked.ranked.map((skill) => skill.id), ["react"]);
   assert.deepEqual(JSON.parse(responses[4].result.content[0].text), ranked);
   assert.equal(responses[5].error.code, -32602);
+  assert.ok(!ok.stdout.includes("/etc/passwd"), "invalid path must not be echoed to stdout");
   for (const bad of [Buffer.from([0xff, 10]), Buffer.from("{invalid}\n"),
     Buffer.from('{"jsonrpc":"2.0","method":"ping"}')]) {
     const rejected = invoke(bad, 1);
