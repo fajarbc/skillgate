@@ -462,3 +462,43 @@ describe("malformed MCP notification wire behavior", () => {
     });
   });
 });
+
+
+describe("MCP stdio reflected-text isolation", () => {
+  it("does not echo hostile IDs or ranked display names into protocol output", async () => {
+    const { output, lines } = outputCollector();
+    const messages = [
+      { jsonrpc: "2.0", id: "client\u202e", method: "ping" },
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-06-18", capabilities: {},
+        clientInfo: { name: "client", version: "1" },
+      } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: {
+        name: "skillgate/rank-metadata", arguments: {
+          task: "react", skills: [{ id: "react", name: "React\u001b[31m",
+            description: "React components" }],
+        },
+      } },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: {
+        name: "skillgate/rank-metadata", arguments: {
+          task: "react", skills: [{ id: "react", name: "React Tools",
+            description: "React components" }],
+        },
+      } },
+    ];
+    await runMcpStdio(Readable.from(messages.map((value) =>
+      Buffer.from(JSON.stringify(value) + "\n"))), output);
+    expect(lines).toHaveLength(4);
+    expect(JSON.parse(lines[0]!)).toMatchObject({ id: null, error: { code: -32600 } });
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 1, result: {} });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 2, error: { code: -32602 } });
+    expect(JSON.parse(lines[3]!)).toMatchObject({
+      id: 3, result: { structuredContent: { ranked: [{ id: "react", name: "React Tools" }] } },
+    });
+    expect(lines.join("")).not.toContain("\u202e");
+    expect(lines.join("")).not.toContain("\u001b");
+    expect(lines.every((line) => line.endsWith("\n") && !line.slice(0, -1).includes("\n")))
+      .toBe(true);
+  });
+});
