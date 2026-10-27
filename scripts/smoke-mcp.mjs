@@ -95,6 +95,29 @@ try {
   assert.deepEqual(JSON.parse(responses[4].result.content[0].text), ranked);
   assert.equal(responses[5].error.code, -32602);
   assert.ok(!ok.stdout.includes("/etc/passwd"), "invalid path must not be echoed to stdout");
+  // Invalid client identity cannot complete initialization; a later valid
+  // handshake must recover without unsolicited output or diagnostics.
+  const invalidClient = {
+    ...messages[0], id: 11,
+    params: { ...messages[0].params,
+      clientInfo: { name: "bad\\u0000name", version: "1" } },
+  };
+  const blankProtocol = {
+    ...messages[0], id: 12,
+    params: { ...messages[0].params, protocolVersion: " " },
+  };
+  const identityFrames = [invalidClient, blankProtocol, messages[0],
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", id: 13, method: "tools/list" }];
+  const identityRun = invoke(identityFrames.map((value) => JSON.stringify(value) + "\\n").join(""));
+  assert.equal(identityRun.stderr, "");
+  const identityResponses = identityRun.stdout.trimEnd().split("\\n").map((line) => JSON.parse(line));
+  assert.equal(identityResponses.length, 4);
+  assert.equal(identityResponses[0].error.code, -32602);
+  assert.equal(identityResponses[1].error.code, -32602);
+  assert.equal(identityResponses[2].result.protocolVersion, "2025-06-18");
+  assert.ok(Array.isArray(identityResponses[3].result.tools));
+  assert.ok(!identityRun.stdout.includes("bad"), "invalid identity must not be reflected");
   for (const bad of [Buffer.from([0xff, 10]), Buffer.from("{invalid}\n"),
     Buffer.from('{"jsonrpc":"2.0","method":"ping"}')]) {
     const rejected = invoke(bad, 1);
