@@ -72,10 +72,10 @@ describe("MCP stdio framing", () => {
       .toThrow(new McpFramingError("invalid_json"));
     for (const primitive of ["[]", "null", "42", "true", '"string"']) {
       const decoder = new McpJsonLineDecoder();
-      expect(() => decoder.push(bytes(primitive + "\\n")))
+      expect(() => decoder.push(bytes(primitive + "\n")))
         .toThrow(new McpFramingError("invalid_json"));
       // An invalid frame poisons the session; a later object cannot resync it.
-      expect(() => decoder.push(bytes("{}\\n")))
+      expect(() => decoder.push(bytes("{}\n")))
         .toThrow(new McpFramingError("incomplete"));
     }
   });
