@@ -11,7 +11,7 @@ const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 // Unsupported keywords must fail instead of silently weakening the checks.
 // A full standards-compliant JSON Schema validator is still needed for release.
 export function validate(schema, value, path = "$") {
-  const supported = new Set(["$schema", "title", "description", "oneOf", "type", "const", "enum", "required", "properties", "items", "minLength", "maxLength", "pattern", "minItems", "maxItems", "minimum", "maximum", "additionalProperties"]);
+  const supported = new Set(["$schema", "title", "description", "oneOf", "allOf", "type", "const", "enum", "required", "properties", "items", "minLength", "maxLength", "pattern", "minItems", "maxItems", "minimum", "maximum", "additionalProperties"]);
   for (const keyword of Object.keys(schema)) {
     assert.ok(supported.has(keyword), `Unsupported fixture schema keyword: ${keyword}`);
   }
@@ -22,6 +22,11 @@ export function validate(schema, value, path = "$") {
     assert.equal(matches.length, 1, `${path}: expected exactly one matching variant`);
     // oneOf is an applicator, not a short circuit: sibling keywords must
     // still constrain the same instance (JSON Schema 2020-12 semantics).
+  }
+  if (schema.allOf !== undefined) {
+    assert.ok(Array.isArray(schema.allOf) && schema.allOf.length > 0,
+      `${path}: invalid allOf schema`);
+    for (const variant of schema.allOf) validate(variant, value, path);
   }
   if ("const" in schema) assert.deepEqual(value, schema.const, `${path}: constant mismatch`);
   if (schema.enum) assert.ok(schema.enum.includes(value), `${path}: unexpected enum value`);
