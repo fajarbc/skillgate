@@ -20,7 +20,8 @@ export function validate(schema, value, path = "$") {
       try { validate(variant, value, path); return true; } catch { return false; }
     });
     assert.equal(matches.length, 1, `${path}: expected exactly one matching variant`);
-    return;
+    // oneOf is an applicator, not a short circuit: sibling keywords must
+    // still constrain the same instance (JSON Schema 2020-12 semantics).
   }
   if ("const" in schema) assert.deepEqual(value, schema.const, `${path}: constant mismatch`);
   if (schema.enum) assert.ok(schema.enum.includes(value), `${path}: unexpected enum value`);
@@ -109,6 +110,26 @@ async function validateFixtures() {
     { ...valid, extra: true },
     { name: "ok", count: 1 },
   ]) assert.throws(() => validate(bounded, invalid));
+  // oneOf must not bypass sibling object/ownership constraints. A value can
+  // match exactly one variant and still violate the enclosing schema.
+  const combined = {
+    type: "object",
+    oneOf: [
+      { type: "object", properties: { kind: { const: "safe" } }, required: ["kind"] },
+      { type: "object", properties: { kind: { const: "other" } }, required: ["kind"] },
+    ],
+    properties: { kind: { type: "string" } },
+    required: ["kind"],
+    additionalProperties: false,
+  };
+  validate(combined, { kind: "safe" });
+  validate(combined, { kind: "other" });
+  assert.throws(() => validate(combined, { kind: "safe", path: "/etc/passwd" }),
+    /unexpected property/);
+  assert.throws(() => validate({ ...combined, required: ["kind", "token"] }, { kind: "safe" }),
+    /missing token/);
+  assert.throws(() => validate({ ...combined, type: "array" }, { kind: "safe" }),
+    /expected array/);
   assert.throws(() => validate({ type: "object", unevaluatedProperties: false }, {}),
     /Unsupported fixture schema keyword/);
   console.log(`CLI JSON v1 schema fixtures passed (${names.length} fixtures)`);
