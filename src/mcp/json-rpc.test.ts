@@ -232,4 +232,45 @@ describe("MCP JSON-RPC session", () => {
     expect(session.handle(initialize())).toMatchObject({ id: 1, result: { protocolVersion: MCP_PROTOCOL_VERSION } });
     expect(session.handle(initialize(2))).toMatchObject({ error: { code: -32600 } });
   });
+
+  it("rejects out-of-band JSON-RPC envelope fields without consuming initialization", () => {
+    const session = new McpJsonRpcSession();
+    for (const extra of [
+      { root: "/etc" },
+      { path: "/etc/passwd" },
+      { _meta: { "client/trace": "misplaced" } },
+      { unexpected: true },
+    ]) {
+      expect(session.handle({ ...initialize(1), ...extra }))
+        .toEqual({ jsonrpc: "2.0", id: null,
+          error: { code: -32600, message: "Invalid Request" } });
+    }
+    expect(session.handle(initialize(2)))
+      .toMatchObject({ id: 2, result: { protocolVersion: MCP_PROTOCOL_VERSION } });
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 3, method: "ping",
+      path: "/etc/passwd" }))
+      .toMatchObject({ id: null, error: { code: -32600 } });
+    expect(session.handle({ jsonrpc: "2.0", id: 4, method: "tools/call",
+      params: { name: "skillgate/status", arguments: {} }, root: "/etc" }))
+      .toMatchObject({ id: null, error: { code: -32600 } });
+    expect(session.handle({ jsonrpc: "2.0", id: 5, method: "tools/call",
+      params: { name: "skillgate/status", arguments: {} } }))
+      .toMatchObject({ id: 5, result: { structuredContent: { filesystemAccess: "disabled" } } });
+  });
+
+  it("does not complete the handshake with extra notification envelope fields", () => {
+    const session = new McpJsonRpcSession();
+    expect(session.handle(initialize(1))).toMatchObject({ id: 1, result: {} });
+    for (const extra of [{ path: "/etc/passwd" }, { _meta: { root: "/etc" } }]) {
+      expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized", ...extra }))
+        .toBeNull();
+      expect(session.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }))
+        .toMatchObject({ id: 2, error: { code: -32002 } });
+    }
+    expect(session.handle({ jsonrpc: "2.0", method: "notifications/initialized",
+      params: { _meta: { "client/trace": "valid" } } })).toBeNull();
+    expect(session.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }))
+      .toMatchObject({ id: 3, result: { tools: [{ name: "skillgate/status" }] } });
+  });
 });
