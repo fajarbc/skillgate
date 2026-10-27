@@ -65,6 +65,38 @@ describe("MCP stdio framing", () => {
     expect(() => decoder.push(bytes("{}\n"))).toThrow(new McpFramingError("incomplete"));
   });
 
+  it("stops scanning oversized single chunks at the frame byte budget", () => {
+    // A synthetic input models a multi-gigabyte chunk without allocating it.
+    // Reading beyond the first disallowed byte would throw the sentinel error.
+    let inspected = 0;
+    const hugeChunk = new Proxy({ byteLength: 2 ** 31 }, {
+      get(target, key) {
+        if (key === "byteLength") return target.byteLength;
+        if (typeof key === "string" && /^\\d+$/.test(key)) {
+          inspected++;
+          if (inspected > 6) throw new Error("scanned past the byte budget");
+          return 65; // 'A', with no newline in the prefix.
+        }
+        return undefined;
+      },
+    }) as unknown as Uint8Array;
+    const decoder = new McpJsonLineDecoder(8);
+    expect(decoder.push(bytes("123"))).toEqual([]);
+    expect(() => decoder.push(hugeChunk)).toThrow(new McpFramingError("too_large"));
+    // Three pending bytes plus six examined bytes: the sixth is rejected.
+    expect(inspected).toBe(6);
+    expect(() => decoder.push(bytes("{}\\n"))).toThrow(new McpFramingError("incomplete"));
+  });
+
+  it("allows a frame exactly at its byte limit before LF, but counts CR in CRLF", () => {
+    const exact = new McpJsonLineDecoder(2);
+    expect(exact.push(bytes("{}\\n"))).toEqual([{}]);
+    expect(() => exact.finish()).not.toThrow();
+
+    const withCr = new McpJsonLineDecoder(2);
+    expect(() => withCr.push(bytes("{}\\r\\n"))).toThrow(new McpFramingError("too_large"));
+  });
+
   it("rejects malformed UTF-8 and JSON rather than replacing bytes", () => {
     expect(() => new McpJsonLineDecoder().push(new Uint8Array([0xff, 10])))
       .toThrow(new McpFramingError("invalid_utf8"));
