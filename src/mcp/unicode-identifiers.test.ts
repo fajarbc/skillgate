@@ -7,7 +7,7 @@ const initialize = (id: unknown, name = "client", version = "1") => ({
 });
 
 describe("MCP JSON-RPC Unicode protocol identifiers", () => {
-  it.each(["\\ud800", "\\udc00", "prefix\\ud800suffix", "\\ud800x\\udc00"])(
+  it.each(["\ud800", "\udc00", "prefix\ud800suffix", "\ud800x\udc00"])(
     "rejects malformed Unicode request IDs without reflecting them", (id) => {
       const session = new McpJsonRpcSession();
       expect(session.handle(initialize(id))).toMatchObject({ id: null, error: { code: -32600 } });
@@ -17,11 +17,11 @@ describe("MCP JSON-RPC Unicode protocol identifiers", () => {
 
   it("rejects malformed method names", () => {
     const session = new McpJsonRpcSession();
-    expect(session.handle({ jsonrpc: "2.0", id: 1, method: "ping\\ud800" }))
+    expect(session.handle({ jsonrpc: "2.0", id: 1, method: "ping\ud800" }))
       .toMatchObject({ id: null, error: { code: -32600 } });
   });
 
-  it.each(["\\ud800", "\\udc00"])(
+  it.each(["\ud800", "\udc00"])(
     "rejects malformed Unicode client metadata", (invalid) => {
       const session = new McpJsonRpcSession();
       expect(session.handle(initialize(1, invalid))).toMatchObject({ id: 1, error: { code: -32602 } });
