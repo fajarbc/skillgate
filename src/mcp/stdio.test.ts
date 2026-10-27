@@ -337,7 +337,7 @@ describe("MCP stdio integration", () => {
         params: { name: "skillgate/status", arguments: {} } },
     ];
     await runMcpStdio(Readable.from(messages.map((value) =>
-      Buffer.from(JSON.stringify(value) + "\\n"))), output);
+      Buffer.from(JSON.stringify(value) + "\n"))), output);
     expect(lines).toHaveLength(5);
     expect(JSON.parse(lines[0]!)).toMatchObject({ id: null, error: { code: -32600 } });
     expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, result: { protocolVersion: "2025-06-18" } });
