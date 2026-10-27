@@ -124,6 +124,32 @@ try {
     assert.equal(rejected.stdout, "", "invalid framing must never leak into stdout");
     assert.equal(rejected.stderr, "SkillGate MCP stdio session terminated\n");
   }
+  // The built transport must not echo controls from request IDs or skill names.
+  const hostileFrames = [
+    messages[0], messages[1],
+    { jsonrpc: "2.0", id: "bad\u202e", method: "ping" },
+    { jsonrpc: "2.0", id: 7, method: "tools/call", params: {
+      name: "skillgate/rank-metadata", arguments: { task: "react", skills: [
+        { id: "react", name: "React\u001b[31m", description: "React components" },
+      ] },
+    } },
+    { jsonrpc: "2.0", id: 8, method: "tools/call", params: {
+      name: "skillgate/rank-metadata", arguments: { task: "react", skills: [
+        { id: "react", name: "React Tools", description: "React components" },
+      ] },
+    } },
+  ];
+  const hostileRun = invoke(hostileFrames.map((value) =>
+    JSON.stringify(value) + "\n").join(""));
+  assert.equal(hostileRun.stderr, "");
+  const hostileResponses = hostileRun.stdout.trimEnd().split("\n").map((line) => JSON.parse(line));
+  assert.equal(hostileResponses.length, 4);
+  assert.equal(hostileResponses[1].id, null);
+  assert.equal(hostileResponses[1].error.code, -32600);
+  assert.equal(hostileResponses[2].error.code, -32602);
+  assert.equal(hostileResponses[3].result.structuredContent.ranked[0].name, "React Tools");
+  assert.ok(!hostileRun.stdout.includes("\u202e"));
+  assert.ok(!hostileRun.stdout.includes("\u001b"));
   assert.deepEqual(await readdir(workspace), [], "preview must not mutate the workspace");
   console.log("Built MCP entrypoint smoke passed (framing, status, metadata ranking, denial, stdout isolation).");
 } finally {
