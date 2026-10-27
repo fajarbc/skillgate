@@ -347,4 +347,25 @@ describe("MCP stdio integration", () => {
       id: 5, result: { structuredContent: { filesystemAccess: "disabled" } },
     });
   });
+  it("rejects escaped lone-surrogate wire identifiers without echoing them", async () => {
+    const { output, lines } = outputCollector();
+    const invalidId = String.fromCharCode(0xd800);
+    const requests = [
+      { jsonrpc: "2.0", id: invalidId, method: "ping" },
+      { jsonrpc: "2.0", id: 2, method: "ping" + invalidId },
+      { jsonrpc: "2.0", id: "🛡️", method: "ping" },
+    ];
+    await runMcpStdio(Readable.from(requests.map((request) =>
+      Buffer.from(JSON.stringify(request) + "\n"))), output);
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[0]!)).toEqual({
+      jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" },
+    });
+    expect(JSON.parse(lines[1]!)).toEqual({
+      jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" },
+    });
+    expect(JSON.parse(lines[2]!)).toEqual({ jsonrpc: "2.0", id: "🛡️", result: {} });
+    expect(lines.join("")).not.toContain("\\ud800");
+  });
+
 });
