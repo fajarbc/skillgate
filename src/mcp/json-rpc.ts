@@ -37,6 +37,18 @@ function safeProtocolCharacters(value: string): boolean {
     !/[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u202a-\u202e\u2066-\u2069]/.test(value);
 }
 
+/** A request ID is echoed verbatim in a response. Limit its Unicode code
+ * points independently of the 1 MiB inbound frame to prevent amplification.
+ */
+const MAX_REQUEST_ID_CODE_POINTS = 128;
+function safeRequestId(value: string): boolean {
+  let points = 0;
+  for (const _character of value) {
+    if (++points > MAX_REQUEST_ID_CODE_POINTS) return false;
+  }
+  return safeProtocolCharacters(value);
+}
+
 /** Protocol identifiers must be usable text, not blank or terminal controls. */
 function validProtocolText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 &&
@@ -101,7 +113,7 @@ export class McpJsonRpcSession {
     const id = value.id;
     const hasId = Object.prototype.hasOwnProperty.call(value, "id");
     // JSON-RPC numeric IDs must round-trip without fractional, precision, or\n    // signed-zero loss: JSON.stringify(-0) serializes as 0.
-    const validId = (typeof id === "string" && safeProtocolCharacters(id)) ||
+    const validId = (typeof id === "string" && safeRequestId(id)) ||
       (typeof id === "number" && Number.isSafeInteger(id) && !Object.is(id, -0));
     if (value.jsonrpc !== "2.0" || typeof value.method !== "string" || !wellFormedUnicode(value.method) ||
         (hasId && !validId)) {
