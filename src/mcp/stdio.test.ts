@@ -320,4 +320,31 @@ describe("MCP stdio integration", () => {
     expect(lines[0]).toContain("\\u2028");
     expect(JSON.parse(lines[0]!)).toMatchObject({ id: "id\u2028break", result: {} });
   });
+
+  it("rejects top-level envelope injections on the wire without unlocking tools", async () => {
+    const { output, lines } = outputCollector();
+    const client = { protocolVersion: "2025-06-18", capabilities: {},
+      clientInfo: { name: "client", version: "1" } };
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: client, root: "/etc" },
+      { jsonrpc: "2.0", id: 2, method: "initialize", params: client },
+      { jsonrpc: "2.0", method: "notifications/initialized", path: "/etc/passwd" },
+      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+      { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+      { jsonrpc: "2.0", id: 4, method: "tools/call",
+        params: { name: "skillgate/status", arguments: {} }, root: "/etc" },
+      { jsonrpc: "2.0", id: 5, method: "tools/call",
+        params: { name: "skillgate/status", arguments: {} } },
+    ];
+    await runMcpStdio(Readable.from(messages.map((value) =>
+      Buffer.from(JSON.stringify(value) + "\\n"))), output);
+    expect(lines).toHaveLength(5);
+    expect(JSON.parse(lines[0]!)).toMatchObject({ id: null, error: { code: -32600 } });
+    expect(JSON.parse(lines[1]!)).toMatchObject({ id: 2, result: { protocolVersion: "2025-06-18" } });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32002 } });
+    expect(JSON.parse(lines[3]!)).toMatchObject({ id: null, error: { code: -32600 } });
+    expect(JSON.parse(lines[4]!)).toMatchObject({
+      id: 5, result: { structuredContent: { filesystemAccess: "disabled" } },
+    });
+  });
 });
