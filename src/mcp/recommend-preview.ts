@@ -64,8 +64,11 @@ export function recommendPreviewResult(value: unknown): Record<string, unknown> 
     return null;
   }
 
+  // Validate the complete candidate set and task *before* evaluating any
+  // candidate policy. Invalid IDs, duplicate IDs, malformed descriptions,
+  // unknown fields, and oversized tasks must fail before policy work begins,
+  // even when the malformed candidate would have been denied.
   const all: Array<{ id: string; name: string; description: string }> = [];
-  const allowed: typeof all = [];
   for (const candidate of value.skills) {
     if (!record(candidate) || Object.keys(candidate).some((key) =>
       !["id", "name", "description", "capabilities"].includes(key)) ||
@@ -73,21 +76,25 @@ export function recommendPreviewResult(value: unknown): Record<string, unknown> 
       typeof candidate.description !== "string") {
       return null;
     }
-    const skill = { id: candidate.id, name: candidate.name, description: candidate.description };
-    all.push(skill);
+    all.push({ id: candidate.id, name: candidate.name, description: candidate.description });
+  }
+  if (rankPreviewResult({ task: value.task, skills: all, limit: value.limit }) === null) {
+    return null;
+  }
+
+  // Capability validation and policy decisions are deliberately separate
+  // from the ranking validation: policy is still client-supplied and never
+  // authorizes filesystem access.
+  const allowed: typeof all = [];
+  for (let index = 0; index < value.skills.length; index++) {
+    const candidate = value.skills[index] as Record<string, unknown>;
     const evaluation = policyPreviewResult({
       name: candidate.name, capabilities: candidate.capabilities, policy: value.policy,
     });
     if (evaluation === null) return null;
     if ((evaluation.structuredContent as { decision: string }).decision === "allow") {
-      allowed.push(skill);
+      allowed.push(all[index]!);
     }
-  }
-
-  // Validate all candidate metadata (including denied entries and duplicate
-  // IDs) before filtering. Otherwise malformed denied skills could be hidden.
-  if (rankPreviewResult({ task: value.task, skills: all, limit: value.limit }) === null) {
-    return null;
   }
   const result = rankPreviewResult({ task: value.task, skills: allowed, limit: value.limit });
   if (result === null) return null;
