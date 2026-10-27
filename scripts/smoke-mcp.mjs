@@ -100,7 +100,7 @@ try {
   const invalidClient = {
     ...messages[0], id: 11,
     params: { ...messages[0].params,
-      clientInfo: { name: "bad\\u0000name", version: "1" } },
+      clientInfo: { name: "bad" + String.fromCharCode(0) + "name", version: "1" } },
   };
   const blankProtocol = {
     ...messages[0], id: 12,
@@ -109,9 +109,9 @@ try {
   const identityFrames = [invalidClient, blankProtocol, messages[0],
     { jsonrpc: "2.0", method: "notifications/initialized" },
     { jsonrpc: "2.0", id: 13, method: "tools/list" }];
-  const identityRun = invoke(identityFrames.map((value) => JSON.stringify(value) + "\\n").join(""));
+  const identityRun = invoke(identityFrames.map((value) => JSON.stringify(value) + String.fromCharCode(10)).join(""));
   assert.equal(identityRun.stderr, "");
-  const identityResponses = identityRun.stdout.trimEnd().split("\\n").map((line) => JSON.parse(line));
+  const identityResponses = identityRun.stdout.trimEnd().split(String.fromCharCode(10)).map((line) => JSON.parse(line));
   assert.equal(identityResponses.length, 4);
   assert.equal(identityResponses[0].error.code, -32602);
   assert.equal(identityResponses[1].error.code, -32602);
