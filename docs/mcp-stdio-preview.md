@@ -81,8 +81,13 @@ The package exposes a separate `skillgate-mcp` executable in addition to
 `skillgate`. It is **still a preview without skill-file access**: do not configure
 it as a functional skill integration. After `npm run build`, run `npm run smoke:mcp`
 to exercise the actual built entrypoint, framing, rejection, stdout/stderr
-isolation, and no-workspace-write behavior. This smoke is not a substitute for
-full Vitest/typecheck or adversarial authorization tests.
+isolation, no-workspace-write behavior, and strict schema-subset validation of
+actual `skillgate/status` and `skillgate/rank-metadata` outputs. The subset
+validator rejects unsupported JSON Schema keywords and checks nested closed
+objects, array limits, integer bounds, and Unicode code-point string lengths.
+It is **not** an independent JSON Schema 2020-12 implementation or a substitute
+for full Vitest/typecheck, adversarial authorization tests, or independent
+validation of built outputs before release.
 
 The full MCP acceptance criteria and end-to-end integration tests remain
 pending. No GitHub Actions workflow changes are required.
