@@ -218,7 +218,7 @@ async function validateFixtures() {
   // display-name restrictions. A trailing newline must not pass via $ anchoring.
   const safeDisplayName = {
     type: "string", pattern: "\\S",
-    allOf: [{ pattern: String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069])[\s\S]*$` }],
+    allOf: [{ pattern: String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u202a-\u202e\u2066-\u2069])[\s\S]*$` }],
   };
   validate(safeDisplayName, "React 東京 🛡️");
   for (const invalid of [" ", "React\n", "React\u001b[31m", "React\u202e"]) {
