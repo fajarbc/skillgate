@@ -76,6 +76,14 @@ export class McpJsonRpcSession {
       return failure(null, -32600, "Invalid Request");
     }
     const method = value.method;
+    // Reject out-of-band top-level fields before processing a request or
+    // accepting the initialized notification. MCP metadata belongs in params,
+    // not in an implicit workspace selector on the JSON-RPC envelope.
+    if (Object.keys(value).some((key) =>
+      !["jsonrpc", "id", "method", "params"].includes(key))) {
+      // Notifications must never receive a response, even when malformed.
+      return hasId ? failure(null, -32600, "Invalid Request") : null;
+    }
     // MCP methods take object parameters. Reject primitive and array values
     // rather than silently accepting malformed JSON-RPC requests.
     if (hasId && value.params !== undefined && !record(value.params)) {
