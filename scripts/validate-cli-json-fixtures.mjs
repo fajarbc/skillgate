@@ -146,6 +146,14 @@ async function validateFixtures() {
     "0",
     { name: "safe", flags: [true, null], secret: "unexpected" },
   ]) assert.throws(() => validate(enumSchema, invalid), /unexpected enum value/);
+  // JSON Schema numeric equality treats signed zero as the same number.
+  validate({ const: 0 }, -0);
+  validate({ enum: [-0] }, 0);
+  validate({ const: { a: [1, { b: 2 }] } }, { a: [1, { b: 2 }] });
+  assert.throws(() => validate({ const: { a: [1, { b: 2 }] } },
+    { a: [1, { b: 3 }] }), /constant mismatch/);
+  assert.throws(() => validate({ enum: [{ a: [1, 2] }] },
+    { a: [2, 1] }), /unexpected enum value/);
   // oneOf must not bypass sibling object/ownership constraints. A value can
   // match exactly one variant and still violate the enclosing schema.
   const combined = {
