@@ -13,6 +13,10 @@ node dist/mcp/stdio.js
 
 The server reads strict UTF-8, newline-delimited JSON-RPC messages from stdin
 (maximum 1 MiB per message), and writes only JSON-RPC responses to stdout.
+A stdout disconnect or write failure is treated as a failed session, including
+when the disconnect happens between responses immediately before stdin EOF;
+output listeners are removed when the session exits. A successful session
+never writes human diagnostics to stdout.
 Notifications do not produce responses, including malformed no-ID JSON objects
 (such as an initialized notification with an invalid JSON-RPC version or method).
 These objects cannot complete the handshake. Malformed requests **with IDs**
