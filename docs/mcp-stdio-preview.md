@@ -1,6 +1,6 @@
 # Experimental SkillGate MCP stdio transport
 
-This is a **protocol-only preview**, not a usable SkillGate tool server yet.
+This is a **filesystem-free preview**, not a complete SkillGate skill server yet.
 It progresses P0 #30 without exposing arbitrary filesystem reads or bypassing
 skill-root and policy authorization.
 
@@ -18,8 +18,8 @@ a generic diagnostic is written to stderr, never stdout.
 
 The server currently supports `initialize` (protocol version
 `2025-06-18`), `notifications/initialized`, `ping`, and `tools/list`.
-The tool list currently exposes **only** `skillgate/status`. It is a
-filesystem-free, read-only diagnostic with an empty-object input schema:
+The tool list exposes `skillgate/status` and `skillgate/rank-metadata`.
+The status tool is a filesystem-free diagnostic with an empty-object input schema:
 
 ```json
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"skillgate/status","arguments":{}}}
@@ -33,7 +33,27 @@ Its text content is JSON containing `schemaVersion: "1"`,
 fields. The text response remains available for older clients. This status
 schema version is separate from the MCP transport protocol version.
 
-It does not inspect the workspace, environment, configuration, or skills.
+Neither tool inspects the workspace, environment, configuration, or skill files.
+
+`skillgate/rank-metadata` calls the **same ranking core** as the CLI, but only
+on metadata explicitly supplied by the MCP client. It does not discover skills,
+load policy, authorize skill use, or read instructions. Its output explicitly
+sets `policyEvaluated: false` and `filesystemAccess: "disabled"`; callers MUST
+NOT interpret a positive score as policy approval. Input is limited to a
+nonempty task (at most 4,096 UTF-16 code units), up to 64 client-supplied
+skills with opaque IDs, names, and descriptions, and an optional result limit
+of 1–8. Paths, root selectors, unexpected fields, and duplicate IDs are
+rejected. The input and output JSON schemas are closed, and the output carries
+an independent `schemaVersion: "1"`.
+
+Example after completing the MCP handshake:
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"skillgate/rank-metadata","arguments":{"task":"react component","skills":[{"id":"react","name":"React Tools","description":"Build components"}],"limit":1}}}
+```
+
+This preview ranks client-provided metadata, **not discovered or policy-approved
+skills**. It is not a substitute for the full authorized MCP APIs in #30.
 The JSON-RPC envelope itself is also closed to `jsonrpc`, `id`, `method`,
 and optional `params`. Extra top-level fields (including a misplaced `_meta`,
 workspace root, or path) are rejected before a request is processed. Such
@@ -55,9 +75,9 @@ and approved-skill-read APIs remain unavailable pending #30 authorization
 and integration tests. Do not configure this preview as a functional MCP
 skill integration yet.
 
-The package now exposes a separate `skillgate-mcp` executable in addition to
-`skillgate`. It is **still a status-only preview**: do not configure it as a
-functional skill integration. After `npm run build`, run `npm run smoke:mcp`
+The package exposes a separate `skillgate-mcp` executable in addition to
+`skillgate`. It is **still a preview without skill-file access**: do not configure
+it as a functional skill integration. After `npm run build`, run `npm run smoke:mcp`
 to exercise the actual built entrypoint, framing, rejection, stdout/stderr
 isolation, and no-workspace-write behavior. This smoke is not a substitute for
 full Vitest/typecheck or adversarial authorization tests.
