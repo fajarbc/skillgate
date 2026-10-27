@@ -28,10 +28,18 @@ function wellFormedUnicode(value: string): boolean {
   return true;
 }
 
+/** Request IDs are reflected in responses, so reject invisible controls
+ * and bidi overrides as well as malformed Unicode before echoing them.
+ */
+function safeProtocolCharacters(value: string): boolean {
+  return wellFormedUnicode(value) &&
+    !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value);
+}
+
 /** Protocol identifiers must be usable text, not blank or terminal controls. */
 function validProtocolText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 &&
-    wellFormedUnicode(value) && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value);
+    safeProtocolCharacters(value);
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -92,7 +100,7 @@ export class McpJsonRpcSession {
     const id = value.id;
     const hasId = Object.prototype.hasOwnProperty.call(value, "id");
     // JSON-RPC numeric IDs must round-trip without fractional, precision, or\n    // signed-zero loss: JSON.stringify(-0) serializes as 0.
-    const validId = (typeof id === "string" && wellFormedUnicode(id)) ||
+    const validId = (typeof id === "string" && safeProtocolCharacters(id)) ||
       (typeof id === "number" && Number.isSafeInteger(id) && !Object.is(id, -0));
     if (value.jsonrpc !== "2.0" || typeof value.method !== "string" || !wellFormedUnicode(value.method) ||
         (hasId && !validId)) {
