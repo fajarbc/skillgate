@@ -90,7 +90,10 @@ export class McpJsonRpcSession {
       (typeof id === "number" && Number.isSafeInteger(id) && !Object.is(id, -0));
     if (value.jsonrpc !== "2.0" || typeof value.method !== "string" || !wellFormedUnicode(value.method) ||
         (hasId && !validId)) {
-      return failure(null, -32600, "Invalid Request");
+      // An object without an ID is notification-shaped, even if its version
+      // or method is malformed. Never send an unsolicited response for it.
+      // Non-object JSON values still receive the ordinary Invalid Request.
+      return hasId ? failure(null, -32600, "Invalid Request") : null;
     }
     const method = value.method;
     // Reject out-of-band top-level fields before processing a request or
