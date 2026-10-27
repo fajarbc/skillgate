@@ -146,6 +146,19 @@ async function validateFixtures() {
   }
   assert.throws(() => validate({ type: "object", unevaluatedProperties: false }, {}),
     /Unsupported fixture schema keyword/);
+  // allOf applies in addition to sibling constraints, including nested MCP
+  // display-name restrictions. A trailing newline must not pass via $ anchoring.
+  const safeDisplayName = {
+    type: "string", pattern: "\\S",
+    allOf: [{ pattern: String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069])[\s\S]*$` }],
+  };
+  validate(safeDisplayName, "React 東京 🛡️");
+  for (const invalid of [" ", "React\n", "React\u001b[31m", "React\u202e"]) {
+    assert.throws(() => validate(safeDisplayName, invalid), /pattern mismatch/);
+  }
+  assert.throws(() => validate({ allOf: [] }, "ok"), /invalid allOf schema/);
+  assert.throws(() => validate({ type: "object", allOf: [{ required: ["name"] }] }, {}),
+    /missing name/);
   console.log(`CLI JSON v1 schema fixtures passed (${names.length} fixtures)`);
 }
 
