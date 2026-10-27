@@ -401,4 +401,36 @@ describe("MCP stdio integration", () => {
     expect(JSON.parse(result.result.content[0].text)).toEqual(result.result.structuredContent);
     expect(JSON.parse(lines[3]!)).toMatchObject({ id: 4, error: { code: -32602 } });
   });
+
+  it("keeps rank-metadata Unicode limits consistent over JSON-RPC stdio", async () => {
+    const { output, lines } = outputCollector();
+    const emoji = "🛡";
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-06-18", capabilities: {},
+        clientInfo: { name: "client", version: "1" },
+      } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: {
+        name: "skillgate/rank-metadata", arguments: { task: emoji.repeat(4096), skills: [] },
+      } },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: {
+        name: "skillgate/rank-metadata", arguments: { task: emoji.repeat(4097), skills: [] },
+      } },
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: {
+        name: "skillgate/rank-metadata", arguments: {
+          task: "react" + String.fromCharCode(0xd800), skills: [],
+        },
+      } },
+    ];
+    await runMcpStdio(Readable.from(messages.map((message) =>
+      Buffer.from(JSON.stringify(message) + "\\n"))), output);
+    expect(lines).toHaveLength(4);
+    expect(JSON.parse(lines[1]!)).toMatchObject({
+      id: 2, result: { structuredContent: { ranked: [] } },
+    });
+    expect(JSON.parse(lines[2]!)).toMatchObject({ id: 3, error: { code: -32602 } });
+    expect(JSON.parse(lines[3]!)).toMatchObject({ id: 4, error: { code: -32602 } });
+  });
+
 });
