@@ -8,7 +8,7 @@ const initialize = (id: string | number = 1) => ({
 });
 
 describe("MCP JSON-RPC session", () => {
-  it("negotiates initialization, then exposes only the filesystem-free status tool", () => {
+  it("negotiates initialization and exposes only filesystem-free tools", () => {
     const session = new McpJsonRpcSession();
     expect(session.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" }))
       .toMatchObject({ error: { code: -32002 } });
