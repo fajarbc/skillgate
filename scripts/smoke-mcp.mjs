@@ -212,6 +212,39 @@ try {
   assert.ok(!policyRun.stdout.includes(String.fromCharCode(0x0085)));
   assert.ok(!policyRun.stdout.includes("\\ud800"));
 
+  // Unicode directional marks are not C0/C1 controls, but can still spoof
+  // client identifiers or names reflected in JSON-RPC responses.
+  const directionalFrames = [
+    messages[0], messages[1],
+    { jsonrpc: "2.0", id: "spoof" + String.fromCharCode(0x200f), method: "ping" },
+    { jsonrpc: "2.0", id: 31, method: "tools/call", params: {
+      name: "skillgate/rank-metadata", arguments: { task: "react", skills: [
+        { id: "react", name: "React" + String.fromCharCode(0x200e), description: "" },
+      ] },
+    } },
+    { jsonrpc: "2.0", id: 32, method: "tools/call", params: {
+      name: "skillgate/evaluate-metadata-policy", arguments: {
+        name: "Build" + String.fromCharCode(0x061c), policy: {},
+      },
+    } },
+    { jsonrpc: "2.0", id: 33, method: "tools/call", params: {
+      name: "skillgate/status", arguments: {},
+    } },
+  ];
+  const directionalRun = invoke(directionalFrames.map((message) =>
+    JSON.stringify(message) + "\\n").join(""));
+  assert.equal(directionalRun.stderr, "");
+  const directionalResponses = directionalRun.stdout.trimEnd().split("\\n").map((line) => JSON.parse(line));
+  assert.equal(directionalResponses.length, 5);
+  assert.equal(directionalResponses[1].id, null);
+  assert.equal(directionalResponses[1].error.code, -32600);
+  assert.equal(directionalResponses[2].error.code, -32602);
+  assert.equal(directionalResponses[3].error.code, -32602);
+  assert.equal(directionalResponses[4].result.structuredContent.filesystemAccess, "disabled");
+  for (const code of [0x061c, 0x200e, 0x200f]) {
+    assert.ok(!directionalRun.stdout.includes(String.fromCharCode(code)));
+  }
+
   assert.deepEqual(await readdir(workspace), [], "preview must not mutate the workspace");
   console.log("Built MCP entrypoint smoke passed (framing, status, metadata ranking, policy preview, denial, stdout isolation).");
 } finally {
