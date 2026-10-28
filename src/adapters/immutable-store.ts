@@ -36,10 +36,20 @@ async function assertPrivateStore(store: string): Promise<string> {
     chain.push(cursor);
     cursor = dirname(cursor);
   }
+  // Include the filesystem root in the ownership chain as well.
+  chain.push(root);
   for (const path of chain.reverse()) {
     const entry = await lstat(path);
     if (!entry.isDirectory() || entry.isSymbolicLink()) {
       throw new Error("Unsafe SkillGate immutable store ancestry");
+    }
+    // Checking only group/world write bits misses an ancestor owned by an
+    // unrelated UID. Its owner can rename a broker-owned 0700 child even if
+    // the ancestor is 0755 (or a sticky directory). Trust only root or the
+    // store process's own UID; separate-UID deployment must still ensure the
+    // store process identity is not shared with untrusted workspace writers.
+    if (path !== absolute && entry.uid !== 0 && entry.uid !== process.getuid()) {
+      throw new Error("Unsafe untrusted SkillGate immutable store ancestor owner");
     }
     if (path === absolute) {
       if (entry.uid !== process.getuid() || (entry.mode & 0o077) !== 0) {
