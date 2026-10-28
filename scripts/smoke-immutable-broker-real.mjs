@@ -97,7 +97,13 @@ async function main() {
         throw new Error('broker exited before readiness: ' + brokerErrors);
       }
       try {
-        if ((await lstat(socketPath)).isSocket()) { ready = true; break; }
+        // The socket pathname exists before the broker has verified its mode
+        // and enabled request handling. Wait for the readiness log as well.
+        if ((await lstat(socketPath)).isSocket() &&
+            brokerErrors.includes('immutable broker listening')) {
+          ready = true;
+          break;
+        }
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
       }
