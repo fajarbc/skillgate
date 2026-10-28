@@ -98,6 +98,7 @@ export async function publishImmutableGeneration(
     throw new Error("Invalid immutable generation file count");
   }
   let total = 0;
+  const snapshots: Array<[string, Buffer]> = [];
   for (const [path, bytes] of entries) {
     assertLogicalPath(path);
     if (!Buffer.isBuffer(bytes)) throw new Error("Immutable generation file must be a Buffer");
@@ -105,10 +106,13 @@ export async function publishImmutableGeneration(
     if (total > MAX_IMMUTABLE_BLOB_BYTES) {
       throw new Error("Immutable generation exceeds total byte limit");
     }
+    // Freeze all file bytes before the first await so the published generation
+    // cannot mix different revisions of caller-owned mutable Buffers.
+    snapshots.push([path, Buffer.from(bytes)]);
   }
-  entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  snapshots.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   const manifestFiles: ImmutableGenerationFile[] = [];
-  for (const [path, bytes] of entries) {
+  for (const [path, bytes] of snapshots) {
     const blob = await putImmutableBlob(store, bytes);
     manifestFiles.push({ path, digest: blob.digest, size: bytes.length });
   }
