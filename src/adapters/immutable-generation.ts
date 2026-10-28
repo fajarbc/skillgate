@@ -6,7 +6,7 @@
 import { MAX_IMMUTABLE_BLOB_BYTES, putImmutableBlob, readImmutableBlob } from "./immutable-store.js";
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { prepareImmutableAdapterContext, wellFormedImmutableText } from "./immutable-context.js";
 import { toSafeSkillIdentifier } from "./safe-path.js";
 import { OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
@@ -256,7 +256,10 @@ export class PinnedImmutableAdapter {
   async applyContext(context: AdapterContext): Promise<{ digest: string; generation: ImmutableGeneration }> {
     // A store inside the mutable workspace inherits its attacker-controlled
     // namespace; reject before reading sources or publishing any blobs.
-    const [workspace, store] = await Promise.all([realpath(context.root), realpath(this.store)]);
+    // Match the canonical store pathname used by immutable-store I/O. A raw
+    // symlink/../ sequence can resolve differently at the OS level than the
+    // lexically normalized pathname, bypassing the workspace containment check.
+    const [workspace, store] = await Promise.all([realpath(context.root), realpath(resolve(this.store))]);
     const fromWorkspace = relative(workspace, store);
     if (fromWorkspace === "" || (fromWorkspace !== ".." &&
         !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace))) {
