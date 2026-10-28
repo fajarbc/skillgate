@@ -6,6 +6,7 @@
  * individual caller or authorize generation selection. NOT strict integration.
  *
  * Usage: SKILLGATE_BROKER_CLIENT_UID=<untrusted-uid> \
+ *   SKILLGATE_BROKER_CLIENT_GID=<client-group-gid> \
  *   node scripts/immutable-store-broker.mjs <socket-path> <store-path>
  */
 import { createServer } from 'node:net';
@@ -18,6 +19,8 @@ import { putImmutableBlob, readImmutableBlob, MAX_IMMUTABLE_BLOB_BYTES } from
 const MAX_WIRE_BYTES = 4 * Math.ceil(MAX_IMMUTABLE_BLOB_BYTES / 3) + 2048;
 const MAX_CONNECTIONS = 1;
 const IDLE_TIMEOUT_MS = 15000;
+// An idle timeout alone is vulnerable to a peer sending one byte periodically.
+const MAX_CONNECTION_LIFETIME_MS = 15000;
 
 function usageError(message) {
   throw new Error('Immutable broker configuration: ' + message);
@@ -88,6 +91,16 @@ async function main() {
       Number(clientUid) === process.getuid()) {
     usageError('a distinct expected client UID is required');
   }
+  // The socket group is the protocol's only access-control boundary.
+  // Require an explicit non-root group and verify the process will create
+  // the socket with that group, rather than silently using a service default.
+  const clientGid = process.env.SKILLGATE_BROKER_CLIENT_GID;
+  if (typeof process.getegid !== 'function' ||
+      !/^[1-9][0-9]*$/.test(clientGid ?? '') ||
+      !Number.isSafeInteger(Number(clientGid)) ||
+      Number(clientGid) !== process.getegid()) {
+    usageError('an explicit non-root socket client GID matching the effective service GID is required');
+  }
   if (process.argv.length !== 4 || !process.argv[2] || !process.argv[3] ||
       !isAbsolute(process.argv[2]) || !isAbsolute(process.argv[3])) {
     usageError('expected absolute socket and store paths');
@@ -126,7 +139,13 @@ async function main() {
     let chunks = [];
     let size = 0;
     socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy());
-    socket.once('close', () => { closed = true; chunks = []; release(); });
+    // Absolute lifetime also bounds slow-drip clients that never go idle.
+    const lifetime = setTimeout(() => socket.destroy(), MAX_CONNECTION_LIFETIME_MS);
+    lifetime.unref();
+    socket.once('close', () => {
+      clearTimeout(lifetime);
+      closed = true; chunks = []; release();
+    });
     // A completed response no longer occupies the in-flight operation slot.
     // The peer may still be closing its socket when it opens the next one.
     socket.once('finish', () => { closed = true; release(); });
@@ -184,7 +203,8 @@ async function main() {
   });
   const socketEntry = await stat(socketPath);
   if (!socketEntry.isSocket() || socketEntry.uid !== process.getuid() ||
-      (socketEntry.mode & 0o007) !== 0 || (socketEntry.mode & 0o020) === 0) {
+      socketEntry.gid !== Number(clientGid) ||
+      (socketEntry.mode & 0o777) !== 0o660) {
     server.close();
     usageError('socket permissions are not group-only');
   }
