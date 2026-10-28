@@ -7,7 +7,7 @@ import { MAX_IMMUTABLE_BLOB_BYTES, putImmutableBlob, readImmutableBlob } from ".
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
-import { prepareImmutableAdapterContext } from "./immutable-context.js";
+import { prepareImmutableAdapterContext, wellFormedImmutableText } from "./immutable-context.js";
 import { toSafeSkillIdentifier } from "./safe-path.js";
 import type { AdapterContext } from "./types.js";
 
@@ -311,6 +311,7 @@ export async function readPinnedAdapterContext(
   }
   if (!isRecord(metadata) || metadata.schemaVersion !== "1" ||
       metadata.agent !== expectedAgent || typeof metadata.task !== "string" ||
+      !wellFormedImmutableText(metadata.task) ||
       !Array.isArray(metadata.skills) || metadata.skills.length > MAX_GENERATION_FILES - 1 ||
       Object.keys(metadata).some((key) => !["schemaVersion", "agent", "task", "skills"].includes(key))) {
     throw new Error("Invalid immutable adapter context metadata");
@@ -322,11 +323,15 @@ export async function readPinnedAdapterContext(
   }> = [];
   for (const entry of metadata.skills) {
     if (!isRecord(entry) || typeof entry.name !== "string" ||
-        typeof entry.identifier !== "string" || typeof entry.description !== "string" ||
-        typeof entry.sourcePath !== "string" || typeof entry.path !== "string" ||
+        !wellFormedImmutableText(entry.name) ||
+        typeof entry.identifier !== "string" || !wellFormedImmutableText(entry.identifier) ||
+        typeof entry.description !== "string" || !wellFormedImmutableText(entry.description) ||
+        typeof entry.sourcePath !== "string" || !wellFormedImmutableText(entry.sourcePath) ||
+        typeof entry.path !== "string" || !wellFormedImmutableText(entry.path) ||
         typeof entry.score !== "number" || !Number.isFinite(entry.score) ||
         !Array.isArray(entry.capabilities) ||
-        !entry.capabilities.every((capability: unknown) => typeof capability === "string") ||
+        !entry.capabilities.every((capability: unknown) =>
+          typeof capability === "string" && wellFormedImmutableText(capability)) ||
         Object.keys(entry).some((key) => !["name", "identifier", "description", "path", "sourcePath", "score", "capabilities"].includes(key))) {
       throw new Error("Invalid immutable adapter skill metadata");
     }
