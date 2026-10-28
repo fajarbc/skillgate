@@ -34,7 +34,7 @@ describe("immutable store kernel prerequisites", () => {
   it("rejects a store symlink substitution before directory fsync", async () => {
     if (process.platform === "win32") return;
     const { constants } = await import("node:fs");
-    const { mkdir, readdir, symlink, rename } = await import("node:fs/promises");
+    const { mkdir, readdir } = await import("node:fs/promises");
     const parent = await mkdtemp(join(tmpdir(), "skillgate-swap-"));
     const store = join(parent, "private");
     const displaced = join(parent, "displaced");
