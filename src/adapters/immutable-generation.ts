@@ -9,6 +9,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
 import { prepareImmutableAdapterContext, wellFormedImmutableText } from "./immutable-context.js";
 import { toSafeSkillIdentifier } from "./safe-path.js";
+import { OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
 import type { AdapterContext } from "./types.js";
 
 export const MAX_GENERATION_FILES = 256;
@@ -349,6 +350,21 @@ export async function readPinnedAdapterContext(
         entry.path !== `skills/${entry.identifier}/SKILL.md` ||
         paths.has(entry.path) || !files.has(entry.path)) {
       throw new Error("Immutable adapter context references an invalid skill file");
+    }
+    // A digest authenticates stored bytes but does not prove that a pinned
+    // generation contains a valid SkillGate-managed skill document. The
+    // real-context publisher always prefixes the ownership header and reads
+    // strict UTF-8; consumers must enforce those same invariants on reads.
+    const skillBytes = files.get(entry.path)!;
+    const headerBytes = Buffer.from(OWNERSHIP_HEADER, "utf8");
+    if (skillBytes.length < headerBytes.length ||
+        !skillBytes.subarray(0, headerBytes.length).equals(headerBytes)) {
+      throw new Error("Invalid immutable adapter skill content");
+    }
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(skillBytes.subarray(headerBytes.length));
+    } catch {
+      throw new Error("Invalid immutable adapter skill content");
     }
     paths.add(entry.path);
     validated.push({
