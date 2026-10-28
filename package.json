@@ -18,7 +18,8 @@
     "benchmark": "vitest run src/benchmark",
     "smoke:cli": "node scripts/smoke-cli.mjs",
     "prepack": "npm run check && npm run build",
-    "inspect:pack": "npm pack --dry-run"
+    "inspect:pack": "npm pack --dry-run",
+    "smoke:immutable-crash": "node scripts/smoke-immutable-crash.mjs"
   },
   "repository": {
     "type": "git",
