@@ -20,8 +20,13 @@ export interface ImmutableBlob {
 
 /** Require a pre-existing private store; never silently create it in workspace. */
 async function assertPrivateStore(store: string): Promise<string> {
-  if (typeof process.getuid !== "function") {
-    throw new Error("SkillGate immutable store requires POSIX ownership checks");
+  if (typeof process.getuid !== "function" ||
+      typeof constants.O_NOFOLLOW !== "number" ||
+      typeof constants.O_NONBLOCK !== "number" ||
+      typeof constants.O_DIRECTORY !== "number") {
+    // Never silently drop the kernel protections against symlinks or FIFOs.
+    // Unsupported platforms must fail closed before any staging I/O.
+    throw new Error("SkillGate immutable store requires POSIX ownership and safe open flags");
   }
   const absolute = resolve(store);
   const root = parse(absolute).root;
@@ -58,8 +63,7 @@ async function assertPrivateStore(store: string): Promise<string> {
  * pathname-based unbounded readFile(). Existing entries must be read-only.
  */
 async function verifyBlob(path: string, digest: string, expectedSize?: number): Promise<Buffer> {
-  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) |
-    (constants.O_NONBLOCK ?? 0);
+  const flags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
   const handle = await open(path, flags);
   try {
     const before = await handle.stat();
@@ -123,7 +127,7 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
   const destination = join(safeStore, digest);
   const temporary = join(safeStore, `.stage-${randomUUID()}`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
-    (constants.O_NOFOLLOW ?? 0);
+    constants.O_NOFOLLOW;
   const handle = await open(temporary, flags, 0o600);
   let created = false;
   try {
@@ -145,7 +149,7 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
     await verifyBlob(destination, digest, bytes.length);
     // Persist the new directory entry before reporting successful publication.
     if (created) {
-      const directory = await open(safeStore, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+      const directory = await open(safeStore, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         await directory.sync();
       } finally {
