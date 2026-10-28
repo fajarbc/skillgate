@@ -81,6 +81,24 @@ This avoids requiring a nonexistent Node.js pathname compare-and-swap primitive.
    Any adapter requiring a fixed mutable workspace filename is unsupported in
    strict mode until its consumer can resolve immutable generations.
 
+
+### Canonical store path consistency (2026-10-28)
+
+A concrete preflight/write mismatch was found: a pathname containing a
+symlink followed by `..` can be resolved by the kernel differently from
+`path.resolve()`. Previously the ancestry validator inspected the normalized
+path while blob I/O used the unnormalized caller-supplied path. The real-context
+workspace-containment check also used `realpath(rawStore)`, which could
+therefore inspect a different store than the blob writer.
+
+The prototype now uses the **same normalized absolute pathname** for checked
+ancestry, blob reads/writes, and directory fsync; real-context containment
+checks `realpath(resolve(store))` against the workspace. Regression tests cover
+redirection to another store and an alias that would bypass the in-workspace
+store rejection. This removes the specific lexical/OS path disagreement, **not**
+the race between preflight and I/O: same-UID adversaries or writers able to
+replace ancestors after validation remain outside the proven boundary.
+
 ### Required proof before enabling strict mutation
 
 - Adversarial tests with an independent writer mutating every legacy workspace
