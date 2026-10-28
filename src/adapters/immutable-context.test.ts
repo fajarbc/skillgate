@@ -42,11 +42,17 @@ describe("immutable context adapter integration", () => {
       const manifest = JSON.parse((await adapter.readFile(applied.digest, "skills.json"))!.toString());
       expect(manifest.task).toBe("example task");
       expect(manifest.skills[0].path).toBe("skills/example/SKILL.md");
+      const resolvedContext = await adapter.readContext(applied.digest);
+      expect(resolvedContext?.task).toBe("example task");
+      expect(resolvedContext?.skills[0]?.identifier).toBe("example");
+      expect(resolvedContext?.files.get("skills/example/SKILL.md")?.toString())
+        .toBe(OWNERSHIP_HEADER + "# Actual skill source\n");
       expect(await readFile(legacy, "utf8")).toBe("USER-OWNED CONTENT");
       expect((await adapter.applyContext(context)).digest).toBe(applied.digest);
       const tombstone = await adapter.cleanup();
       expect(tombstone.digest).toBe(adapter.planCleanup().digest);
       expect(await adapter.readFile(tombstone.digest, "skills/example/SKILL.md")).toBeNull();
+      expect(await adapter.readContext(tombstone.digest)).toBeNull();
       expect((await adapter.readFile(applied.digest, "skills/example/SKILL.md"))?.toString())
         .toContain("# Actual skill source");
       expect(await readFile(legacy, "utf8")).toBe("USER-OWNED CONTENT");
