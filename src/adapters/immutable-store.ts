@@ -19,7 +19,7 @@ export interface ImmutableBlob {
 }
 
 /** Require a pre-existing private store; never silently create it in workspace. */
-async function assertPrivateStore(store: string): Promise<void> {
+async function assertPrivateStore(store: string): Promise<string> {
   if (typeof process.getuid !== "function") {
     throw new Error("SkillGate immutable store requires POSIX ownership checks");
   }
@@ -46,8 +46,12 @@ async function assertPrivateStore(store: string): Promise<void> {
       throw new Error("Unsafe writable SkillGate immutable store ancestor");
     }
   }
-  // This is preflight, not atomic protection against same-UID adversaries or
-  // an attacker who can mutate a sticky directory they own.
+  // Every subsequent filesystem operation must use this checked, normalized
+  // absolute pathname. Using the original path would reintroduce symlink/..
+  // traversal that lstat() of the normalized ancestry did not inspect.
+  // This is still only preflight, not atomic protection against same-UID
+  // adversaries or an attacker who can substitute an ancestor after checking.
+  return absolute;
 }
 
 /** Verify the published entry using a bounded descriptor read, never a
@@ -98,8 +102,8 @@ async function verifyBlob(path: string, digest: string, expectedSize?: number): 
 /** Read and authenticate a pinned immutable digest; never interpret it as a path. */
 export async function readImmutableBlob(store: string, digest: string): Promise<Buffer> {
   if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Invalid SkillGate blob digest");
-  await assertPrivateStore(store);
-  return verifyBlob(join(store, digest), digest);
+  const safeStore = await assertPrivateStore(store);
+  return verifyBlob(join(safeStore, digest), digest);
 }
 
 /** Publish bytes under their SHA-256 name without replacing any existing entry.
@@ -114,10 +118,10 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
   // Capture caller-owned bytes before the first await: callers may reuse or
   // mutate their Buffer while filesystem I/O is in progress.
   const snapshot = Buffer.from(bytes);
-  await assertPrivateStore(store);
+  const safeStore = await assertPrivateStore(store);
   const digest = createHash("sha256").update(snapshot).digest("hex");
-  const destination = join(store, digest);
-  const temporary = join(store, `.stage-${randomUUID()}`);
+  const destination = join(safeStore, digest);
+  const temporary = join(safeStore, `.stage-${randomUUID()}`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
     (constants.O_NOFOLLOW ?? 0);
   const handle = await open(temporary, flags, 0o600);
@@ -141,7 +145,7 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
     await verifyBlob(destination, digest, bytes.length);
     // Persist the new directory entry before reporting successful publication.
     if (created) {
-      const directory = await open(store, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+      const directory = await open(safeStore, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
       try {
         await directory.sync();
       } finally {
