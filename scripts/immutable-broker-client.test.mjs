@@ -93,3 +93,18 @@ test('rejects invalid inputs before connection', async () => {
   await assert.rejects(putBrokerBlob('relative.sock', payload), /absolute/);
   await assert.rejects(putBrokerBlob('/not/connected', Buffer.alloc(32 * 1024 * 1024 + 1)), /32 MiB/);
 });
+
+test('keeps request write side open while the broker processes asynchronously', async () => {
+  let prematurelyHalfClosed = false;
+  await withServer((socket) => {
+    let ended = false;
+    socket.once('end', () => { ended = true; });
+    setTimeout(() => {
+      prematurelyHalfClosed = ended;
+      reply(socket, { v: 1, ok: true, digest, created: false });
+    }, 25);
+  }, async path => {
+    assert.deepEqual(await putBrokerBlob(path, payload), { digest, created: false });
+    assert.equal(prematurelyHalfClosed, false);
+  });
+});
