@@ -19,7 +19,8 @@
     "smoke:cli": "node scripts/smoke-cli.mjs",
     "prepack": "npm run check && npm run build",
     "inspect:pack": "npm pack --dry-run",
-    "smoke:immutable-crash": "node scripts/smoke-immutable-crash.mjs"
+    "smoke:immutable-crash": "node scripts/smoke-immutable-crash.mjs",
+    "smoke:immutable-broker-real": "node scripts/smoke-immutable-broker-real.mjs"
   },
   "repository": {
     "type": "git",
