@@ -18,6 +18,9 @@ export async function prepareImmutableAdapterContext(
   }
   // Path preparation validates identifiers and collisions without statting,
   // creating, or trusting the legacy workspace destination.
+  if (typeof context.task !== "string") {
+    throw new Error("Invalid immutable adapter task");
+  }
   const prepared = prepareSafeSkillPaths(context.skills, context.root);
   if (prepared.length > MAX_CONTEXT_SKILLS) {
     throw new Error("Immutable adapter context exceeds skill count limit");
@@ -29,6 +32,16 @@ export async function prepareImmutableAdapterContext(
   }> = [];
   let total = 0;
   for (const { skill, safeId } of prepared) {
+    // The reader rejects non-finite scores and malformed metadata. Enforce
+    // those invariants before publishing any blob, not after publication.
+    if (typeof skill.path !== "string" ||
+        typeof skill.metadata.description !== "string" ||
+        typeof skill.score !== "number" || !Number.isFinite(skill.score) ||
+        (skill.metadata.capabilities !== undefined &&
+          (!Array.isArray(skill.metadata.capabilities) ||
+           !skill.metadata.capabilities.every((capability) => typeof capability === "string")))) {
+      throw new Error("Invalid immutable adapter skill metadata");
+    }
     const logicalPath = `skills/${safeId}/SKILL.md`;
     const content = await readPreparedSkillSource(skill);
     const bytes = Buffer.from(OWNERSHIP_HEADER + content, "utf8");
