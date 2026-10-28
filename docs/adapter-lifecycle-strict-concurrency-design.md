@@ -31,3 +31,70 @@ The current branch now defaults mutating `apply` and `cleanup` to **strict**. Un
 **Compatibility warning:** This is an intentional breaking safety change. Existing lifecycle integration tests and callers that previously omitted the concurrency option must be migrated to explicit cooperative mode **only when testing the old boundary**, or to the eventual atomic backend. The full suite has not been run; do not merge this branch based on static inspection.
 
 **Not complete:** Strict mode currently rejects mutations rather than performing safe atomic replacement or cleanup. #28 acceptance remains blocked until the backend and adversarial tests exist.
+
+## Accepted storage-layout direction (2026-10-28; implementation in progress)
+
+The owner has authorized a **breaking managed-file storage layout change**. Strict
+mode will no longer update or unlink contested adapter-visible workspace paths.
+Instead, it will use a **trusted private append-only store outside the workspace**,
+publish immutable generations, and make readers resolve a generation explicitly.
+This avoids requiring a nonexistent Node.js pathname compare-and-swap primitive.
+
+### Trust and platform boundary
+
+- A non-cooperating process may mutate any legacy workspace path, including
+  replacing entries and ancestor directories. Strict mode must not write to,
+  rename, or unlink those paths, including during cleanup.
+- The immutable store and **all of its ancestors** must be protected against
+  substitution by the adversary. POSIX mode 0700 on the leaf alone does not
+  establish that boundary. A same-UID adversary can modify a 0700 store;
+  a distinct OS identity, sandbox/ACL boundary, or equivalently enforceable
+  isolation is required if same-UID adversaries are in scope.
+- Until that isolation and a protected store-location policy are implemented,
+  the new `putImmutableBlob` primitive is **experimental only**. It enforces a
+  private POSIX leaf directory, read-only digest entries, bounded descriptor
+  verification, and create-if-absent publication, but is **not wired to strict
+  apply or cleanup**.
+- Unsupported platforms and unsafe store roots must fail closed before mutation.
+  No fallback to path-based `rename`/`rm`, including with `force: true`.
+
+### Publication and cleanup model
+
+1. Preflight the entire plan and read sources before any publication. Reject
+   unsafe paths, excessive sizes, malformed UTF-8, and ambiguous legacy ownership.
+2. Stage each content blob under a random private name, fsync it, make it
+   read-only, then hard-link into a SHA-256 content-addressed location using
+   create-if-absent semantics. Verify existing digest collisions through a
+   bounded descriptor read. Never overwrite an existing digest entry.
+3. Publish a **new immutable generation record** that references only verified
+   blob digests and explicitly lists the adapter, logical paths, and schema
+   version. A generation is visible only after its complete record is
+   durably published. A reader must pin and verify a generation, not follow a
+   mutable workspace pointer. Concurrent publication ordering must be
+   deterministic and must not silently discard updates.
+4. Represent cleanup as a new **tombstone generation**, not by deleting legacy
+   workspace entries. Garbage collection of unreachable blobs is separate,
+   requires an independently proven safe private-store boundary, and must
+   not race active readers. No GC is required to satisfy cleanup semantics.
+5. Legacy adapter paths remain read-only in strict mode. Migration may import
+   their bytes into the private store but must not remove or replace them.
+   Any adapter requiring a fixed mutable workspace filename is unsupported in
+   strict mode until its consumer can resolve immutable generations.
+
+### Required proof before enabling strict mutation
+
+- Adversarial tests with an independent writer mutating every legacy workspace
+  entry and its ancestors at publication/cleanup boundaries: no user-owned entry
+  may be replaced or deleted, even transiently.
+- Tests for same-UID access to the store and for ancestor substitution. If the
+  OS cannot isolate the store from the modeled adversary, strict mode must
+  reject rather than promise protection.
+- Concurrent generation publication, reader pinning, crash recovery after each
+  staging/fsync/link boundary, idempotent apply, dry-run parity, and tombstone
+  cleanup must be verified.
+- Codex/Claude consumers must be migrated to generation resolution and tested
+  end-to-end. Run typecheck, Vitest, build, and integration tests on each
+  supported platform. Do not mark PR #97 ready or close #28 before this gate.
+
+**Current status:** The blob primitive and its focused tests are a foundation
+only. The strict apply/cleanup rejection remains in place. Issue #28 is open.
