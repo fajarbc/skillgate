@@ -31,40 +31,53 @@ async function assertPrivateStore(store: string): Promise<void> {
 /** Verify the published entry using a bounded descriptor read, never a
  * pathname-based unbounded readFile(). Existing entries must be read-only.
  */
-async function verifyBlob(path: string, digest: string, expectedSize: number): Promise<void> {
+async function verifyBlob(path: string, digest: string, expectedSize?: number): Promise<Buffer> {
   const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) |
     (constants.O_NONBLOCK ?? 0);
   const handle = await open(path, flags);
   try {
     const before = await handle.stat();
-    if (!before.isFile() || before.size !== expectedSize ||
+    if (!before.isFile() || before.size > MAX_IMMUTABLE_BLOB_BYTES ||
+        (expectedSize !== undefined && before.size !== expectedSize) ||
         (before.mode & 0o222) !== 0) {
       throw new Error("Immutable SkillGate blob collision or unsafe entry");
     }
     const hash = createHash("sha256");
+    const chunks: Buffer[] = [];
     let length = 0;
     while (true) {
       // One extra byte detects a file growing beyond the expected size.
-      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, expectedSize + 1 - length));
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_IMMUTABLE_BLOB_BYTES + 1 - length));
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, length);
       if (bytesRead === 0) break;
       length += bytesRead;
-      if (length > expectedSize) {
+      if (length > MAX_IMMUTABLE_BLOB_BYTES ||
+          (expectedSize !== undefined && length > expectedSize)) {
         throw new Error("Immutable SkillGate blob collision or unsafe entry");
       }
       hash.update(chunk.subarray(0, bytesRead));
+      chunks.push(chunk.subarray(0, bytesRead));
     }
     const after = await handle.stat();
-    if (length !== expectedSize || hash.digest("hex") !== digest ||
+    if ((expectedSize !== undefined && length !== expectedSize) ||
+        hash.digest("hex") !== digest ||
         before.dev !== after.dev || before.ino !== after.ino ||
         before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
         before.ctimeMs !== after.ctimeMs ||
         (after.mode & 0o222) !== 0) {
       throw new Error("Immutable SkillGate blob collision or unsafe entry");
     }
+    return Buffer.concat(chunks, length);
   } finally {
     await handle.close();
   }
+}
+
+/** Read and authenticate a pinned immutable digest; never interpret it as a path. */
+export async function readImmutableBlob(store: string, digest: string): Promise<Buffer> {
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Invalid SkillGate blob digest");
+  await assertPrivateStore(store);
+  return verifyBlob(join(store, digest), digest);
 }
 
 /** Publish bytes under their SHA-256 name without replacing any existing entry.
