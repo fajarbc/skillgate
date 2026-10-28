@@ -144,3 +144,37 @@ export async function readImmutableGeneration(
   }
   return { generation: decoded, files };
 }
+
+/** Resolve one logical file from an explicitly pinned generation.
+ * This never materializes a workspace pathname, mutates a managed destination,
+ * or follows a caller-supplied path. The manifest and blob are authenticated.
+ * A cleanup generation intentionally exposes no files.
+ */
+export async function readPinnedGenerationFile(
+  store: string,
+  generationDigest: string,
+  logicalPath: string,
+  expectedAgent: string,
+): Promise<Buffer | null> {
+  assertLogicalPath(logicalPath);
+  if (!validAgent(expectedAgent)) throw new Error("Invalid immutable generation identity");
+  const raw = await readImmutableBlob(store, generationDigest);
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  } catch {
+    throw new Error("Invalid immutable generation manifest");
+  }
+  assertGeneration(decoded);
+  if (decoded.agent !== expectedAgent) {
+    throw new Error("Immutable generation belongs to another agent");
+  }
+  if (decoded.kind === "cleanup") return null;
+  const entry = decoded.files.find((file) => file.path === logicalPath);
+  if (!entry) return null;
+  const bytes = await readImmutableBlob(store, entry.digest);
+  if (bytes.length !== entry.size) {
+    throw new Error("Immutable generation file size mismatch");
+  }
+  return bytes;
+}
