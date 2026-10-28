@@ -138,12 +138,13 @@ async function main() {
       'import {putBrokerBlob,getBrokerBlob} from ' + JSON.stringify(clientModule) + ';',
       'const path=' + JSON.stringify(socketPath) + ';',
       'const bytes=Buffer.from(' + JSON.stringify(payload) + ');',
-      'const a=await putBrokerBlob(path,bytes);',
-      'const b=await putBrokerBlob(path,bytes);',
+      'const trust={expectedBrokerUid:' + brokerUid + ',expectedBrokerGid:' + clientGid + '};',
+      'const a=await putBrokerBlob(path,bytes,trust);',
+      'const b=await putBrokerBlob(path,bytes,trust);',
       'assert.deepEqual(a,{digest:' + JSON.stringify(digest) + ',created:true});',
       'assert.deepEqual(b,{digest:' + JSON.stringify(digest) + ',created:false});',
-      'assert.deepEqual(await getBrokerBlob(path,a.digest),bytes);',
-      'await assert.rejects(getBrokerBlob(path,"0".repeat(64)));',
+      'assert.deepEqual(await getBrokerBlob(path,a.digest,trust),bytes);',
+      'await assert.rejects(getBrokerBlob(path,"0".repeat(64),trust));',
       'console.log("PASS real broker put/get/dedup/digest");',
     ].join('\n');
     assert.match(await runAs(clientUid, clientGid, [
