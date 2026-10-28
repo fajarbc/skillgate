@@ -48,9 +48,15 @@ if the socket is not owned by that group or its permissions are not exactly
 `0660`. Configure the service's effective group and the socket-parent group
 through the OS service manager; the environment variable does **not** change
 process credentials. The process rejects root execution, a client UID equal to the service UID,
-real/effective UID or GID mismatches, and any root supplementary group. These
-checks prevent retaining root privileges while appearing to run under a
-non-root UID. **The prototype broker now requires Linux**, with a genuine
+real/effective UID or GID mismatches, and **any supplementary group other
+than the effective service GID**. Node includes the effective GID in
+`process.getgroups()`, so the broker requires that array to contain exactly
+one entry equal to its effective GID. Merely rejecting supplementary GID 0
+is insufficient: a retained non-root group such as `docker` can still grant
+privileged socket or file access. Provision with `--clear-groups` or an
+equivalent service-manager configuration; do not retain auxiliary groups.
+These checks prevent inheriting unintended filesystem privileges while
+appearing to run under a dedicated non-root identity. **The prototype broker now requires Linux**, with a genuine
 `/proc` filesystem and zero `CapInh`, `CapPrm`, `CapEff`, `CapBnd`, and
 `CapAmb` capability masks, plus `NoNewPrivs: 1` in `/proc/self/status`.
 The startup guard also verifies all four kernel `Uid` and `Gid` fields
