@@ -88,6 +88,33 @@ holding the single connection slot indefinitely by sending periodic bytes.
 An already-started disk operation is not cancelled when its socket expires. These are availability mitigations, not
 per-client authorization or a comprehensive denial-of-service defense.
 
+## Experimental authenticated client
+
+`scripts/immutable-broker-client.mjs` provides `putBrokerBlob(socketPath, bytes)`
+and `getBrokerBlob(socketPath, digest)` for an **explicitly configured** Unix
+socket. Both use one newline-delimited JSON request per connection, bounded
+responses, a 15-second maximum deadline, and exact versioned response shapes.
+The client snapshots outgoing buffers and independently verifies SHA-256 on
+both publication acknowledgments and retrieved bytes. It rejects malformed
+framing, noncanonical base64, mismatched digests, unexpected response fields,
+and timeouts. It writes a newline without half-closing the connection, because
+the broker performs asynchronous filesystem operations before replying.
+
+Run its dependency-free socket protocol tests with:
+
+```sh
+node --test scripts/immutable-broker-client.test.mjs
+```
+
+These tests use an in-process protocol fixture; they do **not** prove the
+actual built broker, cross-UID isolation, or deployment configuration. A
+digest authenticates content but does not authenticate the broker process,
+guarantee availability, or establish which generation a consumer is allowed
+to select. The socket path and its directory ancestry must be provisioned
+and protected by an administrator. All authorized socket-group members can
+still publish and retrieve any digest they know. The client is **not** wired
+into strict lifecycle apply/cleanup or trusted generation selection.
+
 ## Validation and acceptance blockers
 
 An **isolated** Linux/Node 22 cross-UID smoke using a surrogate blob backend
