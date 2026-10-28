@@ -93,4 +93,17 @@ describe("create-only immutable blob storage", () => {
     }
   });
 
+  it("snapshots caller-owned buffers before asynchronous I/O", async () => {
+    const store = await mkdtemp(join(tmpdir(), "skillgate-blob-test-"));
+    try {
+      const input = Buffer.from("original");
+      const pending = putImmutableBlob(store, input);
+      input.fill(0x78);
+      const result = await pending;
+      const { readImmutableBlob } = await import("./immutable-store.js");
+      expect((await readImmutableBlob(store, result.digest)).toString()).toBe("original");
+      await expect(readImmutableBlob(store, "../outside")).rejects.toThrow(/digest/);
+    } finally { await rm(store, { recursive: true, force: true }); }
+  });
+
 });
