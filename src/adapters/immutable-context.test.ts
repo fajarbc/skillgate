@@ -179,4 +179,20 @@ describe("immutable context adapter integration", () => {
   });
 
 
+  it("refuses immutable publication when the store is inside the mutable workspace", async () => {
+    await withFixture(async (root) => {
+      const nestedStore = join(root, "protected-store");
+      await mkdir(nestedStore, { mode: 0o700 });
+      const source = join(root, "source.md");
+      await writeFile(source, "# source");
+      const adapter = new CodexAdapter().immutable(nestedStore);
+      await expect(adapter.applyContext({ root, task: "task", skills: [{
+        path: source, metadata: { name: "test", description: "test" },
+        score: 1, reasons: [],
+      }] })).rejects.toThrow(/outside the workspace/);
+      expect(await readdir(nestedStore)).toEqual([]);
+    });
+  });
+
+
 });
