@@ -444,7 +444,8 @@ export async function assertSourcePathSnapshot(
   }
 }
 
-async function readPreparedSkillSource(skill: AdapterContext["skills"][number]): Promise<string> {
+/** Bounded, snapshot-verified, read-only source preparation shared with immutable adapters. */
+export async function readPreparedSkillSource(skill: AdapterContext["skills"][number]): Promise<string> {
     // A FIFO or device can block readFile() indefinitely before apply begins.
     // Open nonblocking and reject non-regular sources before reading bytes.
     let source;
