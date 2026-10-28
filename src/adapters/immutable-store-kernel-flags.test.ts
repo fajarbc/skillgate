@@ -31,6 +31,46 @@ describe("immutable store kernel prerequisites", () => {
     },
   );
 
+
+  it.each([0o755, 0o1777])(
+    "rejects a foreign-owned ancestor even when mode is %o",
+    async (ancestorMode) => {
+      if (typeof process.getuid !== "function") return;
+      const { mkdir } = await import("node:fs/promises");
+      const parent = await mkdtemp(join(tmpdir(), "skillgate-foreign-owner-"));
+      const store = join(parent, "private");
+      await mkdir(store, { mode: 0o700 });
+      const foreignUid = process.getuid() === 65534 ? 65533 : 65534;
+      try {
+        vi.resetModules();
+        vi.doMock("node:fs/promises", async (importOriginal) => {
+          const actual = await importOriginal<typeof import("node:fs/promises")>();
+          return {
+            ...actual,
+            lstat: async (path: string) => {
+              const entry = await actual.lstat(path);
+              if (path !== parent) return entry;
+              // The parent owner can rename its 0700 child even when its
+              // mode is 0755; a sticky bit does not constrain the owner.
+              return Object.assign(Object.create(entry), {
+                uid: foreignUid,
+                mode: (entry.mode & ~0o7777) | ancestorMode,
+              }) as typeof entry;
+            },
+          };
+        });
+        const { putImmutableBlob } = await import("./immutable-store.js");
+        await expect(putImmutableBlob(store, Buffer.from("managed")))
+          .rejects.toThrow(/untrusted.*ancestor owner/);
+        expect(await readdir(store)).toEqual([]);
+      } finally {
+        vi.doUnmock("node:fs/promises");
+        vi.resetModules();
+        await rm(parent, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("rejects a store symlink substitution before directory fsync", async () => {
     if (process.platform === "win32") return;
     const { constants } = await import("node:fs");
