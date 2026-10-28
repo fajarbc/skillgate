@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
 import { prepareImmutableAdapterContext } from "./immutable-context.js";
+import { toSafeSkillIdentifier } from "./safe-path.js";
 import type { AdapterContext } from "./types.js";
 
 export const MAX_GENERATION_FILES = 256;
@@ -330,7 +331,17 @@ export async function readPinnedAdapterContext(
       throw new Error("Invalid immutable adapter skill metadata");
     }
     assertLogicalPath(entry.path);
-    if (entry.path !== `skills/${entry.identifier}/SKILL.md` ||
+    // A digest authenticates bytes, not their semantic identity. Reject
+    // handcrafted metadata whose identifier differs from the canonical
+    // identifier derived from its skill name.
+    let canonicalId: string;
+    try {
+      canonicalId = toSafeSkillIdentifier(entry.name);
+    } catch {
+      throw new Error("Invalid immutable adapter skill identifier");
+    }
+    if (entry.identifier !== canonicalId ||
+        entry.path !== `skills/${entry.identifier}/SKILL.md` ||
         paths.has(entry.path) || !files.has(entry.path)) {
       throw new Error("Immutable adapter context references an invalid skill file");
     }
