@@ -126,3 +126,21 @@ build, and adversarial validation remain pending.
 default strict apply/cleanup still fails closed. Protected-store isolation,
 consumer selection, migration, crash-recovery fault injection, and full
 validation are outstanding. Issue #28 stays open; PR #97 stays draft.
+
+### Pinned consumer resolution and workspace-root exclusion (2026-10-28)
+
+The experimental `PinnedImmutableAdapter.readContext(digest)` now authenticates the
+entire generation, validates `skills.json` against the pinned agent and every
+referenced logical skill path, rejects missing/unlisted blobs, and returns
+in-memory buffers. A cleanup tombstone resolves to `null`. This is a
+consumer-facing read API, **not** automatic Codex/Claude discovery or a
+drop-in replacement for their fixed workspace paths.
+
+`applyContext()` now rejects a store whose canonical path lies inside the
+canonical workspace root, before any blob publication. This is a preflight
+policy, **not** an atomic filesystem isolation primitive. A same-UID adversary
+or attacker able to substitute an ancestor after the check still defeats the
+store trust boundary; strict legacy apply/cleanup therefore remains fail-closed.
+Committed regressions cover pinned context resolution, forged metadata
+references, tombstones, and nested-store rejection. Full Vitest/typecheck/build
+and independent adversarial isolation validation remain outstanding.
