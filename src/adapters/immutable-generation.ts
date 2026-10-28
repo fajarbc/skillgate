@@ -5,6 +5,8 @@
  */
 import { MAX_IMMUTABLE_BLOB_BYTES, putImmutableBlob, readImmutableBlob } from "./immutable-store.js";
 import { createHash } from "node:crypto";
+import { prepareImmutableAdapterContext } from "./immutable-context.js";
+import type { AdapterContext } from "./types.js";
 
 export const MAX_GENERATION_FILES = 256;
 
@@ -233,6 +235,27 @@ export class PinnedImmutableAdapter {
 
   apply(files: Readonly<Record<string, Buffer>>): Promise<{ digest: string; generation: ImmutableGeneration }> {
     return publishImmutableGeneration(this.store, this.agent, "apply", files);
+  }
+
+  /** Predict the exact digest of a proposed generation without filesystem I/O. */
+  plan(files: Readonly<Record<string, Buffer>>): { digest: string; generation: ImmutableGeneration } {
+    return previewImmutableGeneration(this.agent, "apply", files);
+  }
+
+  /** Read and validate real skill sources, then preview without any mutation. */
+  async planContext(context: AdapterContext): Promise<{ digest: string; generation: ImmutableGeneration }> {
+    const files = await prepareImmutableAdapterContext(this.agent, context);
+    return this.plan(files);
+  }
+
+  /** Read real skill sources and publish them only into the immutable store. */
+  async applyContext(context: AdapterContext): Promise<{ digest: string; generation: ImmutableGeneration }> {
+    const files = await prepareImmutableAdapterContext(this.agent, context);
+    return this.apply(files);
+  }
+
+  planCleanup(): { digest: string; generation: ImmutableGeneration } {
+    return previewImmutableGeneration(this.agent, "cleanup", {});
   }
 
   cleanup(): Promise<{ digest: string; generation: ImmutableGeneration }> {
