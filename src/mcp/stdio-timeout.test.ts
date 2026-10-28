@@ -8,9 +8,11 @@ describe("MCP stdio stalled output deadline", () => {
   it("fails closed when a connected output never acknowledges a write", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     let notifyWrite!: () => void;
+    let completeWrite!: (error?: Error | null) => void;
     const started = new Promise<void>((resolve) => { notifyWrite = resolve; });
     const output = new Writable({
-      write(_chunk, _encoding, _callback) {
+      write(_chunk, _encoding, callback) {
+        completeWrite = callback;
         // A connected client may stop draining without closing its pipe.
         notifyWrite();
       },
@@ -23,6 +25,10 @@ describe("MCP stdio stalled output deadline", () => {
       expect(vi.getTimerCount()).toBe(1);
       await vi.advanceTimersByTimeAsync(1);
       await rejection;
+      expect(output.destroyed).toBe(true);
+      // A delayed failed write callback must not emit an uncaught stream
+      // error after the transport has already rejected and detached listeners.
+      completeWrite(new Error("late write failure"));
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(output.listenerCount("error")).toBe(0);
       expect(output.listenerCount("close")).toBe(0);
@@ -47,6 +53,7 @@ describe("MCP stdio stalled output deadline", () => {
       await started;
       await vi.advanceTimersByTimeAsync(25);
       await expect(pending).resolves.toBeUndefined();
+      expect(output.destroyed).toBe(false);
       expect(vi.getTimerCount()).toBe(0);
       expect(output.listenerCount("error")).toBe(0);
       expect(output.listenerCount("close")).toBe(0);
