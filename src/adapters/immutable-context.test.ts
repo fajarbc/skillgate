@@ -119,18 +119,16 @@ describe("immutable context adapter integration", () => {
         stdio: ["ignore", "pipe", "pipe"],
       });
       try {
-        await Promise.race([
-          new Promise<void>((resolve, reject) => {
-            writer.stdout!.once("data", (chunk: Buffer) => {
-              if (chunk.toString().includes("READY")) resolve();
-              else reject(new Error("External writer did not signal readiness"));
-            });
-            writer.once("error", reject);
-            writer.once("exit", () => reject(new Error("External writer exited early")));
-          }),
-          new Promise<never>((_, reject) => setTimeout(() =>
-            reject(new Error("External writer startup timeout")), 3000)),
-        ]);
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("External writer startup timeout")), 3000);
+          writer.stdout!.once("data", (chunk: Buffer) => {
+            clearTimeout(timer);
+            if (chunk.toString().includes("READY")) resolve();
+            else reject(new Error("External writer did not signal readiness"));
+          });
+          writer.once("error", (error) => { clearTimeout(timer); reject(error); });
+          writer.once("exit", () => { clearTimeout(timer); reject(new Error("External writer exited early")); });
+        });
         const adapter = new CodexAdapter().immutable(store);
         for (let i = 0; i < 12; i++) {
           const context = { root, task: `revision-${i}`, skills: [{
