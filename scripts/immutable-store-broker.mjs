@@ -13,6 +13,7 @@ import { createServer } from 'node:net';
 import { constants } from 'node:fs';
 import { lstat, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, parse, resolve } from 'node:path';
+import { assertDedicatedBrokerIdentity } from './immutable-broker-identity.mjs';
 import { putImmutableBlob, readImmutableBlob, MAX_IMMUTABLE_BLOB_BYTES } from
   '../dist/adapters/immutable-store.js';
 
@@ -80,25 +81,26 @@ function decodeRequest(line) {
 }
 
 async function main() {
-  if (process.platform === 'win32' || typeof process.getuid !== 'function' ||
+  if (process.platform === 'win32' ||
       typeof constants.O_NOFOLLOW !== 'number' || typeof constants.O_DIRECTORY !== 'number') {
     usageError('requires POSIX ownership and safe open flags');
   }
-  if (process.getuid() === 0) usageError('run as a dedicated non-root service UID');
+  // Real and effective credentials must agree. Checking getuid() alone can
+  // miss a process with effective root privileges or retained root credentials.
+  const { uid: brokerUid, gid: brokerGid } = assertDedicatedBrokerIdentity();
   const clientUid = process.env.SKILLGATE_BROKER_CLIENT_UID;
   if (!/^(0|[1-9][0-9]*)$/.test(clientUid ?? '') ||
       !Number.isSafeInteger(Number(clientUid)) || Number(clientUid) === 0 ||
-      Number(clientUid) === process.getuid()) {
+      Number(clientUid) === brokerUid) {
     usageError('a distinct expected client UID is required');
   }
   // The socket group is the protocol's only access-control boundary.
   // Require an explicit non-root group and verify the process will create
   // the socket with that group, rather than silently using a service default.
   const clientGid = process.env.SKILLGATE_BROKER_CLIENT_GID;
-  if (typeof process.getegid !== 'function' ||
-      !/^[1-9][0-9]*$/.test(clientGid ?? '') ||
+  if (!/^[1-9][0-9]*$/.test(clientGid ?? '') ||
       !Number.isSafeInteger(Number(clientGid)) ||
-      Number(clientGid) !== process.getegid()) {
+      Number(clientGid) !== brokerGid) {
     usageError('an explicit non-root socket client GID matching the effective service GID is required');
   }
   if (process.argv.length !== 4 || !process.argv[2] || !process.argv[3] ||
