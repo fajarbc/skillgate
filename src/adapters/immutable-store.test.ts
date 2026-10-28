@@ -106,4 +106,35 @@ describe("create-only immutable blob storage", () => {
     } finally { await rm(store, { recursive: true, force: true }); }
   });
 
+
+  it("rejects a symlinked store ancestor before staging any blob", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "skillgate-store-ancestor-"));
+    try {
+      const { mkdir, symlink, readdir } = await import("node:fs/promises");
+      const privateStore = join(parent, "private");
+      await mkdir(privateStore, { mode: 0o700 });
+      await symlink(parent, join(parent, "alias"), "dir");
+      await expect(putImmutableBlob(join(parent, "alias", "private"), Buffer.from("data")))
+        .rejects.toThrow(/ancestry/);
+      expect(await readdir(privateStore)).toEqual([]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a non-sticky writable ancestor even when the store itself is private", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "skillgate-store-ancestor-"));
+    try {
+      const { chmod, mkdir, readdir } = await import("node:fs/promises");
+      const privateStore = join(parent, "private");
+      await mkdir(privateStore, { mode: 0o700 });
+      await chmod(parent, 0o777);
+      await expect(putImmutableBlob(privateStore, Buffer.from("data")))
+        .rejects.toThrow(/writable.*ancestor/);
+      expect(await readdir(privateStore)).toEqual([]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
 });
