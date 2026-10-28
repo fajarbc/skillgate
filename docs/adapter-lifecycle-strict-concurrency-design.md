@@ -186,3 +186,31 @@ committed but has **not** been run against the built repository while checkout
 and build are blocked. A local harness check using a surrogate implementation
 does not count as production validation. PR #97 remains draft and strict
 legacy apply/cleanup remains fail-closed.
+
+### Independent same-UID adversarial proof (2026-10-28)
+
+`src/adapters/immutable-store-same-uid.test.ts` adds independent-process
+regressions for the two concrete limitations of the experimental POSIX store:
+
+- A process with the same UID can chmod a published `0400` digest inode back
+  to writable and replace its bytes. A subsequent digest-authenticated read or
+  collision verification must **reject** the changed entry; detection does not
+  restore the original content or prevent the destructive write.
+- A process with the same UID can rename a `0700` store under a parent it
+  controls and create a different `0700` directory at the original pathname.
+  The original generation survives under the displaced pathname, but the
+  consumer's pinned lookup no longer reaches it. Digest authentication does not
+  provide namespace availability or bind a pathname to a directory inode.
+
+Both behaviors were reproduced with independent Node.js 22 processes in an
+isolated POSIX filesystem experiment. The committed Vitest tests have **not**
+run against the full repository. These are intentionally *negative* security
+tests: they demonstrate why the existing store must remain experimental.
+
+**Acceptance gate:** do not wire this path-based store into strict apply/cleanup
+or claim Option B until the publisher and consumer use an enforceably protected
+namespace (for example, a separately privileged append-only storage service
+with protected ancestry and no mutation/delete operation exposed to the
+workspace UID). A same-UID process must not be able to rename store ancestors
+or modify published inodes. Merely detecting a changed digest after the fact
+does not satisfy the no-overwrite/no-delete guarantee.
