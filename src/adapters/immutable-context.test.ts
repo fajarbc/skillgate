@@ -195,6 +195,30 @@ describe("immutable context adapter integration", () => {
   });
 
 
+  it("rejects symlink/.. store aliases that would publish inside the workspace", async () => {
+    await withFixture(async (root, outside) => {
+      const insideStore = join(root, "safe");
+      await mkdir(insideStore, { mode: 0o700 });
+      await mkdir(join(outside, "sub"), { mode: 0o700 });
+      const outsideStore = join(outside, "safe");
+      await mkdir(outsideStore, { mode: 0o700 });
+      await symlink(join(outside, "sub"), join(root, "alias"), "dir");
+      const source = join(root, "source.md");
+      await writeFile(source, "# source");
+      // The OS resolves alias/../safe to outside/safe; the immutable blob
+      // writer intentionally normalizes to root/safe. Containment must use
+      // the writer's canonical path, not the raw pathname's realpath.
+      const ambiguousStore = `${root}/alias/../safe`;
+      const adapter = new CodexAdapter().immutable(ambiguousStore);
+      await expect(adapter.applyContext({ root, task: "task", skills: [{
+        path: source, metadata: { name: "test", description: "test" },
+        score: 1, reasons: [],
+      }] })).rejects.toThrow(/outside the workspace/);
+      expect(await readdir(insideStore)).toEqual([]);
+      expect(await readdir(outsideStore)).toEqual([]);
+    });
+  });
+
   it("rejects invalid runtime metadata before any immutable blob is published", async () => {
     await withFixture(async (root, store) => {
       const source = join(root, "source.md");
