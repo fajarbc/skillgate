@@ -53,6 +53,14 @@ checks prevent retaining root privileges while appearing to run under a
 non-root UID. **The prototype broker now requires Linux**, with a genuine
 `/proc` filesystem and zero `CapInh`, `CapPrm`, `CapEff`, `CapBnd`, and
 `CapAmb` capability masks, plus `NoNewPrivs: 1` in `/proc/self/status`.
+The startup guard also verifies all four kernel `Uid` and `Gid` fields
+(real, effective, saved-set, and filesystem IDs) against the Node process
+credentials. This matters even when every capability mask is zero and
+`NoNewPrivs: 1`: an isolated Linux process with real/effective UID 12001,
+saved UID 0, and empty capabilities could still call `seteuid(0)` and regain
+effective root. Merely checking `getuid()` and `geteuid()` misses that state.
+Provisioning must irreversibly drop **saved** root IDs as well as capabilities;
+missing, duplicate, or inconsistent kernel identity fields fail closed.
 This fails closed on macOS, other POSIX systems, missing procfs, retained
 capabilities, or a process able to regain privilege through a setuid exec.
 A deployment must drop real/effective credentials and root groups before
