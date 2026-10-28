@@ -217,6 +217,34 @@ describe("immutable context adapter integration", () => {
   });
 
 
+  it("rejects pinned skill bytes missing the ownership header or containing invalid UTF-8", async () => {
+    await withFixture(async (_root, store) => {
+      const adapter = new CodexAdapter().immutable(store);
+      const metadata = Buffer.from(JSON.stringify({
+        schemaVersion: "1", agent: "codex", task: "task",
+        skills: [{ name: "example", identifier: "example",
+          description: "description", path: "skills/example/SKILL.md",
+          sourcePath: "source.md", score: 1, capabilities: [] }],
+      }));
+      for (const content of [
+        Buffer.from("# User-owned content"),
+        Buffer.concat([Buffer.from(OWNERSHIP_HEADER), Buffer.from([0xff])]),
+      ]) {
+        const published = await adapter.apply({
+          "skills.json": metadata,
+          "skills/example/SKILL.md": content,
+        });
+        await expect(adapter.readContext(published.digest))
+          .rejects.toThrow(/Invalid immutable adapter skill content/);
+      }
+      const valid = await adapter.apply({
+        "skills.json": metadata,
+        "skills/example/SKILL.md": Buffer.from(OWNERSHIP_HEADER + "# Valid skill\n"),
+      });
+      expect((await adapter.readContext(valid.digest))?.skills[0]?.identifier).toBe("example");
+    });
+  });
+
   it("rejects forged pinned skill identifiers even when their blobs are valid", async () => {
     await withFixture(async (_root, store) => {
       const adapter = new CodexAdapter().immutable(store);
