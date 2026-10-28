@@ -125,6 +125,34 @@ and protected by an administrator. All authorized socket-group members can
 still publish and retrieve any digest they know. The client is **not** wired
 into strict lifecycle apply/cleanup or trusted generation selection.
 
+## Real built-broker integration smoke (explicit, privileged)
+
+After `npm run build`, an administrator can run the **actual built**
+immutable-store backend and broker across separate Linux UIDs:
+
+```sh
+sudo npm run smoke:immutable-broker-real
+```
+
+This opt-in test requires Linux, root privileges, Node.js, and util-linux
+`setpriv`. It copies the built blob module and broker/client scripts into a
+disposable root-owned directory under `/tmp`, selects three currently unused
+numeric UID/GID values without creating host accounts, and launches the broker
+with an empty capability bounding set and `NoNewPrivs=1`. The untrusted
+client connects through a group-restricted socket, verifies real put/get,
+deduplication and digest authentication, and attempts prohibited `chmod`,
+`rename`, and file creation against the protected store. The test removes
+its sandbox even when an assertion fails. **Do not run it on an untrusted
+multi-user host:** numeric identities can be allocated concurrently by an
+administrator, and the test does not lock the host account database.
+
+The smoke is intentionally excluded from ordinary `npm test` and CI because
+it requires elevated setup privileges. Passing it does not establish peer
+identity authentication, persistent disk quotas, crash recovery, safe
+concurrent generation selection, or the full Option B security guarantee.
+Run `npm run smoke:immutable-crash` separately after the build, then complete
+full typecheck, Vitest, adversarial testing, and consumer migration.
+
 ## Validation and acceptance blockers
 
 An **isolated** Linux/Node 22 cross-UID smoke using a surrogate blob backend
