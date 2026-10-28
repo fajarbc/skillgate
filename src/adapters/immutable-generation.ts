@@ -63,8 +63,8 @@ function assertGeneration(value: unknown): asserts value is ImmutableGeneration 
   for (const item of value.files) {
     if (!isRecord(item) || typeof item.path !== "string" ||
         typeof item.digest !== "string" || !/^[a-f0-9]{64}$/.test(item.digest) ||
-        !Number.isSafeInteger(item.size) || (item.size as number) < 0 ||
-        (item.size as number) > MAX_IMMUTABLE_BLOB_BYTES ||
+        typeof item.size !== "number" || !Number.isSafeInteger(item.size) || item.size < 0 ||
+        item.size > MAX_IMMUTABLE_BLOB_BYTES ||
         Object.keys(item).some((key) => !["path", "digest", "size"].includes(key))) {
       throw new Error("Invalid immutable generation file entry");
     }
@@ -73,7 +73,7 @@ function assertGeneration(value: unknown): asserts value is ImmutableGeneration 
       throw new Error("Immutable generation paths must be sorted and unique");
     }
     previous = item.path;
-    total += item.size as number;
+    total += item.size;
     if (total > MAX_IMMUTABLE_BLOB_BYTES) {
       throw new Error("Immutable generation exceeds total byte limit");
     }
@@ -123,7 +123,12 @@ export async function readImmutableGeneration(
   digest: string,
 ): Promise<{ generation: ImmutableGeneration; files: Map<string, Buffer> }> {
   const raw = await readImmutableBlob(store, digest);
-  const decoded: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  } catch {
+    throw new Error("Invalid immutable generation manifest");
+  }
   assertGeneration(decoded);
   const files = new Map<string, Buffer>();
   for (const entry of decoded.files) {
