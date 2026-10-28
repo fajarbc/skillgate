@@ -114,9 +114,20 @@ per-client authorization or a comprehensive denial-of-service defense.
 
 ## Experimental authenticated client
 
-`scripts/immutable-broker-client.mjs` provides `putBrokerBlob(socketPath, bytes)`
-and `getBrokerBlob(socketPath, digest)` for an **explicitly configured** Unix
-socket. Both use one newline-delimited JSON request per connection, bounded
+`scripts/immutable-broker-client.mjs` provides `putBrokerBlob(socketPath, bytes, options)`
+and `getBrokerBlob(socketPath, digest, options)` for an **explicitly configured** Unix
+socket. Both operations now require `options.expectedBrokerUid` and
+`options.expectedBrokerGid` (positive numeric Linux IDs provisioned by an
+administrator), and fail closed before sending any request if these are absent.
+The client checks that the socket is owned by the pinned broker UID and GID,
+uses mode `0660`, and resides under root- or broker-owned, non-substitutable
+ancestry. The immediate socket parent must be broker-owned and not group/world
+writable. This prevents an untrusted workspace writer from impersonating the
+broker and receiving private `put` payloads through an attacker-owned socket.
+These are pathname preflight checks, not kernel peer-credential authentication;
+they rely on the separate broker UID, trusted root, and protected ancestors.
+The expected broker UID must differ from untrusted client UIDs in production.
+Both operations use one newline-delimited JSON request per connection, bounded
 responses, a 15-second maximum deadline, and exact versioned response shapes.
 The client snapshots outgoing buffers and independently verifies SHA-256 on
 both publication acknowledgments and retrieved bytes. It rejects malformed
@@ -132,9 +143,10 @@ node --test scripts/immutable-broker-client.test.mjs
 
 These tests use an in-process protocol fixture; they do **not** prove the
 actual built broker, cross-UID isolation, or deployment configuration. A
-digest authenticates content but does not authenticate the broker process,
-guarantee availability, or establish which generation a consumer is allowed
-to select. The socket path and its directory ancestry must be provisioned
+digest authenticates content but does not establish which generation a consumer
+is allowed to select. Socket ownership and ancestry checks reduce endpoint
+impersonation by unrelated UIDs, but do not authenticate individual peers or
+guarantee availability. The socket path and its directory ancestry must be provisioned
 and protected by an administrator. All authorized socket-group members can
 still publish and retrieve any digest they know. The client is **not** wired
 into strict lifecycle apply/cleanup or trusted generation selection.
