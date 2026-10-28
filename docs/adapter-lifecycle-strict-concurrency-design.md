@@ -132,7 +132,12 @@ validation are outstanding. Issue #28 stays open; PR #97 stays draft.
 The experimental `PinnedImmutableAdapter.readContext(digest)` now authenticates the
 entire generation, validates `skills.json` against the pinned agent and every
 referenced logical skill path, rejects missing/unlisted blobs, and returns
-in-memory buffers. A cleanup tombstone resolves to `null`. This is a
+in-memory buffers.
+It also rejects pinned skill blobs without the SkillGate ownership header or
+with malformed UTF-8, even when their content digests are internally valid.
+These semantic checks do **not** establish store isolation, authorize an
+untrusted generation digest, or make the opt-in API safe against same-UID
+writers. A cleanup tombstone resolves to `null`. This is a
 consumer-facing read API, **not** automatic Codex/Claude discovery or a
 drop-in replacement for their fixed workspace paths.
 
