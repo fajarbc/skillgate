@@ -122,6 +122,32 @@ describe("create-only immutable blob storage", () => {
     }
   });
 
+  it("uses the checked canonical store path rather than following a symlink/.. alias", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "skillgate-store-lexical-"));
+    try {
+      const { mkdir, readdir, symlink } = await import("node:fs/promises");
+      const safeStore = join(parent, "safe");
+      const external = join(parent, "external");
+      const externalStore = join(external, "safe");
+      await mkdir(safeStore, { mode: 0o700 });
+      await mkdir(external, { mode: 0o700 });
+      await mkdir(join(external, "sub"), { mode: 0o700 });
+      await mkdir(externalStore, { mode: 0o700 });
+      await symlink(join(external, "sub"), join(parent, "alias"), "dir");
+      // Do not use path.join: it would remove the dangerous '..' component.
+      // On POSIX, alias/../safe traverses the symlink before '..', whereas
+      // path.resolve() normalizes to parent/safe.
+      const ambiguousStore = `${parent}/alias/../safe`;
+      const { readImmutableBlob } = await import("./immutable-store.js");
+      const result = await putImmutableBlob(ambiguousStore, Buffer.from("canonical"));
+      expect(result.path).toBe(join(safeStore, result.digest));
+      expect((await readImmutableBlob(ambiguousStore, result.digest)).toString()).toBe("canonical");
+      expect(await readdir(externalStore)).toEqual([]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a non-sticky writable ancestor even when the store itself is private", async () => {
     const parent = await mkdtemp(join(tmpdir(), "skillgate-store-ancestor-"));
     try {
