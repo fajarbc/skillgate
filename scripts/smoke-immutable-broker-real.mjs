@@ -126,7 +126,7 @@ async function main() {
       '});',
       'assert.equal(error.code,"EACCES");',
       'console.log("PASS unauthorized UID/GID denied by socket ancestry and permissions");',
-    ].join('\\n');
+    ].join('\n');
     assert.match(await runAs(outsiderUid, outsiderGid, [
       '--input-type=module', '--eval', outsiderCode,
     ]), /PASS unauthorized UID\/GID denied/);
