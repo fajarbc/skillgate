@@ -99,12 +99,16 @@ export async function runMcpStdio(
   // stdin EOF. Treat this as transport failure rather than silent success.
   output.on("close", onOutputError);
   const iterator = input[Symbol.asyncIterator]();
+  let inputCompleted = false;
   try {
     if (output.destroyed || output.writableEnded) onOutputError();
     while (true) {
       const next = await Promise.race([iterator.next(), outputFailure]);
       if (next === outputClosed) throw new Error("MCP output failed");
-      if (next.done) break;
+      if (next.done) {
+        inputCompleted = true;
+        break;
+      }
       for (const message of decoder.decode(next.value)) {
         if (outputFailed) throw new Error("MCP output failed");
         const result = session.handle(message);
@@ -119,10 +123,10 @@ export async function runMcpStdio(
     decoder.finish();
     if (outputFailed) throw new Error("MCP output failed");
   } finally {
-    // Cancel a pending stdin read after output failure. Node Readable streams
-    // (including process.stdin) support destroy(); other async iterators may
-    // only expose return(). Never await a potentially uncooperative iterator.
-    if (outputFailed) {
+    // Close an unfinished input iterator on any failure, including malformed
+    // frames and stalled writes. A pending stdin read must not keep the MCP
+    // process alive. Never await a potentially uncooperative iterator.
+    if (!inputCompleted) {
       const destroyable = input as AsyncIterable<Uint8Array> & { destroy?: () => void };
       try {
         if (typeof destroyable.destroy === "function") destroyable.destroy();
