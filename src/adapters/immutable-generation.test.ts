@@ -132,4 +132,17 @@ describe("pinned immutable adapter generations", () => {
     });
   });
 
+  it("concurrent identical generation publications converge on one pinned digest", async () => {
+    await withStore(async (store) => {
+      const results = await Promise.all(Array.from({ length: 8 }, () =>
+        publishImmutableGeneration(store, "codex", "apply", {
+          "skills/a.md": Buffer.from("same content"),
+        })));
+      expect(new Set(results.map((result) => result.digest)).size).toBe(1);
+      const resolved = await readImmutableGeneration(store, results[0]!.digest);
+      expect(resolved.files.get("skills/a.md")?.toString()).toBe("same content");
+      expect((await readdir(store)).every((name) => /^[a-f0-9]{64}$/.test(name))).toBe(true);
+    });
+  });
+
 });
