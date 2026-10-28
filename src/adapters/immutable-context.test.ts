@@ -245,14 +245,14 @@ describe("immutable context adapter integration", () => {
         metadata: { name: "example", description: "good", capabilities: ["valid"] },
         score: 1, reasons: [],
       };
-      const context = { root, task: "broken\\ud800", skills: [skill] };
+      const context = { root, task: "broken\ud800", skills: [skill] };
       await expect(adapter.planContext(context)).rejects.toThrow(/task/);
       await expect(adapter.applyContext(context)).rejects.toThrow(/task/);
       context.task = "valid";
-      skill.metadata.description = "bad\\udc00";
+      skill.metadata.description = "bad\udc00";
       await expect(adapter.applyContext(context)).rejects.toThrow(/metadata/);
       skill.metadata.description = "good";
-      skill.metadata.capabilities = ["bad\\ud800"];
+      skill.metadata.capabilities = ["bad\ud800"];
       await expect(adapter.applyContext(context)).rejects.toThrow(/metadata/);
       expect(await readdir(store)).toEqual([]);
     });
@@ -268,7 +268,7 @@ describe("immutable context adapter integration", () => {
           capabilities: ["safe"] }],
       }));
       const skillFile = Buffer.from("# Skill");
-      for (const bytes of [metadata("bad\\ud800", "valid"), metadata("valid", "bad\\udc00")]) {
+      for (const bytes of [metadata("bad\ud800", "valid"), metadata("valid", "bad\udc00")]) {
         const forged = await adapter.apply({
           "skills.json": bytes, "skills/example/SKILL.md": skillFile,
         });
