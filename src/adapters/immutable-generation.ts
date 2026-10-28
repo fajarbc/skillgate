@@ -178,3 +178,25 @@ export async function readPinnedGenerationFile(
   }
   return bytes;
 }
+
+/** Explicit adapter-facing immutable lifecycle. The caller supplies a protected
+ * store and retains returned digests; no workspace path is published or removed.
+ * This deliberately does not pretend to satisfy legacy apply()/cleanup().
+ */
+export class PinnedImmutableAdapter {
+  constructor(public readonly agent: string, private readonly store: string) {
+    if (!validAgent(agent)) throw new Error("Invalid immutable generation identity");
+  }
+
+  apply(files: Readonly<Record<string, Buffer>>): Promise<{ digest: string; generation: ImmutableGeneration }> {
+    return publishImmutableGeneration(this.store, this.agent, "apply", files);
+  }
+
+  cleanup(): Promise<{ digest: string; generation: ImmutableGeneration }> {
+    return publishImmutableGeneration(this.store, this.agent, "cleanup", {});
+  }
+
+  readFile(generationDigest: string, logicalPath: string): Promise<Buffer | null> {
+    return readPinnedGenerationFile(this.store, generationDigest, logicalPath, this.agent);
+  }
+}
