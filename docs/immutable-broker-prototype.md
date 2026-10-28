@@ -36,12 +36,18 @@ group set to the intended client group:
 
 ```sh
 SKILLGATE_BROKER_CLIENT_UID=<untrusted-workspace-uid> \
+SKILLGATE_BROKER_CLIENT_GID=<dedicated-nonroot-client-group-gid> \
   node scripts/immutable-store-broker.mjs \
   /protected/socket-dir/skillgate.sock /protected/immutable-store
 ```
 
 The client UID setting is a **deployment sanity check**, not peer-credential
-authentication. The process rejects root execution and a client UID equal to
+authentication. The client GID must be an explicitly configured non-root
+numeric group ID matching the broker's effective GID. Startup fails closed
+if the socket is not owned by that group or its permissions are not exactly
+`0660`. Configure the service's effective group and the socket-parent group
+through the OS service manager; the environment variable does **not** change
+process credentials. The process rejects root execution and a client UID equal to
 the service UID, but cannot verify the UID of each connecting peer using
 Node's portable socket API. The Unix socket's group permission is the access
 control: **all members of that group can use both operations**. Never put
@@ -71,7 +77,10 @@ Success returns `{"v":1,"ok":true,"digest":"<sha256>","created":true}`
 Success returns `{"v":1,"ok":true,"bytes":"<base64>"}`. Invalid requests
 receive a generic error, without leaking store paths. Each blob is limited
 to 32 MiB; the broker enforces bounded framing, strict UTF-8, one in-flight
-request, and an idle timeout. These are availability mitigations, not
+request, a 15-second idle timeout, and a separate 15-second absolute
+connection lifetime. The absolute deadline prevents a slow-drip peer from
+holding the single connection slot indefinitely by sending periodic bytes.
+An already-started disk operation is not cancelled when its socket expires. These are availability mitigations, not
 per-client authorization or a comprehensive denial-of-service defense.
 
 ## Validation and acceptance blockers
