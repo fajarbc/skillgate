@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
-import { putBrokerBlob, getBrokerBlob } from './immutable-broker-client.mjs';
+import { test as nodeTest } from 'node:test';
+import { putBrokerBlob as rawPutBrokerBlob, getBrokerBlob as rawGetBrokerBlob } from './immutable-broker-client.mjs';
+
+// The protocol fixture runs under one test UID. Production clients must pin
+// the DIFFERENT dedicated broker UID/GID provisioned by the administrator.
+const trust = { expectedBrokerUid: process.getuid?.(), expectedBrokerGid: process.getgid?.() };
+const putBrokerBlob = (path, bytes, options = {}) =>
+  rawPutBrokerBlob(path, bytes, { ...trust, ...options });
+const getBrokerBlob = (path, digest, options = {}) =>
+  rawGetBrokerBlob(path, digest, { ...trust, ...options });
+const test = (name, fn) => nodeTest(name, {
+  skip: process.platform !== 'linux' || !trust.expectedBrokerUid || !trust.expectedBrokerGid,
+}, fn);
 
 async function withServer(handler, run) {
   const dir = await mkdtemp(join(tmpdir(), 'skillgate-broker-client-'));
@@ -25,6 +36,7 @@ async function withServer(handler, run) {
       server.once('error', reject);
       server.listen(path, resolve);
     });
+    await chmod(path, 0o660);
     await run(path);
   } finally {
     for (const socket of sockets) socket.destroy();
@@ -106,5 +118,17 @@ test('keeps request write side open while the broker processes asynchronously', 
   }, async path => {
     assert.deepEqual(await putBrokerBlob(path, payload), { digest, created: false });
     assert.equal(prematurelyHalfClosed, false);
+  });
+});
+
+test('fails closed on missing or mismatched broker socket identity', async () => {
+  await withServer(() => {}, async path => {
+    await assert.rejects(rawPutBrokerBlob(path, payload), /explicit non-root socket owner/);
+    await assert.rejects(rawPutBrokerBlob(path, payload, {
+      ...trust, expectedBrokerUid: trust.expectedBrokerUid + 1,
+    }), /ancestry/);
+    await assert.rejects(rawGetBrokerBlob(path, digest, {
+      ...trust, expectedBrokerGid: trust.expectedBrokerGid + 1,
+    }), /socket identity/);
   });
 });
