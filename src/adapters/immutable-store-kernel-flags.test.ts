@@ -68,4 +68,50 @@ describe("immutable store kernel prerequisites", () => {
       await rm(parent, { recursive: true, force: true });
     }
   });
+  it("fsyncs a reused digest after an interrupted directory sync", async () => {
+    if (process.platform === "win32") return;
+    const { constants } = await import("node:fs");
+    const { createHash } = await import("node:crypto");
+    const store = await mkdtemp(join(tmpdir(), "skillgate-retry-sync-"));
+    let directorySyncs = 0;
+    try {
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...actual,
+          open: async (path: string, flags: number, mode?: number) => {
+            const handle = await actual.open(path, flags, mode);
+            if (path === store && (flags & constants.O_DIRECTORY) !== 0) {
+              directorySyncs++;
+              if (directorySyncs === 1) {
+                // The content inode and digest link are already visible.
+                // Simulate an interrupted directory sync before success.
+                handle.sync = async () => {
+                  throw new Error("injected directory sync failure");
+                };
+              }
+            }
+            return handle;
+          },
+        };
+      });
+      const { putImmutableBlob, readImmutableBlob } = await import("./immutable-store.js");
+      const content = Buffer.from("durable after retry");
+      const digest = createHash("sha256").update(content).digest("hex");
+      await expect(putImmutableBlob(store, content))
+        .rejects.toThrow(/injected directory sync failure/);
+      expect(await readdir(store)).toEqual([digest]);
+      const recovered = await putImmutableBlob(store, content);
+      expect(recovered.created).toBe(false);
+      expect(recovered.digest).toBe(digest);
+      expect(directorySyncs).toBe(2);
+      expect(await readImmutableBlob(store, digest)).toEqual(content);
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+      await rm(store, { recursive: true, force: true });
+    }
+  });
+
 });
