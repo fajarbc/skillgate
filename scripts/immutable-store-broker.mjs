@@ -14,6 +14,7 @@ import { constants } from 'node:fs';
 import { lstat, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, parse, resolve } from 'node:path';
 import { assertDedicatedBrokerIdentity } from './immutable-broker-identity.mjs';
+import { assertNoBrokerCapabilities } from './immutable-broker-capabilities.mjs';
 import { putImmutableBlob, readImmutableBlob, MAX_IMMUTABLE_BLOB_BYTES } from
   '../dist/adapters/immutable-store.js';
 
@@ -88,6 +89,9 @@ async function main() {
   // Real and effective credentials must agree. Checking getuid() alone can
   // miss a process with effective root privileges or retained root credentials.
   const { uid: brokerUid, gid: brokerGid } = assertDedicatedBrokerIdentity();
+  // UID/GID checks alone do not exclude retained Linux capabilities or
+  // privilege reacquisition through exec. Reject before touching the store.
+  assertNoBrokerCapabilities();
   const clientUid = process.env.SKILLGATE_BROKER_CLIENT_UID;
   if (!/^(0|[1-9][0-9]*)$/.test(clientUid ?? '') ||
       !Number.isSafeInteger(Number(clientUid)) || Number(clientUid) === 0 ||
