@@ -40,6 +40,27 @@ describe("MCP stdio idle disconnect and input cleanup", () => {
     expect(input.destroyed).toBe(true);
   });
 
+  it("requests cancellation of non-Readable async iterators after disconnect", async () => {
+    let returned = false;
+    const input: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => new Promise<IteratorResult<Uint8Array>>(() => {}),
+          return: async () => {
+            returned = true;
+            return { done: true as const, value: undefined };
+          },
+        };
+      },
+    };
+    const output = sink();
+    const running = runMcpStdio(input, output);
+    output.destroy();
+
+    await expect(running).rejects.toThrow("MCP output failed");
+    expect(returned).toBe(true);
+  });
+
   it("closes unfinished stdin after a malformed JSON frame", async () => {
     const input = new PassThrough();
     const output = sink();
