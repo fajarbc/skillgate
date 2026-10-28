@@ -31,6 +31,13 @@ describe('immutable broker process identity', () => {
     assert.throws(() => assertDedicatedBrokerIdentity(identity({ getgid: () => 0, getegid: () => 0 })), /non-root/);
     assert.throws(() => assertDedicatedBrokerIdentity(identity({ getgroups: () => [0, 20002] })), /root/);
   });
+  it('rejects retained non-root supplementary groups and malformed group lists', () => {
+    // A non-root group can still grant access to privileged sockets or files.
+    for (const groups of [[20002, 20003], [20003], [20002, 20002], []]) {
+      assert.throws(() => assertDedicatedBrokerIdentity(identity({ getgroups: () => groups })),
+        /supplementary groups/);
+    }
+  });
   it('fails closed when credential inspection is unavailable or malformed', () => {
     assert.throws(() => assertDedicatedBrokerIdentity(identity({ geteuid: undefined })), /inspection/);
     assert.throws(() => assertDedicatedBrokerIdentity(identity({ getgroups: () => ['0'] })), /credentials/);
