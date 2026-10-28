@@ -8,7 +8,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, open, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 
 export const MAX_IMMUTABLE_BLOB_BYTES = 32 * 1024 * 1024;
 
@@ -20,12 +20,34 @@ export interface ImmutableBlob {
 
 /** Require a pre-existing private store; never silently create it in workspace. */
 async function assertPrivateStore(store: string): Promise<void> {
-  const entry = await lstat(store);
-  if (typeof process.getuid !== "function" || !entry.isDirectory() ||
-      entry.isSymbolicLink() || entry.uid !== process.getuid() ||
-      (entry.mode & 0o077) !== 0) {
-    throw new Error("SkillGate immutable store requires a private POSIX directory");
+  if (typeof process.getuid !== "function") {
+    throw new Error("SkillGate immutable store requires POSIX ownership checks");
   }
+  const absolute = resolve(store);
+  const root = parse(absolute).root;
+  const chain: string[] = [];
+  let cursor = absolute;
+  while (cursor !== root) {
+    chain.push(cursor);
+    cursor = dirname(cursor);
+  }
+  for (const path of chain.reverse()) {
+    const entry = await lstat(path);
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      throw new Error("Unsafe SkillGate immutable store ancestry");
+    }
+    if (path === absolute) {
+      if (entry.uid !== process.getuid() || (entry.mode & 0o077) !== 0) {
+        throw new Error("SkillGate immutable store requires a private POSIX directory");
+      }
+    } else if ((entry.mode & 0o022) !== 0 && (entry.mode & 0o1000) === 0) {
+      // A writable non-sticky ancestor allows independent writers to replace
+      // the store directory itself, bypassing the leaf directory permissions.
+      throw new Error("Unsafe writable SkillGate immutable store ancestor");
+    }
+  }
+  // This is preflight, not atomic protection against same-UID adversaries or
+  // an attacker who can mutate a sticky directory they own.
 }
 
 /** Verify the published entry using a bounded descriptor read, never a
