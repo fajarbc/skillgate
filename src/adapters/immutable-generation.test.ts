@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publishImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile } from "./immutable-generation.js";
+import { publishImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile, PinnedImmutableAdapter } from "./immutable-generation.js";
 import { putImmutableBlob } from "./immutable-store.js";
 
 async function withStore(work: (store: string) => Promise<void>): Promise<void> {
@@ -160,6 +160,22 @@ describe("pinned immutable adapter generations", () => {
       await expect(readPinnedGenerationFile(store, first.digest, "skills/a.md", "claude-code")).rejects.toThrow(/another agent/);
       const tombstone = await publishImmutableGeneration(store, "codex", "cleanup", {});
       expect(await readPinnedGenerationFile(store, tombstone.digest, "skills/a.md", "codex")).toBeNull();
+    });
+  });
+
+
+  it("exposes opt-in pinned lifecycle without changing existing workspace entries", async () => {
+    await withStore(async (store) => {
+      const codex = new PinnedImmutableAdapter("codex", store);
+      const claude = new PinnedImmutableAdapter("claude-code", store);
+      const first = await codex.apply({ "skills/a.md": Buffer.from("one") });
+      const second = await codex.apply({ "skills/a.md": Buffer.from("two") });
+      expect((await codex.readFile(first.digest, "skills/a.md"))?.toString()).toBe("one");
+      expect((await codex.readFile(second.digest, "skills/a.md"))?.toString()).toBe("two");
+      await expect(claude.readFile(first.digest, "skills/a.md")).rejects.toThrow(/another agent/);
+      const cleanup = await codex.cleanup();
+      expect(await codex.readFile(cleanup.digest, "skills/a.md")).toBeNull();
+      expect((await codex.readFile(first.digest, "skills/a.md"))?.toString()).toBe("one");
     });
   });
 
