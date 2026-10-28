@@ -47,9 +47,14 @@ numeric group ID matching the broker's effective GID. Startup fails closed
 if the socket is not owned by that group or its permissions are not exactly
 `0660`. Configure the service's effective group and the socket-parent group
 through the OS service manager; the environment variable does **not** change
-process credentials. The process rejects root execution and a client UID equal to
-the service UID, but cannot verify the UID of each connecting peer using
-Node's portable socket API. The Unix socket's group permission is the access
+process credentials. The process rejects root execution, a client UID equal to the service UID,
+real/effective UID or GID mismatches, and any root supplementary group. These
+checks prevent retaining root privileges while appearing to run under a
+non-root UID. A deployment must drop real/effective credentials and root
+groups before launch. Run the dependency-free credential regressions with
+`node --test scripts/immutable-broker-identity.test.mjs` (this only tests the
+startup identity policy, not the built broker). The broker cannot verify the
+UID of each connecting peer using Node's portable socket API. The Unix socket's group permission is the access
 control: **all members of that group can use both operations**. Never put
 untrusted principals in the socket group if they must not read one another's
 skills. Do not place the store or socket parent inside a mutable workspace.
