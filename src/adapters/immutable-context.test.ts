@@ -195,4 +195,26 @@ describe("immutable context adapter integration", () => {
   });
 
 
+  it("rejects invalid runtime metadata before any immutable blob is published", async () => {
+    await withFixture(async (root, store) => {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Skill");
+      const adapter = new CodexAdapter().immutable(store);
+      const skill = {
+        path: source,
+        metadata: { name: "example", description: "Example", capabilities: [] as string[] },
+        score: Number.NaN, reasons: [],
+      };
+      const context = { root, task: "task", skills: [skill] };
+      await expect(adapter.applyContext(context)).rejects.toThrow(/metadata/);
+      expect(await readdir(store)).toEqual([]);
+      skill.score = 1;
+      skill.metadata.capabilities = [7] as unknown as string[];
+      await expect(adapter.planContext(context)).rejects.toThrow(/metadata/);
+      await expect(adapter.applyContext(context)).rejects.toThrow(/metadata/);
+      expect(await readdir(store)).toEqual([]);
+    });
+  });
+
+
 });
