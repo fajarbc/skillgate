@@ -5,6 +5,8 @@
  */
 import { MAX_IMMUTABLE_BLOB_BYTES, putImmutableBlob, readImmutableBlob } from "./immutable-store.js";
 import { createHash } from "node:crypto";
+import { realpath } from "node:fs/promises";
+import { isAbsolute, relative, sep } from "node:path";
 import { prepareImmutableAdapterContext } from "./immutable-context.js";
 import type { AdapterContext } from "./types.js";
 
@@ -250,6 +252,14 @@ export class PinnedImmutableAdapter {
 
   /** Read real skill sources and publish them only into the immutable store. */
   async applyContext(context: AdapterContext): Promise<{ digest: string; generation: ImmutableGeneration }> {
+    // A store inside the mutable workspace inherits its attacker-controlled
+    // namespace; reject before reading sources or publishing any blobs.
+    const [workspace, store] = await Promise.all([realpath(context.root), realpath(this.store)]);
+    const fromWorkspace = relative(workspace, store);
+    if (fromWorkspace === "" || (fromWorkspace !== ".." &&
+        !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace))) {
+      throw new Error("Immutable SkillGate store must be outside the workspace");
+    }
     const files = await prepareImmutableAdapterContext(this.agent, context);
     return this.apply(files);
   }
