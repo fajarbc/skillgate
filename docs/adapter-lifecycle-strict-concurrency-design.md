@@ -82,6 +82,26 @@ This avoids requiring a nonexistent Node.js pathname compare-and-swap primitive.
    strict mode until its consumer can resolve immutable generations.
 
 
+### Ancestor ownership is part of the isolation boundary (2026-10-28)
+
+An isolated POSIX proof exposed another concrete preflight gap: an
+**unrelated UID owning an ancestor directory with mode 0755** can rename a
+broker-owned 0700 child directory. Group/world write-bit checks alone cannot
+detect this, because the directory **owner** retains write permission.
+A sticky ancestor owned by that unrelated UID is also unsafe: sticky mode
+does not restrict the directory owner.
+
+The experimental store now rejects any ancestor (including the filesystem
+root) whose UID is neither root (0) nor the store process UID, in addition to
+the existing mode and symlink checks. Tests inject foreign-owned 0755 and
+01777 ancestors and assert rejection before staging. This is a necessary
+**preflight policy**, not an atomic race solution: if the store process UID is
+shared with an adversarial workspace writer, that writer can still mutate
+the store and its broker-owned ancestors. A distinct, OS-enforced broker
+identity with protected ancestry remains mandatory for Option B. The
+cross-UID proof was isolated; committed Vitest and full integration checks
+remain pending.
+
 ### Canonical store path consistency (2026-10-28)
 
 A concrete preflight/write mismatch was found: a pathname containing a
