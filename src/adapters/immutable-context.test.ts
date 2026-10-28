@@ -217,4 +217,21 @@ describe("immutable context adapter integration", () => {
   });
 
 
+  it("rejects forged pinned skill identifiers even when their blobs are valid", async () => {
+    await withFixture(async (_root, store) => {
+      const adapter = new CodexAdapter().immutable(store);
+      const forged = await adapter.apply({
+        "skills.json": Buffer.from(JSON.stringify({
+          schemaVersion: "1", agent: "codex", task: "task",
+          skills: [{ name: "Expected Name", identifier: "different-name",
+            description: "description", path: "skills/different-name/SKILL.md",
+            sourcePath: "source.md", score: 1, capabilities: [] }],
+        })),
+        "skills/different-name/SKILL.md": Buffer.from("# Forged"),
+      });
+      await expect(adapter.readContext(forged.digest)).rejects.toThrow(/invalid skill file/);
+    });
+  });
+
+
 });
