@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publishImmutableGeneration, readImmutableGeneration } from "./immutable-generation.js";
+import { publishImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile } from "./immutable-generation.js";
 import { putImmutableBlob } from "./immutable-store.js";
 
 async function withStore(work: (store: string) => Promise<void>): Promise<void> {
@@ -144,5 +144,24 @@ describe("pinned immutable adapter generations", () => {
       expect((await readdir(store)).every((name) => /^[a-f0-9]{64}$/.test(name))).toBe(true);
     });
   });
+
+  it("reads only authenticated files from the requested agent and pinned digest", async () => {
+    await withStore(async (store) => {
+      const first = await publishImmutableGeneration(store, "codex", "apply", {
+        "skills/a.md": Buffer.from("first"),
+      });
+      const second = await publishImmutableGeneration(store, "codex", "apply", {
+        "skills/a.md": Buffer.from("second"),
+      });
+      expect((await readPinnedGenerationFile(store, first.digest, "skills/a.md", "codex"))?.toString()).toBe("first");
+      expect((await readPinnedGenerationFile(store, second.digest, "skills/a.md", "codex"))?.toString()).toBe("second");
+      expect(await readPinnedGenerationFile(store, first.digest, "skills/missing.md", "codex")).toBeNull();
+      await expect(readPinnedGenerationFile(store, first.digest, "../escape", "codex")).rejects.toThrow();
+      await expect(readPinnedGenerationFile(store, first.digest, "skills/a.md", "claude-code")).rejects.toThrow(/another agent/);
+      const tombstone = await publishImmutableGeneration(store, "codex", "cleanup", {});
+      expect(await readPinnedGenerationFile(store, tombstone.digest, "skills/a.md", "codex")).toBeNull();
+    });
+  });
+
 
 });
