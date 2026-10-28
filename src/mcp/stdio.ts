@@ -51,7 +51,15 @@ async function writeResponse(output: Writable, line: string): Promise<void> {
     // A custom Writable can emit "drain" synchronously from write().
     // Subscribe before calling write so the event cannot be missed.
     output.once("drain", onDrain);
-    timeout = setTimeout(() => finish(new Error("MCP output timed out")), MCP_WRITE_TIMEOUT_MS);
+    timeout = setTimeout(() => {
+      finish(new Error("MCP output timed out"));
+      // A timed-out Writable may still hold an unfinished OS pipe or a late
+      // callback. Destroy it to release resources and suppress late stream
+      // errors after session listeners are removed.
+      try { output.destroy(); } catch {
+        // Preserve the original timeout if a custom Writable misbehaves.
+      }
+    }, MCP_WRITE_TIMEOUT_MS);
     try {
       const canWrite = output.write(line, (error) => {
         if (error) {
