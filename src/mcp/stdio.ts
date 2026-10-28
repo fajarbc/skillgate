@@ -82,14 +82,30 @@ export async function runMcpStdio(
   // removed its per-write listener. Keep a session listener so such errors
   // cannot become uncaught process-level exceptions.
   let outputFailed = false;
-  const onOutputError = () => { outputFailed = true; };
+  // Output can disappear while the client leaves stdin open and idle. A plain
+  // for-await loop would then wait forever for another input chunk. Race each
+  // read against the output failure signal so the session can terminate.
+  const outputClosed = Symbol("MCP output closed");
+  let signalOutputClosed!: () => void;
+  const outputFailure = new Promise<typeof outputClosed>((resolve) => {
+    signalOutputClosed = () => resolve(outputClosed);
+  });
+  const onOutputError = () => {
+    outputFailed = true;
+    signalOutputClosed();
+  };
   output.on("error", onOutputError);
   // A client can close stdout between replies, including immediately before
   // stdin EOF. Treat this as transport failure rather than silent success.
   output.on("close", onOutputError);
+  const iterator = input[Symbol.asyncIterator]();
   try {
-    for await (const chunk of input) {
-      for (const message of decoder.decode(chunk)) {
+    if (output.destroyed || output.writableEnded) onOutputError();
+    while (true) {
+      const next = await Promise.race([iterator.next(), outputFailure]);
+      if (next === outputClosed) throw new Error("MCP output failed");
+      if (next.done) break;
+      for (const message of decoder.decode(next.value)) {
         if (outputFailed) throw new Error("MCP output failed");
         const result = session.handle(message);
         if (result === null) continue;
@@ -103,6 +119,18 @@ export async function runMcpStdio(
     decoder.finish();
     if (outputFailed) throw new Error("MCP output failed");
   } finally {
+    // Cancel a pending stdin read after output failure. Node Readable streams
+    // (including process.stdin) support destroy(); other async iterators may
+    // only expose return(). Never await a potentially uncooperative iterator.
+    if (outputFailed) {
+      const destroyable = input as AsyncIterable<Uint8Array> & { destroy?: () => void };
+      try {
+        if (typeof destroyable.destroy === "function") destroyable.destroy();
+        else void Promise.resolve(iterator.return?.()).catch(() => {});
+      } catch {
+        // Do not replace the original transport failure with cleanup errors.
+      }
+    }
     output.off("error", onOutputError);
     output.off("close", onOutputError);
   }
