@@ -115,4 +115,21 @@ describe("pinned immutable adapter generations", () => {
       }
     });
   });
+  it("captures all input buffers before publishing any file", async () => {
+    await withStore(async (store) => {
+      const first = Buffer.from("before-one");
+      const second = Buffer.from("before-two");
+      const pending = publishImmutableGeneration(store, "codex", "apply", {
+        "skills/one.md": first,
+        "skills/two.md": second,
+      });
+      first.fill(0x78);
+      second.fill(0x79);
+      const published = await pending;
+      const resolved = await readImmutableGeneration(store, published.digest);
+      expect(resolved.files.get("skills/one.md")?.toString()).toBe("before-one");
+      expect(resolved.files.get("skills/two.md")?.toString()).toBe("before-two");
+    });
+  });
+
 });
