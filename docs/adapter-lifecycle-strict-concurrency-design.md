@@ -1,6 +1,6 @@
 # P0 #28 — strict concurrent-writer safety design (Option B)
 
-Status: **design only; NOT implemented or accepted**. This document records the required boundary and blocks merging #97 until implementation and verification are complete.
+Status: **partially implemented, NOT accepted for strict lifecycle use**. The immutable generation prototype is opt-in; default strict adapter apply/cleanup remains fail-closed.
 
 ## Requirement
 
@@ -96,5 +96,33 @@ This avoids requiring a nonexistent Node.js pathname compare-and-swap primitive.
   end-to-end. Run typecheck, Vitest, build, and integration tests on each
   supported platform. Do not mark PR #97 ready or close #28 before this gate.
 
-**Current status:** The blob primitive and its focused tests are a foundation
-only. The strict apply/cleanup rejection remains in place. Issue #28 is open.
+### Opt-in context integration (2026-10-28)
+
+Codex and Claude expose `adapter.immutable(store)` with `planContext(context)`,
+`applyContext(context)`, `planCleanup()`, `cleanup()`, and
+`readFile(generationDigest, logicalPath)`. This is experimental and explicit,
+not a replacement for the default `adapter.apply()` or `adapter.cleanup()`.
+
+`planContext()` reads bounded, snapshot-verified skill sources and predicts the
+exact generation digest without modifying the workspace or immutable store.
+`applyContext()` re-reads the sources, validates all content before publication,
+and publishes `skills.json` plus `skills/<identifier>/SKILL.md` into immutable
+blobs. Unchanged source bytes produce identical plan/apply digests.
+Cleanup publishes a tombstone; pinned reads authenticate the manifest and blob.
+
+The caller must supply a pre-existing, protected POSIX store. Current
+ownership, mode, and ancestor checks are preflight hardening, NOT an atomic
+guarantee against same-UID adversaries or substitutable directory ancestors.
+No automatic latest-generation pointer or consumer migration exists.
+Consumers requiring fixed `.codex` or `.claude` workspace filenames cannot
+yet use this as a drop-in replacement.
+
+Committed regressions cover real context plan/apply parity, user-owned legacy
+workspace preservation, malformed source rejection, ancestor validation, and
+an independent process racing legacy workspace paths. Full Vitest, typecheck,
+build, and adversarial validation remain pending.
+
+**Current status:** Opt-in real-context immutable publication is implemented;
+default strict apply/cleanup still fails closed. Protected-store isolation,
+consumer selection, migration, crash-recovery fault injection, and full
+validation are outstanding. Issue #28 stays open; PR #97 stays draft.
