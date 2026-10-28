@@ -22,10 +22,10 @@ describe('immutable broker process identity', () => {
     assert.throws(() => assertDedicatedBrokerIdentity(identity({ geteuid: () => 0 })), /non-root/);
   });
   it('rejects mismatched real and effective UIDs', () => {
-    assert.throws(() => assertDedicatedBrokerIdentity(identity({ geteuid: () => 20003 })), /real\\/effective/);
+    assert.throws(() => assertDedicatedBrokerIdentity(identity({ geteuid: () => 20003 })), /credentials/);
   });
   it('rejects mismatched real and effective GIDs', () => {
-    assert.throws(() => assertDedicatedBrokerIdentity(identity({ getegid: () => 20003 })), /real\\/effective/);
+    assert.throws(() => assertDedicatedBrokerIdentity(identity({ getegid: () => 20003 })), /credentials/);
   });
   it('rejects root primary and supplementary groups', () => {
     assert.throws(() => assertDedicatedBrokerIdentity(identity({ getgid: () => 0, getegid: () => 0 })), /non-root/);
