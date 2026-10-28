@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publishImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile, PinnedImmutableAdapter } from "./immutable-generation.js";
+import { publishImmutableGeneration, previewImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile, PinnedImmutableAdapter } from "./immutable-generation.js";
 import { putImmutableBlob } from "./immutable-store.js";
 
 async function withStore(work: (store: string) => Promise<void>): Promise<void> {
@@ -179,5 +179,53 @@ describe("pinned immutable adapter generations", () => {
     });
   });
 
+
+
+  it("recovers an interrupted publication without replacing an already published blob", async () => {
+    await withStore(async (store) => {
+      const files = {
+        "skills/a.md": Buffer.from("first"),
+        "skills/z.md": Buffer.from("second"),
+      };
+      const planned = previewImmutableGeneration("codex", "apply", files);
+      const firstDigest = planned.generation.files[0]!.digest;
+      const secondDigest = planned.generation.files[1]!.digest;
+      // A conflicting second digest entry interrupts publication after the
+      // first immutable content blob has already been installed.
+      await writeFile(join(store, secondDigest), "foreign content");
+      await expect(publishImmutableGeneration(store, "codex", "apply", files))
+        .rejects.toThrow(/collision or unsafe entry/);
+      const firstStat = await stat(join(store, firstDigest));
+      expect(await readFile(join(store, secondDigest), "utf8")).toBe("foreign content");
+      expect((await readdir(store)).includes(planned.digest)).toBe(false);
+      // Recovery is an explicit retry after the conflicting entry is removed.
+      // No unsafe automatic garbage collection or deletion is performed.
+      await rm(join(store, secondDigest));
+      const recovered = await publishImmutableGeneration(store, "codex", "apply", files);
+      expect(recovered.digest).toBe(planned.digest);
+      const after = await stat(join(store, firstDigest));
+      expect([after.dev, after.ino]).toEqual([firstStat.dev, firstStat.ino]);
+      const resolved = await readImmutableGeneration(store, recovered.digest);
+      expect(resolved.files.get("skills/a.md")?.toString()).toBe("first");
+      expect(resolved.files.get("skills/z.md")?.toString()).toBe("second");
+    });
+  });
+
+  it("never replaces a conflicting generation record and safely retries after recovery", async () => {
+    await withStore(async (store) => {
+      const files = { "skills/a.md": Buffer.from("content") };
+      const planned = previewImmutableGeneration("codex", "apply", files);
+      await writeFile(join(store, planned.digest), "user-owned collision");
+      await expect(publishImmutableGeneration(store, "codex", "apply", files))
+        .rejects.toThrow(/collision or unsafe entry/);
+      expect(await readFile(join(store, planned.digest), "utf8"))
+        .toBe("user-owned collision");
+      await rm(join(store, planned.digest));
+      const published = await publishImmutableGeneration(store, "codex", "apply", files);
+      expect(published.digest).toBe(planned.digest);
+      expect((await readImmutableGeneration(store, published.digest)).files
+        .get("skills/a.md")?.toString()).toBe("content");
+    });
+  });
 
 });
