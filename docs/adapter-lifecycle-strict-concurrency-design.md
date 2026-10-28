@@ -149,3 +149,22 @@ store trust boundary; strict legacy apply/cleanup therefore remains fail-closed.
 Committed regressions cover pinned context resolution, forged metadata
 references, tombstones, and nested-store rejection. Full Vitest/typecheck/build
 and independent adversarial isolation validation remain outstanding.
+
+### Built process-kill recovery smoke (pending production execution)
+
+After `npm run build` on a POSIX host, run
+`npm run smoke:immutable-crash`. The script spawns a separate Node process
+using the **built** `dist/adapters/immutable-generation.js` implementation.
+It pauses that child after each of four filesystem sync boundaries for a
+one-file generation, sends a real `SIGKILL`, then checks manifest visibility,
+authenticated reads, and idempotent retry. No fault-injection hooks are added
+to production code. The four checkpoints cover staging and publication of
+both the content blob and the generation manifest.
+
+This is a **process-crash** test, not a power-loss/disk-cache durability
+proof. It does not demonstrate protection against same-UID writers, ancestor
+substitution, or arbitrary external filesystem mutations. The script is
+committed but has **not** been run against the built repository while checkout
+and build are blocked. A local harness check using a surrogate implementation
+does not count as production validation. PR #97 remains draft and strict
+legacy apply/cleanup remains fail-closed.
