@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { join } from "node:path";
 import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
@@ -86,4 +88,69 @@ describe("immutable context adapter integration", () => {
       expect(await readdir(store)).toEqual([]);
     });
   });
+
+  it("never mutates legacy paths while an independent process races their entries and parent", async () => {
+    if (process.platform === "win32") return;
+    await withFixture(async (root, store) => {
+      const source = join(root, "stable-source.md");
+      await writeFile(source, "# Stable source");
+      const outside = await mkdtemp(join(tmpdir(), "skillgate-external-victim-"));
+      const victim = join(outside, "victim.md");
+      await writeFile(victim, "USER-OWNED VICTIM");
+      const legacy = join(root, ".codex");
+      const writerScript = [
+        "const fs=require('node:fs'),path=require('node:path');",
+        "const legacy=process.argv[1],victim=process.argv[2];",
+        "let ticks=0;",
+        "setInterval(()=>{",
+        "try {",
+        "fs.rmSync(legacy,{recursive:true,force:true});",
+        "const dir=path.join(legacy,'skills','example');",
+        "fs.mkdirSync(dir,{recursive:true});",
+        "const file=path.join(dir,'SKILL.md');",
+        "fs.writeFileSync(file,'EXTERNAL');",
+        "fs.rmSync(file);fs.linkSync(victim,file);",
+        "fs.rmSync(file);fs.symlinkSync(victim,file);",
+        "} catch(e) { process.stderr.write(String(e)+'\\n'); }",
+        "if(ticks++===0) process.stdout.write('READY\\n');",
+        "},0);",
+      ].join("");
+      const writer = spawn(process.execPath, ["-e", writerScript, legacy, victim], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      try {
+        await Promise.race([
+          new Promise<void>((resolve, reject) => {
+            writer.stdout!.once("data", (chunk: Buffer) => {
+              if (chunk.toString().includes("READY")) resolve();
+              else reject(new Error("External writer did not signal readiness"));
+            });
+            writer.once("error", reject);
+            writer.once("exit", () => reject(new Error("External writer exited early")));
+          }),
+          new Promise<never>((_, reject) => setTimeout(() =>
+            reject(new Error("External writer startup timeout")), 3000)),
+        ]);
+        const adapter = new CodexAdapter().immutable(store);
+        for (let i = 0; i < 12; i++) {
+          const context = { root, task: `revision-${i}`, skills: [{
+            path: source, metadata: { name: "example", description: "Example" },
+            score: 1, reasons: [],
+          }] };
+          const result = await adapter.applyContext(context);
+          expect((await adapter.readFile(result.digest, "skills/example/SKILL.md"))?.toString())
+            .toContain("# Stable source");
+          await adapter.cleanup();
+        }
+      } finally {
+        writer.kill();
+        if (writer.exitCode === null && writer.signalCode === null) {
+          await once(writer, "exit");
+        }
+        expect(await readFile(victim, "utf8")).toBe("USER-OWNED VICTIM");
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
 });
