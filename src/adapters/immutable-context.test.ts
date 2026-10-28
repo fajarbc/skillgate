@@ -157,4 +157,26 @@ describe("immutable context adapter integration", () => {
     });
   });
 
+  it("rejects pinned metadata that references missing or unlisted files", async () => {
+    await withFixture(async (_root, store) => {
+      const adapter = new CodexAdapter().immutable(store);
+      const metadata = Buffer.from(JSON.stringify({
+        schemaVersion: "1", agent: "codex", task: "test",
+        skills: [{ name: "x", identifier: "x", description: "test",
+          path: "skills/x/SKILL.md", sourcePath: "source.md", score: 1,
+          capabilities: [] }],
+      }));
+      const missing = await adapter.apply({ "skills.json": metadata });
+      await expect(adapter.readContext(missing.digest)).rejects.toThrow(/invalid skill file/);
+      const extra = await adapter.apply({
+        "skills.json": Buffer.from(JSON.stringify({
+          schemaVersion: "1", agent: "codex", task: "test", skills: [],
+        })),
+        "skills/unused/SKILL.md": Buffer.from("unlisted"),
+      });
+      await expect(adapter.readContext(extra.digest)).rejects.toThrow(/unreferenced/);
+    });
+  });
+
+
 });
