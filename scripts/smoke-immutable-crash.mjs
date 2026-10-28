@@ -106,7 +106,7 @@ for (const phase of [1, 2, 3, 4]) {
     }
     assert.equal(names.includes(fileDigest), phase >= 2,
       `unexpected content publication at sync ${phase}`);
-    const recovered = await publishImmutableGeneration(store, 'codex', 'apply', files);
+    // The staging inode may survive SIGKILL. Recovery must not mistake it for a published generation.\n    const stages = names.filter(name => name.startsWith('.stage-'));\n    assert.ok(stages.length <= 1, 'unexpected multiple staging entries');\n    const recovered = await publishImmutableGeneration(store, 'codex', 'apply', files);
     assert.equal(recovered.digest, expected.digest);
     const resolved = await readImmutableGeneration(store, expected.digest);
     assert.deepEqual(resolved.files.get('skills/a.md'), files['skills/a.md']);
