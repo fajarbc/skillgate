@@ -147,14 +147,14 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
     await verifyBlob(destination, digest, bytes.length);
-    // Persist the new directory entry before reporting successful publication.
-    if (created) {
-      const directory = await open(safeStore, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
-      }
+    // Also fsync when reusing a digest: an earlier publisher may have been
+    // killed after link() but before syncing the directory. A successful
+    // retry must establish durability, not merely observe a visible entry.
+    const directory = await open(safeStore, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
     }
     return { digest, path: destination, created };
   } finally {
