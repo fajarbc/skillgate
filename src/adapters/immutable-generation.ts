@@ -4,6 +4,7 @@
  * pathname. This is an experimental foundation, not yet an adapter backend.
  */
 import { MAX_IMMUTABLE_BLOB_BYTES, putImmutableBlob, readImmutableBlob } from "./immutable-store.js";
+import { createHash } from "node:crypto";
 
 export const MAX_GENERATION_FILES = 256;
 
@@ -84,12 +85,16 @@ function assertGeneration(value: unknown): asserts value is ImmutableGeneration 
  * A failed operation may leave unreachable blobs but never a partial record.
  * Caller must retain the returned digest; there is no mutable latest pointer.
  */
-export async function publishImmutableGeneration(
-  store: string,
+function prepareImmutableGeneration(
   agent: string,
   kind: "apply" | "cleanup",
   files: Readonly<Record<string, Buffer>>,
-): Promise<{ digest: string; generation: ImmutableGeneration }> {
+): {
+  digest: string;
+  generation: ImmutableGeneration;
+  manifestBytes: Buffer;
+  snapshots: Array<[string, Buffer]>;
+} {
   if (!validAgent(agent) || (kind !== "apply" && kind !== "cleanup")) {
     throw new Error("Invalid immutable generation identity");
   }
@@ -106,19 +111,57 @@ export async function publishImmutableGeneration(
     if (total > MAX_IMMUTABLE_BLOB_BYTES) {
       throw new Error("Immutable generation exceeds total byte limit");
     }
-    // Freeze all file bytes before the first await so the published generation
-    // cannot mix different revisions of caller-owned mutable Buffers.
     snapshots.push([path, Buffer.from(bytes)]);
   }
   snapshots.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  const manifestFiles: ImmutableGenerationFile[] = [];
-  for (const [path, bytes] of snapshots) {
-    const blob = await putImmutableBlob(store, bytes);
-    manifestFiles.push({ path, digest: blob.digest, size: bytes.length });
-  }
+  const manifestFiles: ImmutableGenerationFile[] = snapshots.map(([path, bytes]) => ({
+    path, digest: createHash("sha256").update(bytes).digest("hex"), size: bytes.length,
+  }));
   const generation: ImmutableGeneration = { schemaVersion: "1", agent, kind, files: manifestFiles };
-  const manifest = await putImmutableBlob(store, Buffer.from(JSON.stringify(generation), "utf8"));
-  return { digest: manifest.digest, generation };
+  const manifestBytes = Buffer.from(JSON.stringify(generation), "utf8");
+  if (manifestBytes.length > MAX_IMMUTABLE_BLOB_BYTES) {
+    throw new Error("Immutable generation manifest exceeds byte limit");
+  }
+  return {
+    digest: createHash("sha256").update(manifestBytes).digest("hex"),
+    generation, manifestBytes, snapshots,
+  };
+}
+
+/** Pure, non-mutating preview of the exact generation bytes that apply publishes.
+ * No workspace or store path is read or written.
+ */
+export function previewImmutableGeneration(
+  agent: string,
+  kind: "apply" | "cleanup",
+  files: Readonly<Record<string, Buffer>>,
+): { digest: string; generation: ImmutableGeneration } {
+  const { digest, generation } = prepareImmutableGeneration(agent, kind, files);
+  return { digest, generation };
+}
+
+/** Publish blobs first, then a complete immutable generation record last.
+ * Every input is snapshotted and validated before the first filesystem write.
+ * A failed operation may leave unreachable blobs but never a partial record.
+ */
+export async function publishImmutableGeneration(
+  store: string,
+  agent: string,
+  kind: "apply" | "cleanup",
+  files: Readonly<Record<string, Buffer>>,
+): Promise<{ digest: string; generation: ImmutableGeneration }> {
+  const prepared = prepareImmutableGeneration(agent, kind, files);
+  for (const [index, [, bytes]] of prepared.snapshots.entries()) {
+    const blob = await putImmutableBlob(store, bytes);
+    if (blob.digest !== prepared.generation.files[index]!.digest) {
+      throw new Error("Immutable generation content digest changed during publication");
+    }
+  }
+  const manifest = await putImmutableBlob(store, prepared.manifestBytes);
+  if (manifest.digest !== prepared.digest) {
+    throw new Error("Immutable generation digest changed during publication");
+  }
+  return { digest: prepared.digest, generation: prepared.generation };
 }
 
 /** Resolve a pinned generation and authenticate every referenced content blob. */
