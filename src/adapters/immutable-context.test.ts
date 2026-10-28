@@ -234,4 +234,47 @@ describe("immutable context adapter integration", () => {
   });
 
 
+
+  it("rejects lone Unicode surrogates before publishing any real-context blob", async () => {
+    await withFixture(async (root, store) => {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Skill");
+      const adapter = new CodexAdapter().immutable(store);
+      const skill = {
+        path: source,
+        metadata: { name: "example", description: "good", capabilities: ["valid"] },
+        score: 1, reasons: [],
+      };
+      const context = { root, task: "broken\\ud800", skills: [skill] };
+      await expect(adapter.planContext(context)).rejects.toThrow(/task/);
+      await expect(adapter.applyContext(context)).rejects.toThrow(/task/);
+      context.task = "valid";
+      skill.metadata.description = "bad\\udc00";
+      await expect(adapter.applyContext(context)).rejects.toThrow(/metadata/);
+      skill.metadata.description = "good";
+      skill.metadata.capabilities = ["bad\\ud800"];
+      await expect(adapter.applyContext(context)).rejects.toThrow(/metadata/);
+      expect(await readdir(store)).toEqual([]);
+    });
+  });
+
+  it("rejects authenticated pinned metadata with escaped lone surrogates", async () => {
+    await withFixture(async (_root, store) => {
+      const adapter = new CodexAdapter().immutable(store);
+      const metadata = (task: string, description: string) => Buffer.from(JSON.stringify({
+        schemaVersion: "1", agent: "codex", task,
+        skills: [{ name: "example", identifier: "example", description,
+          path: "skills/example/SKILL.md", sourcePath: "source.md", score: 1,
+          capabilities: ["safe"] }],
+      }));
+      const skillFile = Buffer.from("# Skill");
+      for (const bytes of [metadata("bad\\ud800", "valid"), metadata("valid", "bad\\udc00")]) {
+        const forged = await adapter.apply({
+          "skills.json": bytes, "skills/example/SKILL.md": skillFile,
+        });
+        await expect(adapter.readContext(forged.digest)).rejects.toThrow(/metadata/);
+      }
+    });
+  });
+
 });
