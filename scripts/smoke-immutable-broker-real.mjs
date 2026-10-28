@@ -26,11 +26,11 @@ async function main() {
     ...groups.split('\n').map(line => Number(line.split(':')[2])),
   ]);
   const free = [];
-  for (let n = 61000; n < 65000 && free.length < 3; n++) {
+  for (let n = 61000; n < 65000 && free.length < 5; n++) {
     if (!used.has(n)) free.push(n);
   }
-  assert.equal(free.length, 3, 'cannot allocate unused numeric test identities');
-  const [brokerUid, clientUid, clientGid] = free;
+  assert.equal(free.length, 5, 'cannot allocate unused numeric test identities');
+  const [brokerUid, clientUid, clientGid, outsiderUid, outsiderGid] = free;
   const repository = dirname(dirname(fileURLToPath(import.meta.url)));
   const sandbox = await mkdtemp(join(tmpdir(), 'skillgate-real-broker-'));
   const code = join(sandbox, 'code');
@@ -110,6 +110,26 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 25));
     }
     assert.ok(ready, 'broker did not create its socket: ' + brokerErrors);
+    // Independently verify the broker-owned, group-only socket boundary.
+    const socketEntry = await lstat(socketPath);
+    assert.equal(socketEntry.uid, brokerUid, 'broker must own the socket');
+    assert.equal(socketEntry.gid, clientGid, 'socket group must be the configured client group');
+    assert.equal(socketEntry.mode & 0o777, 0o660, 'socket must not permit other users');
+    const outsiderCode = [
+      'import assert from "node:assert/strict";',
+      'import {createConnection} from "node:net";',
+      'const path=' + JSON.stringify(socketPath) + ';',
+      'const error=await new Promise((resolve,reject)=>{',
+      '  const socket=createConnection({path});',
+      '  socket.once("error",resolve);',
+      '  socket.once("connect",()=>{socket.destroy();reject(new Error("unauthorized peer connected"));});',
+      '});',
+      'assert.equal(error.code,"EACCES");',
+      'console.log("PASS unauthorized UID/GID denied by socket ancestry and permissions");',
+    ].join('\\n');
+    assert.match(await runAs(outsiderUid, outsiderGid, [
+      '--input-type=module', '--eval', outsiderCode,
+    ]), /PASS unauthorized UID\/GID denied/);
     const payload = 'SkillGate real cross-UID immutable broker smoke';
     const digest = createHash('sha256').update(payload).digest('hex');
     const clientModule = pathToFileURL(join(scripts, 'immutable-broker-client.mjs')).href;
