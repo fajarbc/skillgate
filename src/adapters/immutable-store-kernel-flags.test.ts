@@ -30,4 +30,42 @@ describe("immutable store kernel prerequisites", () => {
       }
     },
   );
+
+  it("rejects a store symlink substitution before directory fsync", async () => {
+    if (process.platform === "win32") return;
+    const { constants } = await import("node:fs");
+    const { mkdir, readdir, symlink, rename } = await import("node:fs/promises");
+    const parent = await mkdtemp(join(tmpdir(), "skillgate-swap-"));
+    const store = join(parent, "private");
+    const displaced = join(parent, "displaced");
+    const outside = join(parent, "outside");
+    await mkdir(store, { mode: 0o700 });
+    await mkdir(outside, { mode: 0o700 });
+    let swapped = false;
+    try {
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...actual,
+          open: async (path: string, flags: number, mode?: number) => {
+            if (!swapped && path === store && (flags & constants.O_DIRECTORY) !== 0) {
+              swapped = true;
+              await actual.rename(store, displaced);
+              await actual.symlink(outside, store, "dir");
+            }
+            return actual.open(path, flags, mode);
+          },
+        };
+      });
+      const { putImmutableBlob } = await import("./immutable-store.js");
+      await expect(putImmutableBlob(store, Buffer.from("managed"))).rejects.toThrow();
+      expect(swapped).toBe(true);
+      expect(await readdir(outside)).toEqual([]);
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
 });
