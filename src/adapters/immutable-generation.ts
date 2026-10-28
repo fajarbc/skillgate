@@ -262,7 +262,78 @@ export class PinnedImmutableAdapter {
     return publishImmutableGeneration(this.store, this.agent, "cleanup", {});
   }
 
+  readContext(generationDigest: string): ReturnType<typeof readPinnedAdapterContext> {
+    return readPinnedAdapterContext(this.store, generationDigest, this.agent);
+  }
+
   readFile(generationDigest: string, logicalPath: string): Promise<Buffer | null> {
     return readPinnedGenerationFile(this.store, generationDigest, logicalPath, this.agent);
   }
+}
+
+/** Consumer-facing resolution of a pinned real-context generation.
+ * The complete generation is authenticated before metadata is exposed.
+ * Logical paths are returned as in-memory buffers, never materialized into
+ * the caller's mutable workspace. Cleanup tombstones resolve to null.
+ */
+export async function readPinnedAdapterContext(
+  store: string,
+  generationDigest: string,
+  expectedAgent: string,
+): Promise<{ task: string; skills: Array<{
+  name: string; identifier: string; description: string; path: string;
+  sourcePath: string; score: number; capabilities: string[];
+}>; files: Map<string, Buffer> } | null> {
+  if (!validAgent(expectedAgent)) throw new Error("Invalid immutable generation identity");
+  const { generation, files } = await readImmutableGeneration(store, generationDigest);
+  if (generation.agent !== expectedAgent) {
+    throw new Error("Immutable generation belongs to another agent");
+  }
+  if (generation.kind === "cleanup") return null;
+  const raw = files.get("skills.json");
+  if (!raw) throw new Error("Missing immutable adapter context metadata");
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  } catch {
+    throw new Error("Invalid immutable adapter context metadata");
+  }
+  if (!isRecord(metadata) || metadata.schemaVersion !== "1" ||
+      metadata.agent !== expectedAgent || typeof metadata.task !== "string" ||
+      !Array.isArray(metadata.skills) || metadata.skills.length > MAX_GENERATION_FILES - 1 ||
+      Object.keys(metadata).some((key) => !["schemaVersion", "agent", "task", "skills"].includes(key))) {
+    throw new Error("Invalid immutable adapter context metadata");
+  }
+  const paths = new Set<string>(["skills.json"]);
+  const validated: Array<{
+    name: string; identifier: string; description: string; path: string;
+    sourcePath: string; score: number; capabilities: string[];
+  }> = [];
+  for (const entry of metadata.skills) {
+    if (!isRecord(entry) || typeof entry.name !== "string" ||
+        typeof entry.identifier !== "string" || typeof entry.description !== "string" ||
+        typeof entry.sourcePath !== "string" || typeof entry.path !== "string" ||
+        typeof entry.score !== "number" || !Number.isFinite(entry.score) ||
+        !Array.isArray(entry.capabilities) ||
+        !entry.capabilities.every((capability: unknown) => typeof capability === "string") ||
+        Object.keys(entry).some((key) => !["name", "identifier", "description", "path", "sourcePath", "score", "capabilities"].includes(key))) {
+      throw new Error("Invalid immutable adapter skill metadata");
+    }
+    assertLogicalPath(entry.path);
+    if (entry.path !== `skills/${entry.identifier}/SKILL.md` ||
+        paths.has(entry.path) || !files.has(entry.path)) {
+      throw new Error("Immutable adapter context references an invalid skill file");
+    }
+    paths.add(entry.path);
+    validated.push({
+      name: entry.name, identifier: entry.identifier,
+      description: entry.description, path: entry.path,
+      sourcePath: entry.sourcePath, score: entry.score,
+      capabilities: entry.capabilities as string[],
+    });
+  }
+  if (paths.size !== files.size) {
+    throw new Error("Immutable adapter context contains unreferenced files");
+  }
+  return { task: metadata.task, skills: validated, files };
 }
