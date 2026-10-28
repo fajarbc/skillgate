@@ -127,6 +127,9 @@ async function main() {
     let size = 0;
     socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy());
     socket.once('close', () => { closed = true; chunks = []; release(); });
+    // A completed response no longer occupies the in-flight operation slot.
+    // The peer may still be closing its socket when it opens the next one.
+    socket.once('finish', () => { closed = true; release(); });
     socket.on('error', () => {});
     socket.on('data', chunk => {
       if (done) return;
