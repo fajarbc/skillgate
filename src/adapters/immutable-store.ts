@@ -89,8 +89,11 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
   if (!Buffer.isBuffer(bytes) || bytes.length > MAX_IMMUTABLE_BLOB_BYTES) {
     throw new RangeError("SkillGate immutable blob exceeds the 32 MiB limit");
   }
+  // Capture caller-owned bytes before the first await: callers may reuse or
+  // mutate their Buffer while filesystem I/O is in progress.
+  const snapshot = Buffer.from(bytes);
   await assertPrivateStore(store);
-  const digest = createHash("sha256").update(bytes).digest("hex");
+  const digest = createHash("sha256").update(snapshot).digest("hex");
   const destination = join(store, digest);
   const temporary = join(store, `.stage-${randomUUID()}`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
@@ -99,7 +102,7 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
   let created = false;
   try {
     try {
-      await handle.writeFile(bytes);
+      await handle.writeFile(snapshot);
       // Read-only before publication: other cooperating readers cannot
       // observe a writable published inode.
       await handle.chmod(0o400);
