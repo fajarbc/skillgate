@@ -165,6 +165,30 @@ async function main() {
     assert.match(await runAs(clientUid, clientGid, [
       '--input-type=module', '--eval', attackCode,
     ]), /PASS client cannot mutate/);
+    // A private leaf store is insufficient when an untrusted UID owns a
+    // seemingly read-only ancestor: that owner can rename the leaf directory.
+    // The actual broker must reject such a deployment before listening.
+    const unsafeAncestor = join(sandbox, 'client-owned-ancestor');
+    const unsafeStore = join(unsafeAncestor, 'broker-store');
+    await mkdir(unsafeAncestor, { mode: 0o755 });
+    await mkdir(unsafeStore, { mode: 0o700 });
+    await chown(unsafeAncestor, clientUid, clientGid);
+    await chown(unsafeStore, brokerUid, clientGid);
+    const refused = spawnSync('setpriv', priv(brokerUid, clientGid, [
+      join(scripts, 'immutable-store-broker.mjs'),
+      join(socketDir, 'unsafe-ancestor.sock'), unsafeStore,
+    ]), {
+      encoding: 'utf8', timeout: 5000,
+      env: {
+        ...process.env,
+        SKILLGATE_BROKER_CLIENT_UID: String(clientUid),
+        SKILLGATE_BROKER_CLIENT_GID: String(clientGid),
+      },
+    });
+    assert.ifError(refused.error);
+    assert.equal(refused.status, 1, 'broker must reject client-owned store ancestor: ' + refused.stderr);
+    assert.match(refused.stderr, /socket ancestor is owned by an untrusted UID/);
+    console.log('PASS: actual broker rejects untrusted-owned store ancestry');
     console.log('PASS: actual built broker cross-UID smoke');
   } finally {
     if (broker && broker.exitCode === null && broker.signalCode === null) {
