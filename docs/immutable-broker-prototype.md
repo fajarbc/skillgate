@@ -50,10 +50,20 @@ through the OS service manager; the environment variable does **not** change
 process credentials. The process rejects root execution, a client UID equal to the service UID,
 real/effective UID or GID mismatches, and any root supplementary group. These
 checks prevent retaining root privileges while appearing to run under a
-non-root UID. A deployment must drop real/effective credentials and root
-groups before launch. Run the dependency-free credential regressions with
-`node --test scripts/immutable-broker-identity.test.mjs` (this only tests the
-startup identity policy, not the built broker). The broker cannot verify the
+non-root UID. **The prototype broker now requires Linux**, with a genuine
+`/proc` filesystem and zero `CapInh`, `CapPrm`, `CapEff`, `CapBnd`, and
+`CapAmb` capability masks, plus `NoNewPrivs: 1` in `/proc/self/status`.
+This fails closed on macOS, other POSIX systems, missing procfs, retained
+capabilities, or a process able to regain privilege through a setuid exec.
+A deployment must drop real/effective credentials and root groups before
+launch, and configure its service manager with `NoNewPrivileges=yes`,
+`CapabilityBoundingSet=` (empty), and `AmbientCapabilities=` (empty).
+For a Linux isolated test, a privileged operator can use
+`setpriv --no-new-privs --bounding-set=-all --reuid <broker-uid> --regid <client-gid> --clear-groups`
+**before** invoking Node; do not grant the broker elevated capabilities.
+Run the dependency-free startup regressions with
+`node --test scripts/immutable-broker-identity.test.mjs scripts/immutable-broker-capabilities.test.mjs`
+(these test startup guards, not the built broker). The broker cannot verify the
 UID of each connecting peer using Node's portable socket API. The Unix socket's group permission is the access
 control: **all members of that group can use both operations**. Never put
 untrusted principals in the socket group if they must not read one another's
