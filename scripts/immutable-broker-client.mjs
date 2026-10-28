@@ -5,7 +5,8 @@
  */
 import { createHash } from 'node:crypto';
 import { createConnection } from 'node:net';
-import { isAbsolute } from 'node:path';
+import { lstat } from 'node:fs/promises';
+import { dirname, isAbsolute, parse, resolve } from 'node:path';
 
 const MAX_BLOB_BYTES = 32 * 1024 * 1024;
 const MAX_GET_RESPONSE_BYTES = 4 * Math.ceil(MAX_BLOB_BYTES / 3) + 2048;
@@ -15,8 +16,49 @@ const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 function validateSocketPath(path) {
-  if (typeof path !== 'string' || !isAbsolute(path) || path.includes('\0')) {
+  if (typeof path !== 'string' || !isAbsolute(path) || path.includes('\0') ||
+      resolve(path) !== path) {
     throw new Error('Immutable broker requires an absolute socket path');
+  }
+}
+
+/** Reject an untrusted socket BEFORE transmitting skill bytes. Digest verification
+ * authenticates retrieved content, but cannot prevent a fake broker from reading
+ * put() payloads. Protected ancestry makes this preflight stable against other
+ * unprivileged UIDs; root and the broker UID remain trusted principals.
+ */
+async function assertTrustedBrokerSocket(path, expectedBrokerUid, expectedBrokerGid) {
+  validateSocketPath(path);
+  if (process.platform !== 'linux' ||
+      !Number.isSafeInteger(expectedBrokerUid) || expectedBrokerUid <= 0 ||
+      !Number.isSafeInteger(expectedBrokerGid) || expectedBrokerGid <= 0) {
+    throw new Error('Immutable broker requires explicit non-root socket owner UID/GID on Linux');
+  }
+  const parent = dirname(path);
+  const root = parse(parent).root;
+  const ancestors = [];
+  for (let cursor = parent; cursor !== root; cursor = dirname(cursor)) {
+    ancestors.push(cursor);
+  }
+  ancestors.push(root);
+  for (const entryPath of ancestors.reverse()) {
+    const entry = await lstat(entryPath);
+    if (!entry.isDirectory() || entry.isSymbolicLink() ||
+        (entry.uid !== 0 && entry.uid !== expectedBrokerUid)) {
+      throw new Error('Untrusted immutable broker socket ancestry');
+    }
+    if (entryPath === parent) {
+      if (entry.uid !== expectedBrokerUid || (entry.mode & 0o022) !== 0) {
+        throw new Error('Untrusted immutable broker socket parent');
+      }
+    } else if ((entry.mode & 0o022) !== 0 && (entry.mode & 0o1000) === 0) {
+      throw new Error('Untrusted writable immutable broker socket ancestry');
+    }
+  }
+  const entry = await lstat(path);
+  if (!entry.isSocket() || entry.uid !== expectedBrokerUid ||
+      entry.gid !== expectedBrokerGid || (entry.mode & 0o777) !== 0o660) {
+    throw new Error('Untrusted immutable broker socket identity or permissions');
   }
 }
 
@@ -38,8 +80,8 @@ function exactKeys(value, keys) {
     Object.keys(value).sort().join(',') === keys;
 }
 
-async function exchange(socketPath, request, maxResponseBytes, timeoutMs) {
-  validateSocketPath(socketPath);
+async function exchange(socketPath, request, maxResponseBytes, timeoutMs, expectedBrokerUid, expectedBrokerGid) {
+  await assertTrustedBrokerSocket(socketPath, expectedBrokerUid, expectedBrokerGid);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > DEFAULT_TIMEOUT_MS) {
     throw new Error('Invalid immutable broker client timeout');
   }
@@ -105,7 +147,9 @@ async function exchange(socketPath, request, maxResponseBytes, timeoutMs) {
 }
 
 /** Publish a snapshotted blob; never trust a broker's returned digest blindly. */
-export async function putBrokerBlob(socketPath, bytes, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export async function putBrokerBlob(socketPath, bytes, {
+  timeoutMs = DEFAULT_TIMEOUT_MS, expectedBrokerUid, expectedBrokerGid,
+} = {}) {
   if (!Buffer.isBuffer(bytes) || bytes.length > MAX_BLOB_BYTES) {
     throw new RangeError('Immutable broker blob must be a Buffer of at most 32 MiB');
   }
@@ -113,7 +157,7 @@ export async function putBrokerBlob(socketPath, bytes, { timeoutMs = DEFAULT_TIM
   const digest = createHash('sha256').update(snapshot).digest('hex');
   const response = await exchange(socketPath,
     { v: 1, op: 'put', bytes: snapshot.toString('base64') },
-    MAX_PUT_RESPONSE_BYTES, timeoutMs);
+    MAX_PUT_RESPONSE_BYTES, timeoutMs, expectedBrokerUid, expectedBrokerGid);
   if (!exactKeys(response, 'created,digest,ok,v') ||
       response.digest !== digest || typeof response.created !== 'boolean') {
     throw new Error('Immutable broker publication response failed authentication');
@@ -122,12 +166,14 @@ export async function putBrokerBlob(socketPath, bytes, { timeoutMs = DEFAULT_TIM
 }
 
 /** Read only by SHA-256 digest; verify returned bytes independently of the broker. */
-export async function getBrokerBlob(socketPath, digest, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export async function getBrokerBlob(socketPath, digest, {
+  timeoutMs = DEFAULT_TIMEOUT_MS, expectedBrokerUid, expectedBrokerGid,
+} = {}) {
   if (typeof digest !== 'string' || !DIGEST_PATTERN.test(digest)) {
     throw new Error('Invalid immutable broker digest');
   }
   const response = await exchange(socketPath, { v: 1, op: 'get', digest },
-    MAX_GET_RESPONSE_BYTES, timeoutMs);
+    MAX_GET_RESPONSE_BYTES, timeoutMs, expectedBrokerUid, expectedBrokerGid);
   if (!exactKeys(response, 'bytes,ok,v')) {
     throw new Error('Invalid immutable broker retrieval response');
   }
