@@ -252,8 +252,11 @@ recovery in the protected namespace.
 
 Each connection permits one newline-framed request and response. The proxy
 enforces a 15-second absolute deadline, one active connection, a 32 MiB
-payload framing limit, **64 requests per rolling minute**, and **256 MiB of
-request bytes per rolling minute** for its single configured client UID.
+payload framing limit, **64 requests per rolling minute**, **256 MiB of request bytes per rolling
+minute**, and **256 MiB of response bytes per rolling minute** for its single
+configured client UID. GET requests are small but may return large blobs;
+separate egress accounting prevents repeated GETs from bypassing the byte
+budget. Responses exceeding the remaining budget are dropped, not truncated.
 These are in-memory best-effort throughput controls, **not** persistent
 per-client storage quotas or a disk-space guarantee. Additional UIDs require
 separately isolated proxy/backend instances or a reviewed multi-tenant design;
