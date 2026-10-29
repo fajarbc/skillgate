@@ -94,6 +94,33 @@ def check_backend(path, uid, gid):
 
 
 
+
+async def read_bounded_client_request(reader, quota, entry):
+    """Charge every received client byte, including invalid and partial frames.
+
+    A readuntil() error for an oversized or unterminated request previously
+    discarded its buffered bytes without consuming the per-minute budget.
+    """
+    data = bytearray()
+    while True:
+        remaining_work = MAX_REQUEST_BYTES_PER_MINUTE - sum(item[1] for item in quota)
+        remaining_wire = MAX_WIRE_BYTES - len(data)
+        if remaining_work <= 0 or remaining_wire <= 0:
+            return None
+        chunk = await reader.read(min(64 * 1024, remaining_work + 1, remaining_wire + 1))
+        if not chunk:
+            return None
+        entry[1] += len(chunk)
+        if len(chunk) > remaining_work or len(chunk) > remaining_wire:
+            return None
+        if b'\n' in chunk:
+            if chunk[-1] != 10 or chunk.count(b'\n') != 1:
+                return None
+            data.extend(chunk)
+            return bytes(data)
+        data.extend(chunk)
+
+
 async def read_bounded_backend_response(reader, quota, entry):
     """Charge every backend byte, including truncated or rejected responses.
 
@@ -158,19 +185,21 @@ async def main():
                 quota.popleft()
             if len(quota) >= MAX_REQUESTS_PER_MINUTE:
                 return
-            request = await reader.readuntil(b'\n')
-            if len(request) > MAX_WIRE_BYTES or sum(item[1] for item in quota) + len(request) > MAX_REQUEST_BYTES_PER_MINUTE:
+            # Invalid, incomplete and oversized client frames consume budget
+            # too; charge from the first received byte, before broker I/O.
+            if sum(item[1] for item in quota) >= MAX_REQUEST_BYTES_PER_MINUTE or \
+                    sum(item[2] for item in quota) >= MAX_RESPONSE_BYTES_PER_MINUTE:
                 return
-            # A rejected oversized response still consumes backend work.
-            # Once the budget is exhausted, refuse before contacting the broker.
-            if sum(item[2] for item in quota) >= MAX_RESPONSE_BYTES_PER_MINUTE:
+            quota_entry = [time.monotonic(), 0, 0]
+            quota.append(quota_entry)
+            request = await read_bounded_client_request(reader, quota, quota_entry)
+            if request is None:
                 return
-            quota.append([time.monotonic(), len(request), 0])
             check_backend(backend, uid, gid)
             upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=MAX_WIRE_BYTES + 1)
             upstream_writer.write(request)
             await upstream_writer.drain()
-            response = await read_bounded_backend_response(upstream_reader, quota, quota[-1])
+            response = await read_bounded_backend_response(upstream_reader, quota, quota_entry)
             if response is None:
                 return
             writer.write(response)
