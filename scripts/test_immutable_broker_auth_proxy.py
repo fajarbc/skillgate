@@ -82,5 +82,81 @@ class BoundedResponseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry[2], 5)
 
 
+
+
+class BoundedRequestTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.original_wire = proxy.MAX_WIRE_BYTES
+        self.original_budget = proxy.MAX_REQUEST_BYTES_PER_MINUTE
+
+    def tearDown(self):
+        proxy.MAX_WIRE_BYTES = self.original_wire
+        proxy.MAX_REQUEST_BYTES_PER_MINUTE = self.original_budget
+
+    @staticmethod
+    def make_quota(previous=0):
+        entry = [0, 0, 0]
+        quota = deque([[0, previous, 0], entry]) if previous else deque([entry])
+        return quota, entry
+
+    async def test_complete_request_charges_all_bytes(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'{"v":1}\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertEqual(await proxy.read_bounded_client_request(reader, quota, entry), b'{"v":1}\n')
+        self.assertEqual(entry[1], 8)
+
+    async def test_unterminated_request_charges_partial_bytes(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'incomplete')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertIsNone(await proxy.read_bounded_client_request(reader, quota, entry))
+        self.assertEqual(entry[1], 10)
+
+    async def test_request_over_remaining_quota_is_denied_and_charged(self):
+        proxy.MAX_REQUEST_BYTES_PER_MINUTE = 10
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'abcdefghij\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota(previous=6)
+        self.assertIsNone(await proxy.read_bounded_client_request(reader, quota, entry))
+        self.assertEqual(entry[1], 5)
+
+    async def test_invalid_multiline_request_is_charged(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'one\ntwo\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertIsNone(await proxy.read_bounded_client_request(reader, quota, entry))
+        self.assertEqual(entry[1], 8)
+
+    async def test_trailing_bytes_after_newline_are_rejected(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'one\nextra')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertIsNone(await proxy.read_bounded_client_request(reader, quota, entry))
+        self.assertEqual(entry[1], 9)
+
+    async def test_timeout_preserves_partial_accounting(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'partial')
+        quota, entry = self.make_quota()
+        with self.assertRaises(asyncio.TimeoutError):
+            await asyncio.wait_for(proxy.read_bounded_client_request(reader, quota, entry), 0.02)
+        self.assertEqual(entry[1], 7)
+
+    async def test_wire_limit_rejects_and_charges_overshoot(self):
+        proxy.MAX_WIRE_BYTES = 4
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'abcdef\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertIsNone(await proxy.read_bounded_client_request(reader, quota, entry))
+        self.assertEqual(entry[1], 5)
+
+
 if __name__ == '__main__':
     unittest.main()
