@@ -228,6 +228,21 @@ export async function readPinnedGenerationFile(
   return bytes;
 }
 
+/** Plan and apply must reject the same unsafe store placement before reading
+ * skill sources. This preflight does not establish protection against a
+ * non-cooperating writer; the store must still have trusted OS ownership.
+ */
+async function assertStoreOutsideWorkspace(workspaceRoot: string, storePath: string): Promise<void> {
+  // Match the canonical pathname used by immutable-store I/O. Resolving the
+  // raw symlink/../ path instead can disagree with its lexical normalization.
+  const [workspace, store] = await Promise.all([realpath(workspaceRoot), realpath(resolve(storePath))]);
+  const fromWorkspace = relative(workspace, store);
+  if (fromWorkspace === "" || (fromWorkspace !== ".." &&
+      !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace))) {
+    throw new Error("Immutable SkillGate store must be outside the workspace");
+  }
+}
+
 /** Explicit adapter-facing immutable lifecycle. The caller supplies a protected
  * store and retains returned digests; no workspace path is published or removed.
  * This deliberately does not pretend to satisfy legacy apply()/cleanup().
@@ -248,23 +263,14 @@ export class PinnedImmutableAdapter {
 
   /** Read and validate real skill sources, then preview without any mutation. */
   async planContext(context: AdapterContext): Promise<{ digest: string; generation: ImmutableGeneration }> {
+    await assertStoreOutsideWorkspace(context.root, this.store);
     const files = await prepareImmutableAdapterContext(this.agent, context);
     return this.plan(files);
   }
 
   /** Read real skill sources and publish them only into the immutable store. */
   async applyContext(context: AdapterContext): Promise<{ digest: string; generation: ImmutableGeneration }> {
-    // A store inside the mutable workspace inherits its attacker-controlled
-    // namespace; reject before reading sources or publishing any blobs.
-    // Match the canonical store pathname used by immutable-store I/O. A raw
-    // symlink/../ sequence can resolve differently at the OS level than the
-    // lexically normalized pathname, bypassing the workspace containment check.
-    const [workspace, store] = await Promise.all([realpath(context.root), realpath(resolve(this.store))]);
-    const fromWorkspace = relative(workspace, store);
-    if (fromWorkspace === "" || (fromWorkspace !== ".." &&
-        !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace))) {
-      throw new Error("Immutable SkillGate store must be outside the workspace");
-    }
+    await assertStoreOutsideWorkspace(context.root, this.store);
     const files = await prepareImmutableAdapterContext(this.agent, context);
     return this.apply(files);
   }
