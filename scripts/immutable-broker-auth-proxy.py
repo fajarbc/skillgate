@@ -145,6 +145,12 @@ async def main():
             quota[-1][2] = len(response)
             writer.write(response)
             await writer.drain()
+            # drain() only waits until the transport drops below its low-water
+            # mark; abort() can discard a buffered response tail. Close
+            # gracefully and wait for queued bytes to flush. The enclosing
+            # 15-second wait_for still aborts stalled clients on timeout.
+            writer.close()
+            await writer.wait_closed()
         except (OSError, ValueError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
             pass
         finally:
