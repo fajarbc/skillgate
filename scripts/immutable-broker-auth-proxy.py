@@ -111,6 +111,9 @@ async def read_bounded_client_request(reader, quota, entry):
         if not chunk:
             return None
         entry[1] += len(chunk)
+        # Retain this work until 60s after its last received byte, not
+        # merely 60s after the request began (which may be 15s earlier).
+        entry[0] = time.monotonic()
         if len(chunk) > remaining_work or len(chunk) > remaining_wire:
             return None
         if b'\n' in chunk:
@@ -138,6 +141,8 @@ async def read_bounded_backend_response(reader, quota, entry):
         if not chunk:
             return None
         entry[2] += len(chunk)
+        # A delayed backend response must not expire based on request start.
+        entry[0] = time.monotonic()
         if len(chunk) > remaining_work or len(chunk) > remaining_wire:
             return None
         if b'\n' in chunk:
