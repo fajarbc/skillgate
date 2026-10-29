@@ -34,7 +34,8 @@ export async function prepareImmutableAdapterContext(
   }
   // Path preparation validates identifiers and collisions without statting,
   // creating, or trusting the legacy workspace destination.
-  if (typeof context.task !== "string" || !wellFormedImmutableText(context.task)) {
+  const task = context.task;
+  if (typeof task !== "string" || !wellFormedImmutableText(task)) {
     throw new Error("Invalid immutable adapter task");
   }
   const prepared = prepareSafeSkillPaths(context.skills, context.root);
@@ -48,21 +49,30 @@ export async function prepareImmutableAdapterContext(
   }> = [];
   let total = 0;
   for (const { skill, safeId } of prepared) {
-    // The reader rejects non-finite scores and malformed metadata. Enforce
-    // those invariants before publishing any blob, not after publication.
-    if (typeof skill.path !== "string" || !wellFormedImmutableText(skill.path) ||
-        typeof skill.metadata.name !== "string" || !wellFormedImmutableText(skill.metadata.name) ||
-        typeof skill.metadata.description !== "string" ||
-        !wellFormedImmutableText(skill.metadata.description) ||
-        typeof skill.score !== "number" || !Number.isFinite(skill.score) ||
-        (skill.metadata.capabilities !== undefined &&
-          (!Array.isArray(skill.metadata.capabilities) ||
-           !skill.metadata.capabilities.every((capability) =>
-             typeof capability === "string" && wellFormedImmutableText(capability))))) {
+    // Snapshot all metadata before the first await. A caller may mutate its
+    // task, skill object, or capabilities array while source I/O is pending.
+    // Array.from also materializes sparse holes as undefined, so validation
+    // cannot silently skip them as Array.prototype.every() would.
+    const sourcePath = skill.path;
+    const { name, description, capabilities: rawCapabilities } = skill.metadata;
+    const score = skill.score;
+    const capabilities = rawCapabilities === undefined ? [] :
+      Array.isArray(rawCapabilities) ? Array.from(rawCapabilities) : null;
+    if (typeof sourcePath !== "string" || !wellFormedImmutableText(sourcePath) ||
+        typeof name !== "string" || !wellFormedImmutableText(name) ||
+        typeof description !== "string" || !wellFormedImmutableText(description) ||
+        typeof score !== "number" || !Number.isFinite(score) ||
+        capabilities === null ||
+        !capabilities.every((capability) =>
+          typeof capability === "string" && wellFormedImmutableText(capability))) {
       throw new Error("Invalid immutable adapter skill metadata");
     }
     const logicalPath = `skills/${safeId}/SKILL.md`;
-    const content = await readPreparedSkillSource(skill);
+    const sourceSkill = {
+      ...skill, path: sourcePath, score,
+      metadata: { ...skill.metadata, name, description, capabilities },
+    };
+    const content = await readPreparedSkillSource(sourceSkill);
     const bytes = Buffer.from(OWNERSHIP_HEADER + content, "utf8");
     total += bytes.length;
     if (total > MAX_IMMUTABLE_BLOB_BYTES) {
@@ -70,18 +80,18 @@ export async function prepareImmutableAdapterContext(
     }
     files[logicalPath] = bytes;
     metadata.push({
-      name: skill.metadata.name,
+      name,
       identifier: safeId,
-      description: skill.metadata.description,
+      description,
       path: logicalPath,
-      sourcePath: skill.path,
-      score: skill.score,
-      capabilities: skill.metadata.capabilities ?? [],
+      sourcePath,
+      score,
+      capabilities,
     });
   }
   metadata.sort((a, b) => a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0);
   const manifest = Buffer.from(JSON.stringify({
-    schemaVersion: "1", agent, task: context.task, skills: metadata,
+    schemaVersion: "1", agent, task, skills: metadata,
   }), "utf8");
   total += manifest.length;
   if (total > MAX_IMMUTABLE_BLOB_BYTES) {
