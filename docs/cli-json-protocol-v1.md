@@ -1,6 +1,6 @@
 # SkillGate CLI JSON protocol v1 (proposed contract)
 
-Status: **implementation in progress on the #31 feature branch; not released**. Versioned `--json` envelopes and bounded stdin transport are wired into the CLI on this branch. Schema fixtures, full repository tests, and review are still pending. Consumers must not rely on v1 until the changes are validated and merged.
+Status: **merged into `development` by PR #98; not released or fully validated**. Versioned `--json` envelopes, bounded stdin transport, JSON schemas, golden fixtures, and a dependency-free fixture check are present on `development`. Full repository typecheck, Vitest, build, independent JSON Schema 2020-12 conformance, and release review have not been confirmed. Consumers must not treat v1 as a released contract until validation and release approval.
 
 ## Invocation and transport
 
@@ -53,7 +53,7 @@ The `command` field contains the requested command name, or `null` when command 
 
 For v1, these field names and their JSON types are stable. Additional optional fields may be introduced without a version bump. Existing required fields may not be removed or repurposed in v1.
 
-## Large task input via stdin (feature branch)
+## Large task input via stdin (development implementation)
 
 `skillgate recommend --json --stdin` accepts a **single** UTF-8 JSON object on stdin, bounded to 1 MiB:
 
@@ -77,7 +77,7 @@ Exit status 0: successful request. Exit status 1: invalid request or command. Ex
 
 ## Schemas and golden fixtures
 
-The feature branch includes `schemas/cli-json-v1.schema.json`, `schemas/cli-json-stdin-v1.schema.json`, and eight golden examples in `fixtures/cli-json-v1/`. `npm run test:protocol` runs a dependency-free fixture check covering the schema keywords used by these files; `npm test` runs it before Vitest. This limited check is **not** a substitute for full JSON Schema 2020-12 validation of real CLI outputs before release.
+`development` includes `schemas/cli-json-v1.schema.json`, `schemas/cli-json-stdin-v1.schema.json`, and eight golden examples in `fixtures/cli-json-v1/`. `npm run test:protocol` runs a dependency-free fixture check covering the schema keywords used by these files; `npm test` runs it before Vitest. This limited check is **not** a substitute for full JSON Schema 2020-12 validation of real CLI outputs before release.
 
 ## Required conformance tests before release
 
@@ -89,4 +89,4 @@ The feature branch includes `schemas/cli-json-v1.schema.json`, `schemas/cli-json
 - Policy-denied skills are absent from recommendation output.
 - Existing human output and exit behavior remain compatible unless explicitly documented.
 
-**Implementation status:** v1 envelope routing and strict bounded stdin parsing have been committed to the #31 feature branch. Schema fixtures and full CLI/Vitest validation are still outstanding; this is not a release announcement.
+**Implementation status:** PR #98 merged the v1 envelope routing, bounded stdin parser, schemas, and fixture-check wiring into `development`. The fixture-check script is committed, but its execution and the complete CLI/Vitest/build suite are not verified in this environment. Issue #31 remains open pending the full acceptance and release validation; this is not a release announcement.
