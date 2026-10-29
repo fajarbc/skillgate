@@ -7,6 +7,7 @@ from collections import deque
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 source = Path(__file__).with_name('immutable-broker-auth-proxy.py')
 spec = importlib.util.spec_from_file_location('skillgate_broker_proxy', source)
@@ -156,6 +157,42 @@ class BoundedRequestTests(unittest.IsolatedAsyncioTestCase):
         quota, entry = self.make_quota()
         self.assertIsNone(await proxy.read_bounded_client_request(reader, quota, entry))
         self.assertEqual(entry[1], 5)
+
+
+class RollingQuotaWindowTests(unittest.IsolatedAsyncioTestCase):
+    """Delayed I/O must not make old work disappear at request-start + 60s."""
+
+    async def test_delayed_backend_bytes_remain_charged(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'late-response\n')
+        reader.feed_eof()
+        entry = [0, 0, 0]
+        quota = deque([entry])
+        with patch.object(proxy.time, 'monotonic', return_value=14):
+            self.assertEqual(
+                await proxy.read_bounded_backend_response(reader, quota, entry),
+                b'late-response\n')
+        self.assertEqual(entry[0], 14)
+        now = 60
+        while quota and now - quota[0][0] >= 60:
+            quota.popleft()
+        self.assertEqual(sum(item[2] for item in quota), len(b'late-response\n'))
+
+    async def test_delayed_request_bytes_remain_charged(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'late-request\n')
+        reader.feed_eof()
+        entry = [0, 0, 0]
+        quota = deque([entry])
+        with patch.object(proxy.time, 'monotonic', return_value=14):
+            self.assertEqual(
+                await proxy.read_bounded_client_request(reader, quota, entry),
+                b'late-request\n')
+        self.assertEqual(entry[0], 14)
+        now = 60
+        while quota and now - quota[0][0] >= 60:
+            quota.popleft()
+        self.assertEqual(sum(item[1] for item in quota), len(b'late-request\n'))
 
 
 if __name__ == '__main__':
