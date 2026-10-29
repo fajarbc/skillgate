@@ -93,6 +93,34 @@ def check_backend(path, uid, gid):
         reject('private broker socket has unsafe identity or permissions')
 
 
+
+async def read_bounded_backend_response(reader, quota, entry):
+    """Charge every backend byte, including truncated or rejected responses.
+
+    readuntil() raises on a truncated frame and discards its partial data from
+    quota accounting. Reading in bounded chunks charges consumed bytes even
+    when the backend disconnects or the absolute connection deadline expires.
+    """
+    data = bytearray()
+    while True:
+        remaining_work = MAX_RESPONSE_BYTES_PER_MINUTE - sum(item[2] for item in quota)
+        remaining_wire = MAX_WIRE_BYTES - len(data)
+        if remaining_work <= 0 or remaining_wire <= 0:
+            return None
+        chunk = await reader.read(min(64 * 1024, remaining_work + 1, remaining_wire + 1))
+        if not chunk:
+            return None
+        entry[2] += len(chunk)
+        if len(chunk) > remaining_work or len(chunk) > remaining_wire:
+            return None
+        if b'\n' in chunk:
+            if chunk[-1] != 10 or chunk.count(b'\n') != 1:
+                return None
+            data.extend(chunk)
+            return bytes(data)
+        data.extend(chunk)
+
+
 async def main():
     if len(sys.argv) != 3:
         reject('usage: proxy <public-socket> <private-broker-socket>')
@@ -142,13 +170,8 @@ async def main():
             upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=MAX_WIRE_BYTES + 1)
             upstream_writer.write(request)
             await upstream_writer.drain()
-            response = await upstream_reader.readuntil(b'\n')
-            if len(response) > MAX_WIRE_BYTES:
-                return
-            # Account for upstream bytes even when this response is denied:
-            # otherwise repeated over-budget GETs can force unbounded reads.
-            quota[-1][2] = len(response)
-            if sum(item[2] for item in quota) > MAX_RESPONSE_BYTES_PER_MINUTE:
+            response = await read_bounded_backend_response(upstream_reader, quota, quota[-1])
+            if response is None:
                 return
             writer.write(response)
             await writer.drain()
