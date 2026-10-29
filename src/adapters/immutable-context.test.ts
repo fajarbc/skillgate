@@ -187,10 +187,12 @@ describe("immutable context adapter integration", () => {
       const source = join(root, "source.md");
       await writeFile(source, "# source");
       const adapter = new CodexAdapter().immutable(nestedStore);
-      await expect(adapter.applyContext({ root, task: "task", skills: [{
+      const context = { root, task: "task", skills: [{
         path: source, metadata: { name: "test", description: "test" },
         score: 1, reasons: [],
-      }] })).rejects.toThrow(/outside the workspace/);
+      }] };
+      await expect(adapter.planContext(context)).rejects.toThrow(/outside the workspace/);
+      await expect(adapter.applyContext(context)).rejects.toThrow(/outside the workspace/);
       expect(await readdir(nestedStore)).toEqual([]);
     });
   });
@@ -211,10 +213,12 @@ describe("immutable context adapter integration", () => {
       // the writer's canonical path, not the raw pathname's realpath.
       const ambiguousStore = `${root}/alias/../safe`;
       const adapter = new CodexAdapter().immutable(ambiguousStore);
-      await expect(adapter.applyContext({ root, task: "task", skills: [{
+      const context = { root, task: "task", skills: [{
         path: source, metadata: { name: "test", description: "test" },
         score: 1, reasons: [],
-      }] })).rejects.toThrow(/outside the workspace/);
+      }] };
+      await expect(adapter.planContext(context)).rejects.toThrow(/outside the workspace/);
+      await expect(adapter.applyContext(context)).rejects.toThrow(/outside the workspace/);
       expect(await readdir(insideStore)).toEqual([]);
       expect(await readdir(outsideStore)).toEqual([]);
     });
