@@ -1,0 +1,86 @@
+"""Dependency-free bounded broker response tests.
+
+Run with: python3 -m unittest discover -s scripts -p 'test_immutable_broker_auth_proxy.py'
+"""
+import asyncio
+from collections import deque
+import importlib.util
+from pathlib import Path
+import unittest
+
+source = Path(__file__).with_name('immutable-broker-auth-proxy.py')
+spec = importlib.util.spec_from_file_location('skillgate_broker_proxy', source)
+proxy = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(proxy)
+
+
+class BoundedResponseTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.original_wire = proxy.MAX_WIRE_BYTES
+        self.original_budget = proxy.MAX_RESPONSE_BYTES_PER_MINUTE
+
+    def tearDown(self):
+        proxy.MAX_WIRE_BYTES = self.original_wire
+        proxy.MAX_RESPONSE_BYTES_PER_MINUTE = self.original_budget
+
+    @staticmethod
+    def make_quota(previous=0):
+        entry = [0, 10, 0]
+        quota = deque([[0, 0, previous], entry]) if previous else deque([entry])
+        return quota, entry
+
+    async def test_complete_response_charges_all_chunks(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'{"ok":')
+        reader.feed_data(b'true}\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertEqual(await proxy.read_bounded_backend_response(reader, quota, entry), b'{"ok":true}\n')
+        self.assertEqual(entry[2], len(b'{"ok":true}\n'))
+
+    async def test_truncated_backend_charges_partial_bytes(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'partial-response')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertIsNone(await proxy.read_bounded_backend_response(reader, quota, entry))
+        self.assertEqual(entry[2], len(b'partial-response'))
+
+    async def test_response_over_remaining_quota_is_denied_and_charged(self):
+        proxy.MAX_RESPONSE_BYTES_PER_MINUTE = 10
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'123456789\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota(previous=6)
+        self.assertIsNone(await proxy.read_bounded_backend_response(reader, quota, entry))
+        self.assertEqual(entry[2], 5)
+        self.assertGreater(sum(item[2] for item in quota), 10)
+
+    async def test_invalid_multiline_response_is_charged(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'one\ntwo\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertIsNone(await proxy.read_bounded_backend_response(reader, quota, entry))
+        self.assertEqual(entry[2], 8)
+
+    async def test_absolute_timeout_preserves_partial_accounting(self):
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'partial')
+        quota, entry = self.make_quota()
+        with self.assertRaises(asyncio.TimeoutError):
+            await asyncio.wait_for(proxy.read_bounded_backend_response(reader, quota, entry), 0.02)
+        self.assertEqual(entry[2], 7)
+
+    async def test_wire_limit_rejects_and_charges_overshoot(self):
+        proxy.MAX_WIRE_BYTES = 4
+        reader = asyncio.StreamReader()
+        reader.feed_data(b'abcdef\n')
+        reader.feed_eof()
+        quota, entry = self.make_quota()
+        self.assertIsNone(await proxy.read_bounded_backend_response(reader, quota, entry))
+        self.assertEqual(entry[2], 5)
+
+
+if __name__ == '__main__':
+    unittest.main()
