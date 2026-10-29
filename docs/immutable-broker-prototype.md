@@ -194,3 +194,80 @@ appropriate resource quotas and authorization, run full typecheck/Vitest/build,
 and execute the built SIGKILL recovery smoke. Revisit the security boundary
 under the actual deployment's OS, filesystem, service manager, and user/group
 configuration. No strict adapter should invoke this prototype automatically.
+
+
+## Optional Linux kernel-authenticated broker proxy (2026-10-29)
+
+The raw Node broker socket **does not authenticate individual peers**: any
+process able to connect can issue both put and get. The opt-in
+`scripts/immutable-broker-auth-proxy.py` introduces a separate, Linux-only
+`SO_PEERCRED` gate in front of that socket. The Python 3 standard-library
+proxy checks the connecting process's **kernel-reported UID and primary GID**
+before forwarding any request bytes. It rejects callers sharing the permitted
+socket group but not the explicitly configured client UID. No Node-internal
+socket APIs or third-party Python packages are required.
+
+The administrator must create **two distinct broker-owned directories** under
+root- or broker-owned protected ancestors:
+
+- **Private backend socket directory**: broker UID, mode `0700`. Start the
+  existing Node broker here, pointing to its separate broker-owned `0700`
+  immutable store. Clients cannot traverse this directory and must never be
+  given its socket path.
+- **Public proxy socket directory**: broker UID, mode `0750`, group set to
+  the dedicated client GID. The proxy binds a `0660` socket here. Clients
+  use **only this public socket**, with their pinned expected broker UID/GID.
+
+Launch the Node broker first, then launch the Python proxy with the same
+dedicated broker UID and primary GID. Both must have real/effective/saved
+credentials set to that non-root UID/GID, no supplementary groups, zero Linux
+capabilities, and `NoNewPrivs=1`. Example after an administrator has created
+the directories and provisioned distinct identities:
+
+~~~sh
+# Broker: private socket is inaccessible to the untrusted client UID.
+SKILLGATE_BROKER_CLIENT_UID=<client-uid> \
+SKILLGATE_BROKER_CLIENT_GID=<client-gid> \
+  node scripts/immutable-store-broker.mjs \
+  /protected/private/immutable.sock /protected/immutable-store
+
+# Proxy: run under the SAME dedicated broker UID/GID, with capabilities
+# cleared and NoNewPrivs enabled, using the same environment variables.
+SKILLGATE_BROKER_CLIENT_UID=<client-uid> \
+SKILLGATE_BROKER_CLIENT_GID=<client-gid> \
+  python3 scripts/immutable-broker-auth-proxy.py \
+  /protected/public/immutable.sock /protected/private/immutable.sock
+~~~
+
+The commands above assume the process manager has already dropped privileges;
+setting environment variables **does not** change credentials. For an isolated
+Linux test, a privileged operator can launch each service with
+`setpriv --reuid <broker-uid> --regid <client-gid> --clear-groups
+--no-new-privs --bounding-set=-all`. Never run either process as root.
+The proxy fails closed if its private backend is absent, its socket or parent
+has unexpected ownership/mode, the public parent is attacker-owned, Linux
+peer credentials are unavailable, or saved IDs/capabilities remain elevated.
+It never removes a pre-existing socket; stale sockets require operator
+recovery in the protected namespace.
+
+Each connection permits one newline-framed request and response. The proxy
+enforces a 15-second absolute deadline, one active connection, a 32 MiB
+payload framing limit, **64 requests per rolling minute**, and **256 MiB of
+request bytes per rolling minute** for its single configured client UID.
+These are in-memory best-effort throughput controls, **not** persistent
+per-client storage quotas or a disk-space guarantee. Additional UIDs require
+separately isolated proxy/backend instances or a reviewed multi-tenant design;
+do not share one group-accessible raw broker endpoint between principals.
+
+**Validation boundary:** An isolated real Linux cross-UID test with the exact
+committed Python source verified that an authorized UID/GID received a backend
+response; a different UID sharing the same socket group was rejected by
+`SO_PEERCRED`; an incorrect primary GID and direct backend access were
+denied by the kernel. Four negative startup checks rejected retained
+supplementary groups, a same-UID client, a missing private backend, and an
+attacker-owned public parent. This test used a minimal mock backend, **not**
+the built SkillGate Node broker. The full repository build, committed broker
+smoke, and SIGKILL generation recovery remain unexecuted. This proxy is
+experimental; it does **not** implement generation authorization, consumer
+migration, or strict adapter lifecycle integration. Keep #28 open and PR #97
+draft until those boundaries and full validation are complete.
