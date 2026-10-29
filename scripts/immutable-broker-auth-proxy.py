@@ -19,6 +19,8 @@ MAX_BLOB_BYTES = 32 * 1024 * 1024
 MAX_WIRE_BYTES = 4 * ((MAX_BLOB_BYTES + 2) // 3) + 2048
 MAX_REQUESTS_PER_MINUTE = 64
 MAX_REQUEST_BYTES_PER_MINUTE = 256 * 1024 * 1024
+# Tiny GET requests can amplify into large responses; bound egress separately.
+MAX_RESPONSE_BYTES_PER_MINUTE = 256 * 1024 * 1024
 MAX_CONNECTION_SECONDS = 15
 
 
@@ -131,14 +133,16 @@ async def main():
             request = await reader.readuntil(b'\n')
             if len(request) > MAX_WIRE_BYTES or sum(item[1] for item in quota) + len(request) > MAX_REQUEST_BYTES_PER_MINUTE:
                 return
-            quota.append((now, len(request)))
+            quota.append([time.monotonic(), len(request), 0])
             check_backend(backend, uid, gid)
             upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=MAX_WIRE_BYTES + 1)
             upstream_writer.write(request)
             await upstream_writer.drain()
             response = await upstream_reader.readuntil(b'\n')
-            if len(response) > MAX_WIRE_BYTES:
+            if len(response) > MAX_WIRE_BYTES or \
+                    sum(item[2] for item in quota) + len(response) > MAX_RESPONSE_BYTES_PER_MINUTE:
                 return
+            quota[-1][2] = len(response)
             writer.write(response)
             await writer.drain()
         except (OSError, ValueError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
