@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 import { OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
+import { prepareImmutableAdapterContext } from "./immutable-context.js";
 
 async function withFixture(work: (root: string, store: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "skillgate-context-workspace-"));
@@ -240,6 +241,58 @@ describe("immutable context adapter integration", () => {
     });
   });
 
+
+
+  it("rejects sparse capability arrays before publishing any immutable blob", async () => {
+    await withFixture(async (root, store) => {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Skill");
+      const capabilities = new Array<string>(1);
+      const context = { root, task: "task", skills: [{
+        path: source, metadata: { name: "example", description: "Example", capabilities },
+        score: 1, reasons: [],
+      }] };
+      const adapter = new CodexAdapter().immutable(store);
+      await expect(adapter.planContext(context)).rejects.toThrow(/metadata/);
+      await expect(adapter.applyContext(context)).rejects.toThrow(/metadata/);
+      expect(await readdir(store)).toEqual([]);
+    });
+  });
+
+  it("snapshots task and skill metadata before asynchronous source reads", async () => {
+    await withFixture(async (root) => {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Skill");
+      const skill = {
+        path: source,
+        metadata: { name: "example", description: "Original", capabilities: ["safe"] },
+        score: 1, reasons: [],
+      };
+      const context = { root, task: "original task", skills: [skill] };
+      // Preparation reaches an awaited source lstat before this microtask.
+      // The published metadata must describe the original validated snapshot.
+      const pending = prepareImmutableAdapterContext("codex", context);
+      queueMicrotask(() => {
+        context.task = "changed task";
+        skill.path = join(root, "missing.md");
+        skill.metadata.name = "changed";
+        skill.metadata.description = "changed";
+        skill.metadata.capabilities[0] = "bad" + String.fromCharCode(0xd800);
+        skill.score = Number.NaN;
+      });
+      const files = await pending;
+      const metadata = JSON.parse(files["skills.json"]!.toString("utf8"));
+      expect(metadata.task).toBe("original task");
+      expect(metadata.skills).toEqual([{
+        name: "example", identifier: "example", description: "Original",
+        path: "skills/example/SKILL.md", sourcePath: source,
+        score: 1, capabilities: ["safe"],
+      }]);
+      expect(files["skills/example/SKILL.md"]?.toString()).toBe(
+        OWNERSHIP_HEADER + "# Skill",
+      );
+    });
+  });
 
   it("rejects pinned skill bytes missing the ownership header or containing invalid UTF-8", async () => {
     await withFixture(async (_root, store) => {
