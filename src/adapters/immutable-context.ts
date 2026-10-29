@@ -42,20 +42,13 @@ export async function prepareImmutableAdapterContext(
   if (prepared.length > MAX_CONTEXT_SKILLS) {
     throw new Error("Immutable adapter context exceeds skill count limit");
   }
-  const files: Record<string, Buffer> = Object.create(null);
-  const metadata: Array<{
-    name: string; identifier: string; description: string;
-    path: string; sourcePath: string; score: number; capabilities: string[];
-  }> = [];
-  let total = 0;
-  for (const { skill, safeId } of prepared) {
-    // Snapshot all metadata before the first await. A caller may mutate its
-    // task, skill object, or capabilities array while source I/O is pending.
-    // Array.from also materializes sparse holes as undefined, so validation
-    // cannot silently skip them as Array.prototype.every() would.
+  // Snapshot every skill before the first source I/O. Snapshotting one skill
+  // per iteration leaves later entries mutable while earlier reads await.
+  const snapshots = prepared.map(({ skill, safeId }) => {
     const sourcePath = skill.path;
     const { name, description, capabilities: rawCapabilities } = skill.metadata;
     const score = skill.score;
+    // Array.from materializes sparse holes as undefined for validation.
     const capabilities = rawCapabilities === undefined ? [] :
       Array.isArray(rawCapabilities) ? Array.from(rawCapabilities) : null;
     if (typeof sourcePath !== "string" || !wellFormedImmutableText(sourcePath) ||
@@ -72,6 +65,15 @@ export async function prepareImmutableAdapterContext(
       ...skill, path: sourcePath, score,
       metadata: { ...skill.metadata, name, description, capabilities },
     };
+    return { name, safeId, description, sourcePath, score, capabilities, logicalPath, sourceSkill };
+  });
+  const files: Record<string, Buffer> = Object.create(null);
+  const metadata: Array<{
+    name: string; identifier: string; description: string;
+    path: string; sourcePath: string; score: number; capabilities: string[];
+  }> = [];
+  let total = 0;
+  for (const { name, safeId, description, sourcePath, score, capabilities, logicalPath, sourceSkill } of snapshots) {
     const content = await readPreparedSkillSource(sourceSkill);
     const bytes = Buffer.from(OWNERSHIP_HEADER + content, "utf8");
     total += bytes.length;
