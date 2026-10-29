@@ -133,16 +133,23 @@ async def main():
             request = await reader.readuntil(b'\n')
             if len(request) > MAX_WIRE_BYTES or sum(item[1] for item in quota) + len(request) > MAX_REQUEST_BYTES_PER_MINUTE:
                 return
+            # A rejected oversized response still consumes backend work.
+            # Once the budget is exhausted, refuse before contacting the broker.
+            if sum(item[2] for item in quota) >= MAX_RESPONSE_BYTES_PER_MINUTE:
+                return
             quota.append([time.monotonic(), len(request), 0])
             check_backend(backend, uid, gid)
             upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=MAX_WIRE_BYTES + 1)
             upstream_writer.write(request)
             await upstream_writer.drain()
             response = await upstream_reader.readuntil(b'\n')
-            if len(response) > MAX_WIRE_BYTES or \
-                    sum(item[2] for item in quota) + len(response) > MAX_RESPONSE_BYTES_PER_MINUTE:
+            if len(response) > MAX_WIRE_BYTES:
                 return
+            # Account for upstream bytes even when this response is denied:
+            # otherwise repeated over-budget GETs can force unbounded reads.
             quota[-1][2] = len(response)
+            if sum(item[2] for item in quota) > MAX_RESPONSE_BYTES_PER_MINUTE:
+                return
             writer.write(response)
             await writer.drain()
             # drain() only waits until the transport drops below its low-water
