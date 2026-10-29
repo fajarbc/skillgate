@@ -259,6 +259,45 @@ describe("immutable context adapter integration", () => {
     });
   });
 
+  it("snapshots later skills before awaiting the first skill source", async () => {
+    await withFixture(async (root) => {
+      const first = join(root, "first.md");
+      const second = join(root, "second.md");
+      await writeFile(first, "# First");
+      await writeFile(second, "# Second");
+      const later = {
+        path: second,
+        metadata: { name: "second", description: "Original", capabilities: ["safe"] },
+        score: 2, reasons: [],
+      };
+      const context = { root, task: "task", skills: [{
+        path: first, metadata: { name: "first", description: "First" },
+        score: 1, reasons: [],
+      }, later] };
+      const pending = prepareImmutableAdapterContext("codex", context);
+      // The first source lstat has yielded. The second skill must already
+      // be snapshotted, not re-read after that first asynchronous operation.
+      queueMicrotask(() => {
+        later.path = join(root, "attacker-missing.md");
+        later.metadata.name = "forged";
+        later.metadata.description = "Changed";
+        later.metadata.capabilities[0] = "bad" + String.fromCharCode(0xd800);
+        later.score = Number.NaN;
+      });
+      const files = await pending;
+      const manifest = JSON.parse(files["skills.json"]!.toString("utf8"));
+      expect(manifest.skills.map((skill: { name: string }) => skill.name))
+        .toEqual(["first", "second"]);
+      expect(manifest.skills[1]).toEqual({
+        name: "second", identifier: "second", description: "Original",
+        path: "skills/second/SKILL.md", sourcePath: second,
+        score: 2, capabilities: ["safe"],
+      });
+      expect(files["skills/second/SKILL.md"]?.toString())
+        .toBe(OWNERSHIP_HEADER + "# Second");
+    });
+  });
+
   it("snapshots task and skill metadata before asynchronous source reads", async () => {
     await withFixture(async (root) => {
       const source = join(root, "source.md");
