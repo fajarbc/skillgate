@@ -163,4 +163,15 @@ describe("create-only immutable blob storage", () => {
     }
   });
 
+  it("rejects coercible non-string blob selectors before store access", async () => {
+    const { readImmutableBlob } = await import("./immutable-store.js");
+    let coercions = 0;
+    const forgedDigest = { toString() { coercions++; return "a".repeat(64); } };
+    for (const selector of [forgedDigest, ["a".repeat(64)], null, 123]) {
+      await expect(readImmutableBlob("/nonexistent-skillgate-store", selector as string))
+        .rejects.toThrow(/Invalid SkillGate blob digest/);
+    }
+    expect(coercions).toBe(0);
+  });
+
 });
