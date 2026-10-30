@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -I
 """Linux SO_PEERCRED gate for the experimental SkillGate immutable broker.
 
 The Node broker MUST listen in a separate broker-owned 0700 directory. The
@@ -191,6 +191,11 @@ async def read_bounded_backend_response(reader, quota, entry):
 
 
 async def main():
+    # Python resolves imports before this function runs. The script and its
+    # installation directory must ALSO be administrator-protected; -I removes
+    # user site packages, PYTHONPATH, and script-directory import injection.
+    if not sys.flags.isolated:
+        reject('Python isolated mode (-I) is required')
     if len(sys.argv) != 3:
         reject('usage: proxy <public-socket> <private-broker-socket>')
     uid, gid = check_identity()
