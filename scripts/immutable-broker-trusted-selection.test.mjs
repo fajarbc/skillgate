@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtemp, writeFile, chmod, symlink, link, rm, chown, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readTrustedGenerationSelection } from './immutable-broker-trusted-selection.mjs';
+import { readTrustedGenerationSelection, readBoundedSelectionBytes } from './immutable-broker-trusted-selection.mjs';
 
 const rootOnly = { skip: process.getuid?.() !== 0 ? 'root-owned fixture required' : false };
 const DIGEST = 'a'.repeat(64);
@@ -71,4 +71,36 @@ test('rejects a selector owned by an untrusted UID', rootOnly, async () => {
     await chown(path, 61001, 61001);
     await assert.rejects(readTrustedGenerationSelection(path, 'codex'), /Untrusted/);
   });
+});
+
+// Fake descriptor models a regular file that changes size after fstat().
+function readerWithBytes(contents, chunkSize = contents.length) {
+  let requested = 0;
+  return {
+    get requested() { return requested; },
+    async read(target, offset, length, position) {
+      requested += length;
+      const count = Math.min(length, chunkSize, Math.max(0, contents.length - position));
+      contents.copy(target, offset, position, position + count);
+      return { bytesRead: count };
+    },
+  };
+}
+
+test('bounded selector read supports short reads without truncating', async () => {
+  const data = Buffer.from(line);
+  const reader = readerWithBytes(data, 3);
+  assert.deepEqual(await readBoundedSelectionBytes(reader, data.length), data);
+});
+
+test('bounded selector read rejects concurrent growth and never reads beyond 193 bytes', async () => {
+  const data = Buffer.alloc(1024 * 1024, 0x61);
+  const reader = readerWithBytes(data);
+  await assert.rejects(readBoundedSelectionBytes(reader, Buffer.byteLength(line)), /Untrusted/);
+  assert.equal(reader.requested, 193);
+});
+
+test('bounded selector read rejects concurrent truncation and invalid expected sizes', async () => {
+  await assert.rejects(readBoundedSelectionBytes(readerWithBytes(Buffer.alloc(4)), 10), /Untrusted/);
+  await assert.rejects(readBoundedSelectionBytes(readerWithBytes(Buffer.alloc(1)), 193), /Untrusted/);
 });
