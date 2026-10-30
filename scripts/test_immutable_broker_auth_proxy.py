@@ -232,7 +232,7 @@ class GenuineProcfsTests(unittest.TestCase):
     def test_forged_status_on_regular_filesystem_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             status = Path(directory, 'status')
-            status.write_text('Uid:\\t123 123 123 123\\nNoNewPrivs:\\t1\\n')
+            status.write_text('Uid:\t123 123 123 123\nNoNewPrivs:\t1\n')
             self.assertFalse(proxy.is_genuine_procfs(str(status)))
 
     def test_missing_procfs_fails_closed(self):
