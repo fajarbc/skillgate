@@ -37,6 +37,22 @@ test('rejects wrong agent and untrusted selector', async () => {
   await assert.rejects(resolvePinnedBrokerGeneration(f.get, 'latest', 'codex'));
 });
 
+test('rejects coercible non-string generation selectors before transport', async () => {
+  const f = fixture(apply);
+  let reads = 0;
+  let coercions = 0;
+  const readBlob = async () => { reads++; throw new Error('unexpected transport read'); };
+  const objectDigest = { toString() { coercions++; return f.manifestDigest; } };
+  for (const invalid of [objectDigest, [f.manifestDigest], null, 123]) {
+    await assert.rejects(
+      resolvePinnedBrokerGeneration(readBlob, invalid, 'codex'),
+      /Invalid pinned generation selection/,
+    );
+  }
+  assert.equal(coercions, 0, 'never coerce an untrusted selector');
+  assert.equal(reads, 0, 'never call transport for an invalid selector');
+});
+
 test('rejects tampered manifest and referenced blob', async () => {
   const f = fixture(apply);
   f.blobs.set(f.manifestDigest, Buffer.from('tampered'));
