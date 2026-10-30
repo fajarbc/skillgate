@@ -199,8 +199,9 @@ export async function run(argv: string[]): Promise<number> {
     rankedSkills: approvedRecommendations,
     policyEvaluations: evalMap,
   });
-  await saveTrace(traceRecord, root);
-
+  // Strict adapter mutation can reject before touching any workspace path.
+  // Do not persist a trace until adapter application has succeeded; otherwise
+  // a failed strict apply would still overwrite a predictable trace pathname.
   let adapterSummary: string | undefined;
   if (values.adapter) {
     if (configuration.adapters.length > 0 && !configuration.adapters.includes(values.adapter)) {
@@ -212,14 +213,21 @@ export async function run(argv: string[]): Promise<number> {
       console.error(`Unknown adapter: ${values.adapter}. Available adapters: ${listAdapters().join(", ")}`);
       return 1;
     }
-    const result = await adapter.apply({
-      task,
-      root,
-      skills: approvedRecommendations,
-      options: configuration.adapterOptions[adapter.name] ?? configuration.adapterOptions[values.adapter],
-    });
-    adapterSummary = result.summary;
+    try {
+      const result = await adapter.apply({
+        task,
+        root,
+        skills: approvedRecommendations,
+        options: configuration.adapterOptions[adapter.name] ?? configuration.adapterOptions[values.adapter],
+      });
+      adapterSummary = result.summary;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Adapter application failed");
+      return 1;
+    }
   }
+
+  await saveTrace(traceRecord, root);
 
   if (values.json) {
     console.log(
