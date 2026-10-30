@@ -6,6 +6,7 @@ public proxy socket is broker-owned and group-accessible, but peer UID and GID
 are verified by the kernel before forwarding any request bytes.
 """
 import asyncio
+import ctypes
 from collections import deque
 import os
 from pathlib import Path
@@ -38,9 +39,32 @@ def positive_id(name):
     return value
 
 
+
+PROC_SUPER_MAGIC = 0x9fa0
+
+
+def is_genuine_procfs(path='/proc/self/status'):
+    """Verify the kernel filesystem type, not attacker-controlled status text."""
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        statfs = libc.statfs
+        statfs.argtypes = (ctypes.c_char_p, ctypes.c_void_p)
+        statfs.restype = ctypes.c_int
+        # Linux struct statfs begins with f_type (a native long). The output
+        # buffer is larger than known Linux statfs ABI structures.
+        result = ctypes.create_string_buffer(1024)
+        if statfs(os.fsencode(path), ctypes.byref(result)) != 0:
+            return False
+        return ctypes.c_long.from_buffer_copy(result.raw).value == PROC_SUPER_MAGIC
+    except (AttributeError, OSError, ValueError, TypeError):
+        return False
+
+
 def check_identity():
     if sys.platform != 'linux' or not hasattr(socket, 'SO_PEERCRED'):
         reject('Linux SO_PEERCRED is required')
+    if not is_genuine_procfs():
+        reject('genuine Linux procfs is required for credential inspection')
     uids, gids = os.getresuid(), os.getresgid()
     if 0 in uids + gids or len(set(uids)) != 1 or len(set(gids)) != 1:
         reject('a dedicated non-root real/effective/saved UID and GID are required')
