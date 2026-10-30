@@ -108,28 +108,42 @@ describe("CLI", () => {
     error.mockRestore();
   });
 
-  it("applies approved skills with codex adapter", async () => {
+  it("fails closed before changing an existing trace or Codex files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
-    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\\nname: react-testing\\ndescription: Test React components\\n---\\n");
+    await mkdir(join(root, ".skillgate"), { recursive: true });
+    const trace = join(root, ".skillgate", "trace.json");
+    await writeFile(trace, "USER-OWNED TRACE");
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "codex"])).toBe(0);
-    const written = await readFile(join(root, ".codex", "skills", "react-testing", "SKILL.md"), "utf8");
-    expect(written).toContain("react-testing");
-    log.mockRestore();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "codex"])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("Strict external-writer lifecycle safety"));
+      expect(await readFile(trace, "utf8")).toBe("USER-OWNED TRACE");
+      await expect(readFile(join(root, ".codex", "skills", "react-testing", "SKILL.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      error.mockRestore();
+    }
   });
 
-  it("applies approved skills with claude adapter", async () => {
+  it("fails closed without creating a trace or Claude files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
-    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\\nname: react-testing\\ndescription: Test React components\\n---\\n");
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "claude"])).toBe(0);
-    const written = await readFile(join(root, ".claude", "skills", "react-testing", "SKILL.md"), "utf8");
-    expect(written).toContain("react-testing");
-    log.mockRestore();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "claude"])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("Strict external-writer lifecycle safety"));
+      await expect(readFile(join(root, ".skillgate", "trace.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(join(root, ".claude", "skills", "react-testing", "SKILL.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("executes doctor command for healthy workspace", async () => {
