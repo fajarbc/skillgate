@@ -214,9 +214,10 @@ export async function run(argv: string[]): Promise<number> {
   const deniedSkills = policyEvaluations
     .filter((evaluation) => evaluation.decision === "deny")
     .map((evaluation) => evaluation.skill);
-  const approvedRecommendations = rankSkills({
-    task, skills: eligibleSkills, signals: state.signals, limit: configuration.candidateLimit,
+  const rankedEligible = rankSkills({
+    task, skills: eligibleSkills, signals: state.signals, limit: eligibleSkills.length,
   });
+  const approvedRecommendations = rankedEligible.slice(0, configuration.candidateLimit);
   // Preserve relevance evidence for denied skills without letting them consume
   // candidateLimit or appear selected. createTraceRecord rejects them by policy.
   const deniedForTrace = rankSkills({
@@ -228,7 +229,8 @@ export async function run(argv: string[]): Promise<number> {
     root,
     signals: state.signals,
     discoveredSkills: state.skills,
-    rankedSkills: [...approvedRecommendations, ...deniedForTrace],
+    rankedSkills: approvedRecommendations,
+    scoredSkills: [...rankedEligible, ...deniedForTrace],
     policyEvaluations: evalMap,
   });
   await saveTrace(traceRecord, root);
