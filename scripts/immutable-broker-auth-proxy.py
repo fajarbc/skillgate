@@ -95,6 +95,19 @@ def check_backend(path, uid, gid):
 
 
 
+def matches_kernel_peer(writer, expected_uid, expected_gid):
+    """Fail closed on missing/malformed SO_PEERCRED for the actual connection."""
+    try:
+        peer_socket = writer.get_extra_info('socket')
+        if peer_socket is None:
+            return False
+        credentials = peer_socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+        _, peer_uid, peer_gid = struct.unpack('3i', credentials)
+        return (peer_uid, peer_gid) == (expected_uid, expected_gid)
+    except (AttributeError, OSError, struct.error, TypeError, ValueError):
+        return False
+
+
 async def read_bounded_client_request(reader, quota, entry):
     """Charge every received client byte, including invalid and partial frames.
 
@@ -180,10 +193,7 @@ async def main():
         active = True
         upstream_writer = None
         try:
-            peer_socket = writer.get_extra_info('socket')
-            credentials = peer_socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
-            _, peer_uid, peer_gid = struct.unpack('3i', credentials)
-            if (peer_uid, peer_gid) != (client_uid, client_gid):
+            if not matches_kernel_peer(writer, client_uid, client_gid):
                 return
             now = time.monotonic()
             while quota and now - quota[0][0] >= 60:
@@ -205,10 +215,7 @@ async def main():
             # The pathname preflight is not atomic with connect(). Authenticate
             # the actual connected server using kernel-provided peer credentials
             # before forwarding any client request bytes.
-            backend_socket = upstream_writer.get_extra_info('socket')
-            backend_credentials = backend_socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
-            _, backend_uid, backend_gid = struct.unpack('3i', backend_credentials)
-            if (backend_uid, backend_gid) != (uid, gid):
+            if not matches_kernel_peer(upstream_writer, uid, gid):
                 return
             upstream_writer.write(request)
             await upstream_writer.drain()
