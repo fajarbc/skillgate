@@ -22,7 +22,7 @@ describe("successful adapter CLI trace isolation", () => {
     try {
       await mkdir(join(root, "skills", "react"), { recursive: true });
       await writeFile(join(root, "skills", "react", "SKILL.md"),
-        "---\\nname: react-testing\\ndescription: Test React components\\n---\\n");
+        "---\nname: react-testing\ndescription: Test React components\n---\n");
       await mkdir(join(root, ".skillgate"));
       const sentinel = join(root, "user-owned.txt");
       const trace = join(root, ".skillgate", "trace.json");
