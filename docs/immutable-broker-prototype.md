@@ -235,9 +235,23 @@ SKILLGATE_BROKER_CLIENT_GID=<client-gid> \
 # cleared and NoNewPrivs enabled, using the same environment variables.
 SKILLGATE_BROKER_CLIENT_UID=<client-uid> \
 SKILLGATE_BROKER_CLIENT_GID=<client-gid> \
-  python3 scripts/immutable-broker-auth-proxy.py \
+  python3 -I scripts/immutable-broker-auth-proxy.py \
   /protected/public/immutable.sock /protected/private/immutable.sock
 ~~~
+
+**Executable and interpreter trust are part of the security boundary.** Install
+both the Node broker, its built modules, the Python proxy, and their parent
+code directories under root- or broker-owned paths that untrusted workspace
+writers cannot modify or replace. Never launch either service from a mutable
+workspace or use an attacker-controlled working directory, runtime module
+search path, or environment. Python must run with `-I` (isolated mode): without
+it, an attacker-controlled `asyncio.py` beside the proxy script can execute
+before the proxy's UID/capability checks. The executable shebang also requests
+`-I` on Linux with GNU `env -S`; invoking `python3 script.py` bypasses the
+shebang and is rejected by the proxy. `-I` does not protect a replaced script,
+malicious system packages, or native preloads such as `LD_PRELOAD`; launch both
+services with a clean administrator-controlled environment and trusted runtime
+binaries. Node's `NODE_OPTIONS` and module paths must also be controlled.
 
 The commands above assume the process manager has already dropped privileges;
 setting environment variables **does not** change credentials. For an isolated
