@@ -4,6 +4,10 @@ Run with: python3 -m unittest discover -s scripts -p 'test_immutable_broker_auth
 """
 import asyncio
 from collections import deque
+import os
+import socket
+import sys
+from types import SimpleNamespace
 import importlib.util
 from pathlib import Path
 import unittest
@@ -193,6 +197,30 @@ class RollingQuotaWindowTests(unittest.IsolatedAsyncioTestCase):
         while quota and now - quota[0][0] >= 60:
             quota.popleft()
         self.assertEqual(sum(item[1] for item in quota), len(b'late-request\n'))
+
+
+@unittest.skipUnless(sys.platform == 'linux' and hasattr(socket, 'SO_PEERCRED'),
+                     'requires Linux SO_PEERCRED')
+class KernelPeerIdentityTests(unittest.TestCase):
+    def test_actual_unix_socket_peer_matches_only_pinned_uid_and_gid(self):
+        left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            writer = SimpleNamespace(get_extra_info=lambda key: left if key == 'socket' else None)
+            self.assertTrue(proxy.matches_kernel_peer(writer, os.getuid(), os.getgid()))
+            self.assertFalse(proxy.matches_kernel_peer(writer, os.getuid() + 1, os.getgid()))
+            self.assertFalse(proxy.matches_kernel_peer(writer, os.getuid(), os.getgid() + 1))
+        finally:
+            left.close()
+            right.close()
+
+    def test_missing_peer_socket_is_rejected(self):
+        writer = SimpleNamespace(get_extra_info=lambda _: None)
+        self.assertFalse(proxy.matches_kernel_peer(writer, os.getuid(), os.getgid()))
+
+    def test_malformed_kernel_credentials_are_rejected(self):
+        fake_socket = SimpleNamespace(getsockopt=lambda *_: b'bad')
+        writer = SimpleNamespace(get_extra_info=lambda _: fake_socket)
+        self.assertFalse(proxy.matches_kernel_peer(writer, os.getuid(), os.getgid()))
 
 
 if __name__ == '__main__':
