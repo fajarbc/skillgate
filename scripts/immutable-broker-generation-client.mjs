@@ -43,8 +43,9 @@ function authenticateBlob(bytes, digest) {
  * must read by digest, never by mutable pathname; each result is rehashed.
  */
 export async function resolvePinnedBrokerGeneration(readBlob, digest, expectedAgent) {
-  if (typeof readBlob !== 'function' || !DIGEST.test(digest) ||
-      typeof expectedAgent !== 'string' || !AGENT.test(expectedAgent)) {
+  if (typeof readBlob !== 'function' || typeof digest !== 'string' ||
+      !DIGEST.test(digest) || typeof expectedAgent !== 'string' ||
+      !AGENT.test(expectedAgent)) {
     throw new Error('Invalid pinned generation selection');
   }
   const raw = authenticateBlob(await readBlob(digest), digest);
