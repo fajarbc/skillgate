@@ -7,6 +7,7 @@ from collections import deque
 import os
 import socket
 import sys
+import tempfile
 from types import SimpleNamespace
 import importlib.util
 from pathlib import Path
@@ -221,6 +222,30 @@ class KernelPeerIdentityTests(unittest.TestCase):
         fake_socket = SimpleNamespace(getsockopt=lambda *_: b'bad')
         writer = SimpleNamespace(get_extra_info=lambda _: fake_socket)
         self.assertFalse(proxy.matches_kernel_peer(writer, os.getuid(), os.getgid()))
+
+
+@unittest.skipUnless(sys.platform == 'linux', 'requires Linux statfs')
+class GenuineProcfsTests(unittest.TestCase):
+    def test_real_proc_status_has_procfs_magic(self):
+        self.assertTrue(proxy.is_genuine_procfs('/proc/self/status'))
+
+    def test_forged_status_on_regular_filesystem_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status = Path(directory, 'status')
+            status.write_text('Uid:\\t123 123 123 123\\nNoNewPrivs:\\t1\\n')
+            self.assertFalse(proxy.is_genuine_procfs(str(status)))
+
+    def test_missing_procfs_fails_closed(self):
+        self.assertFalse(proxy.is_genuine_procfs('/nonexistent-skillgate-proc/status'))
+
+    def test_unavailable_statfs_fails_closed(self):
+        with patch.object(proxy.ctypes, 'CDLL', side_effect=OSError('libc unavailable')):
+            self.assertFalse(proxy.is_genuine_procfs())
+
+    def test_identity_check_rejects_forged_procfs_before_using_status(self):
+        with patch.object(proxy, 'is_genuine_procfs', return_value=False):
+            with self.assertRaisesRegex(RuntimeError, 'genuine Linux procfs'):
+                proxy.check_identity()
 
 
 if __name__ == '__main__':
