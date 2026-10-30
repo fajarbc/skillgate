@@ -247,6 +247,11 @@ Linux test, a privileged operator can launch each service with
 The proxy fails closed if its private backend is absent, its socket or parent
 has unexpected ownership/mode, the public parent is attacker-owned, Linux
 peer credentials are unavailable, or saved IDs/capabilities remain elevated.
+Before trusting `/proc/self/status` for privilege checks, the proxy also
+requires Linux `statfs` to identify that file as genuine procfs (magic
+`0x9fa0`); a forged status file on a regular filesystem is rejected.
+This guard requires Python's standard-library `ctypes` and the Linux libc
+`statfs` ABI; unsupported environments fail closed.
 It never removes a pre-existing socket; stale sockets require operator
 recovery in the protected namespace.
 
