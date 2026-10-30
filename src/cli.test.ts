@@ -200,4 +200,47 @@ describe("CLI", () => {
     }
   });
 
+  it("fills the human candidate limit after policy denial, preserving rejection traces", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-policy-limit-"));
+    for (const [directory, name, description] of [
+      ["denied", "react-testing", "React testing workflows"],
+      ["allowed", "testing-helper", "Testing workflows"],
+      ["backup", "backup-helper", "Testing workflows"],
+    ]) {
+      await mkdir(join(root, "skills", directory), { recursive: true });
+      await writeFile(join(root, "skills", directory, "SKILL.md"),
+        `---\nname: ${name}\ndescription: ${description}\n---\n`);
+    }
+    await writeFile(join(root, "skillgate.yaml"), "version: 1\ncandidateLimit: 1\n");
+    await writeFile(join(root, "skillgate.policy.json"),
+      JSON.stringify({ deniedSkills: ["react-testing"] }));
+    const machine = await captureJson(["recommend", "react", "testing", "--root", root, "--json"]);
+    expect(machine.recommendations.map((skill: { metadata: { name: string } }) => skill.metadata.name))
+      .toEqual(["testing-helper"]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "react", "testing", "--root", root])).toBe(0);
+      const output = log.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(output).toContain("testing-helper");
+      expect(output).not.toContain("react-testing");
+    } finally {
+      log.mockRestore();
+    }
+    const trace = (await captureJson(["trace", "--root", root, "--json"])).trace;
+    expect(trace.selectedCount).toBe(1);
+    expect(trace.candidates.find((candidate: { name: string }) =>
+      candidate.name === "react-testing")).toMatchObject({
+      status: "rejected", policyDecision: "deny", score: 10,
+      reasons: [
+        { source: "name", term: "react", points: 5 },
+        { source: "name", term: "testing", points: 5 },
+      ],
+    });
+    expect(trace.candidates.find((candidate: { name: string }) =>
+      candidate.name === "backup-helper")).toMatchObject({
+      status: "rejected", decisionReason: "candidate limit reached", score: 2,
+      reasons: [{ source: "description", term: "testing", points: 2 }],
+    });
+  });
+
 });

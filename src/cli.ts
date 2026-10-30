@@ -193,8 +193,6 @@ export async function run(argv: string[]): Promise<number> {
   const skills = state.skills.flatMap((skill) =>
     skill.metadata ? [{ path: skill.path, metadata: skill.metadata }] : [],
   );
-  const recommendations = rankSkills({ task, skills, signals: state.signals, limit: configuration.candidateLimit });
-
   let policy;
   try {
     policy = await loadPolicy(root, configuration.policyPath);
@@ -208,10 +206,22 @@ export async function run(argv: string[]): Promise<number> {
 
   const policyEvaluations = evaluatePolicies(skills, policy);
   const evalMap = new Map(policyEvaluations.map((e) => [e.skill.path, e]));
-
-  const approvedRecommendations = recommendations.filter((rec) => {
-    const evaluation = evalMap.get(rec.path);
-    return evaluation ? evaluation.decision === "allow" : true;
+  // Filter before candidateLimit so denied high-scoring skills cannot crowd
+  // out lower-scoring permitted matches (same behavior as JSON transport).
+  const eligibleSkills = policyEvaluations
+    .filter((evaluation) => evaluation.decision === "allow")
+    .map((evaluation) => evaluation.skill);
+  const deniedSkills = policyEvaluations
+    .filter((evaluation) => evaluation.decision === "deny")
+    .map((evaluation) => evaluation.skill);
+  const rankedEligible = rankSkills({
+    task, skills: eligibleSkills, signals: state.signals, limit: eligibleSkills.length,
+  });
+  const approvedRecommendations = rankedEligible.slice(0, configuration.candidateLimit);
+  // Preserve relevance evidence for denied skills without letting them consume
+  // candidateLimit or appear selected. createTraceRecord rejects them by policy.
+  const deniedForTrace = rankSkills({
+    task, skills: deniedSkills, signals: state.signals, limit: deniedSkills.length,
   });
 
   const traceRecord = createTraceRecord({
@@ -220,6 +230,7 @@ export async function run(argv: string[]): Promise<number> {
     signals: state.signals,
     discoveredSkills: state.skills,
     rankedSkills: approvedRecommendations,
+    scoredSkills: [...rankedEligible, ...deniedForTrace],
     policyEvaluations: evalMap,
   });
   await saveTrace(traceRecord, root);
