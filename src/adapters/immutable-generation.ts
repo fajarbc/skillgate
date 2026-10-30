@@ -244,6 +244,14 @@ async function assertStoreOutsideWorkspace(workspaceRoot: string, storePath: str
       !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace))) {
     throw new Error("Immutable SkillGate store must be outside the workspace");
   }
+  // The reverse nesting is unsafe too: a workspace inside the private store
+  // would grant workspace operations access to the protected blob namespace.
+  // Keep both plan and apply fail-closed before reading skill sources.
+  const fromStore = relative(store, workspace);
+  if (fromStore === "" || (fromStore !== ".." &&
+      !fromStore.startsWith(`..${sep}`) && !isAbsolute(fromStore))) {
+    throw new Error("Immutable SkillGate workspace must be outside the immutable store");
+  }
 }
 
 /** Explicit adapter-facing immutable lifecycle. The caller supplies a protected
