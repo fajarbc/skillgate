@@ -406,3 +406,42 @@ the selector and generation resolver with a **stub broker transport**,
 covering valid apply/cleanup, selection rejection before transport, symlink
 rejection, and tampered manifest rejection. This does **not** replace the
 full npm build, Vitest, built broker smoke or adversarial end-to-end tests.
+
+## Experimental broker-backed generation publisher (2026-10-31)
+
+`scripts/immutable-broker-generation-publisher.mjs` provides
+`prepareBrokerGeneration(agent, kind, files)`,
+`publishBrokerGenerationWith(putBlob, agent, kind, files)`, and
+`publishBrokerGeneration(socketPath, agent, kind, files, options)`.
+The `files` argument is a `Map<string, Buffer>` of **logical** paths to
+contents, not workspace destinations. The production wrapper uses the
+existing pinned-UID/GID broker client and never writes to legacy workspace
+paths or the root-owned generation selector.
+
+The publisher validates paths, file counts, and the aggregate 32 MiB limit
+and snapshots all buffers **before** broker I/O. It publishes content blobs
+first, checking each digest acknowledgement, then publishes the canonical
+version-1 generation manifest last. A failed content acknowledgement cannot
+publish a manifest; retries of unchanged input have the same digest. Cleanup
+publishes an empty tombstone manifest rather than deleting files.
+
+Run the dependency-free focused checks with:
+
+```sh
+node --test scripts/immutable-broker-generation-publisher.test.mjs
+```
+
+Eight isolated Node.js 22 tests passed for publication ordering, snapshots,
+input rejection, acknowledgement mismatch, tombstones, idempotent digests, and
+round-trip compatibility with the existing pinned generation reader. These
+checks use an injected in-memory transport; they do **not** prove actual
+cross-UID broker publication, persistent quotas, root-controlled selection,
+crash recovery, or full repository typecheck/build/Vitest. The production
+wrapper has not yet been exercised against the built broker.
+
+**Security boundary:** publication is not selection. Any authorized broker
+client can publish blobs, but **only** a separately trusted administrator may
+approve and update a root-owned selector. The current publisher has no
+administrator approval API, no per-client disk quota, and no strict lifecycle
+integration. It must not be exposed as a safe replacement for default
+`apply()` or `cleanup()`; PR #97 remains draft and issue #28 remains open.
