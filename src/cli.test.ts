@@ -4,12 +4,53 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { run } from "./cli.js";
 
+async function captureJson(argv: string[]): Promise<any> {
+  const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  try {
+    expect(await run(argv)).toBe(0);
+    expect(write).toHaveBeenCalledTimes(1);
+    return JSON.parse(String(write.mock.calls[0]?.[0])).data;
+  } finally {
+    write.mockRestore();
+  }
+}
+
 describe("CLI", () => {
   it("prints the version", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     expect(await run(["--version"])).toBe(0);
     expect(log).toHaveBeenCalledWith("0.0.0");
     log.mockRestore();
+  });
+
+  it("shows JSON and stdin options on separate help lines", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["--help"])).toBe(0);
+      const help = String(log.mock.calls[0]?.[0]);
+      expect(help).toMatch(/--json[^\n]*\n\s*--stdin/);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("preserves literal --json task text after -- in human mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "--root", root, "--", "--json"])).toBe(0);
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+    const trace = (await captureJson(["trace", "--root", root, "--json"])).trace;
+    expect(trace.task).toBe("--json");
+  });
+
+  it("still recognizes --json before -- with literal task text", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
+    const output = await captureJson(["recommend", "--json", "--root", root, "--", "--json"]);
+    expect(output.task).toBe("--json");
   });
 
   it("rejects unknown commands", async () => {
@@ -24,12 +65,9 @@ describe("CLI", () => {
     await writeFile(join(root, "skills", "test", "SKILL.md"), "---\nname: testing\ndescription: Test TypeScript code\n---\n");
     await writeFile(join(root, "package.json"), JSON.stringify({ devDependencies: { typescript: "5.7.0" } }));
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    expect(await run(["scan", "--root", root, "--json"])).toBe(0);
-    const output = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    const output = await captureJson(["scan", "--root", root, "--json"]);
     expect(output.skills[0].metadata.name).toBe("testing");
     expect(output.signals).toEqual(expect.arrayContaining([expect.objectContaining({ name: "typescript" })]));
-    log.mockRestore();
   });
 
   it("recommends matching skills", async () => {
@@ -37,11 +75,8 @@ describe("CLI", () => {
     await mkdir(join(root, "skills", "react"), { recursive: true });
     await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    expect(await run(["recommend", "test", "react", "--root", root, "--json"])).toBe(0);
-    const output = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    const output = await captureJson(["recommend", "test", "react", "--root", root, "--json"]);
     expect(output.recommendations[0].metadata.name).toBe("react-testing");
-    log.mockRestore();
   });
 
   it("requires task text for recommend", async () => {
@@ -68,12 +103,11 @@ describe("CLI", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     expect(await run(["recommend", "test", "react", "--root", root])).toBe(0);
 
-    expect(await run(["trace", "--root", root, "--json"])).toBe(0);
-    const traceJson = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    log.mockRestore();
+    const traceJson = (await captureJson(["trace", "--root", root, "--json"])).trace;
     expect(traceJson.task).toBe("test react");
     expect(traceJson.selectedCount).toBe(1);
     expect(traceJson.candidates[0].name).toBe("react-testing");
-    log.mockRestore();
   });
 
   it("filters out policy-denied skills during recommend", async () => {
@@ -85,17 +119,23 @@ describe("CLI", () => {
       JSON.stringify({ deniedSkills: ["react-*"] }),
     );
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    expect(await run(["recommend", "test", "react", "--root", root, "--json"])).toBe(0);
-    const output = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    const output = await captureJson(["recommend", "test", "react", "--root", root, "--json"]);
     expect(output.recommendations).toHaveLength(0);
+    // Machine recommendations intentionally do not persist traces until the
+    // lifecycle write boundary is accepted. Do not expect a trace from JSON mode.
+    expect((await captureJson(["trace", "--root", root, "--json"])).trace).toBeNull();
 
-    expect(await run(["trace", "--root", root, "--json"])).toBe(0);
-    const traceJson = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    // The human CLI still records a trace, including policy rejections.
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "test", "react", "--root", root])).toBe(0);
+    } finally {
+      log.mockRestore();
+    }
+    const traceJson = (await captureJson(["trace", "--root", root, "--json"])).trace;
     const rejected = traceJson.candidates.find((c: { name: string }) => c.name === "react-testing");
     expect(rejected?.status).toBe("rejected");
     expect(rejected?.decisionReason).toContain("denied by policy");
-    log.mockRestore();
   });
 
   it("exits with non-zero when policy file is malformed", async () => {
@@ -148,13 +188,8 @@ describe("CLI", () => {
 
   it("executes doctor command for healthy workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-
-    const exitCode = await run(["doctor", "--root", root, "--json"]);
-    expect(exitCode).toBe(0);
-    const report = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
+    const report = (await captureJson(["doctor", "--root", root, "--json"])).report;
     expect(report.checks.length).toBeGreaterThan(0);
-    log.mockRestore();
   });
   it("honors the configured policy path", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-policy-"));
@@ -163,14 +198,8 @@ describe("CLI", () => {
     await writeFile(join(root, "restricted.json"), JSON.stringify({ deniedSkills: ["react-*"] }));
     await writeFile(join(root, "skillgate.yaml"), "version: 1\npolicyPath: ./restricted.json\n");
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    try {
-      expect(await run(["recommend", "test", "react", "--root", root, "--json"])).toBe(0);
-      const output = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
-      expect(output.recommendations).toHaveLength(0);
-    } finally {
-      log.mockRestore();
-    }
+    const output = await captureJson(["recommend", "test", "react", "--root", root, "--json"]);
+    expect(output.recommendations).toHaveLength(0);
   });
 
   it("rejects an explicitly empty adapter before overwriting a legacy trace", async () => {

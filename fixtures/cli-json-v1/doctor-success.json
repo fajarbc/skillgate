@@ -1,0 +1,11 @@
+{
+  "protocolVersion": 1,
+  "command": "doctor",
+  "ok": true,
+  "data": {
+    "report": {
+      "status": "ok",
+      "checks": []
+    }
+  }
+}

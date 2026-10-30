@@ -10,6 +10,7 @@ import { discoverSkills } from "./discovery/index.js";
 import { formatDoctorReport, runDiagnostics } from "./doctor/index.js";
 import { evaluatePolicies, loadPolicy, PolicyError } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
+import { runJson } from "./cli-json-run.js";
 import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
 
 const VERSION = "0.0.0";
@@ -29,7 +30,8 @@ function usage(): string {
     "  --root <path>     Project and skill root (default: current directory)",
     "  --adapter <name>  Apply skills to agent workspace (e.g. codex)",
     "  --config <path>   Explicit configuration file",
-    "  --json            Print machine-readable JSON",
+    "  --json            Print versioned machine-readable JSON",
+    "  --stdin           Read v1 JSON task from stdin (recommend --json only)",
     "  -h, --help        Show help",
     "  -v, --version     Show version",
   ].join("\n");
@@ -43,7 +45,28 @@ async function scan(root: string, skillRoots: string[]) {
   return { root, skills: discovered, signals };
 }
 
+/** Recognize --json only when parseArgs would treat it as an option. */
+function requestsJsonTransport(argv: string[]): boolean {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--") break;
+    if (arg === "--root" || arg === "--adapter" || arg === "--config") {
+      // parseArgs rejects a following option as an ambiguous string value.
+      // Do not skip --json in that case: callers still need a structured
+      // INVALID_REQUEST response rather than a human-only parse error.
+      const next = argv[index + 1];
+      if (next !== undefined && (next === "-" || !next.startsWith("-"))) index += 1;
+      continue;
+    }
+    // A malformed --json=value still explicitly requests machine transport.
+    // Let runJson return one structured INVALID_REQUEST rather than human stderr.
+    if (arg === "--json" || arg.startsWith("--json=")) return true;
+  }
+  return false;
+}
+
 export async function run(argv: string[]): Promise<number> {
+  if (requestsJsonTransport(argv)) return runJson(argv);
   let parsed;
   try {
     parsed = parseArgs({

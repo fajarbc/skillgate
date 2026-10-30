@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "command": "doctor",
+  "ok": false,
+  "data": {
+    "report": {
+      "status": "fail",
+      "checks": []
+    }
+  },
+  "error": {
+    "code": "CONFIGURATION_ERROR",
+    "message": "Doctor checks failed"
+  }
+}
