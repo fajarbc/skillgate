@@ -202,6 +202,14 @@ async def main():
                 return
             check_backend(backend, uid, gid)
             upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=MAX_WIRE_BYTES + 1)
+            # The pathname preflight is not atomic with connect(). Authenticate
+            # the actual connected server using kernel-provided peer credentials
+            # before forwarding any client request bytes.
+            backend_socket = upstream_writer.get_extra_info('socket')
+            backend_credentials = backend_socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+            _, backend_uid, backend_gid = struct.unpack('3i', backend_credentials)
+            if (backend_uid, backend_gid) != (uid, gid):
+                return
             upstream_writer.write(request)
             await upstream_writer.drain()
             response = await read_bounded_backend_response(upstream_reader, quota, quota_entry)
