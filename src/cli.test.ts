@@ -173,6 +173,24 @@ describe("CLI", () => {
     }
   });
 
+  it("rejects an explicitly empty adapter before overwriting a legacy trace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-empty-adapter-"));
+    await mkdir(join(root, ".skillgate"), { recursive: true });
+    const trace = join(root, ".skillgate", "trace.json");
+    await writeFile(trace, "USER-OWNED TRACE");
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      for (const adapterArgs of [["--adapter", ""], ["--adapter="], ["--adapter", " "]]) {
+        expect(await run(["recommend", "test", "--root", root, ...adapterArgs])).toBe(1);
+        expect(error).toHaveBeenCalledWith("Adapter name must not be empty");
+        expect(await readFile(trace, "utf8")).toBe("USER-OWNED TRACE");
+      }
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("rejects adapters excluded by configuration", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-adapters-"));
     await writeFile(join(root, "skillgate.yaml"), "version: 1\nadapters: [claude]\n");
