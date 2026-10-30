@@ -38,6 +38,24 @@ function trustedSelectionFile(st) {
     st.size > 0 && st.size <= MAX_SELECTION_BYTES;
 }
 
+/** Read no more than MAX_SELECTION_BYTES + 1 from a pinned descriptor.
+ * The extra byte catches concurrent growth even if metadata timestamps have
+ * insufficient resolution. Exported for deterministic short-read/race tests.
+ */
+export async function readBoundedSelectionBytes(handle, expectedSize) {
+  if (!Number.isSafeInteger(expectedSize) || expectedSize < 1 ||
+      expectedSize > MAX_SELECTION_BYTES) invalid();
+  const bytes = Buffer.alloc(MAX_SELECTION_BYTES + 1);
+  let length = 0;
+  while (length < bytes.length) {
+    const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length);
+    if (bytesRead === 0) break;
+    length += bytesRead;
+  }
+  if (length !== expectedSize) invalid();
+  return bytes.subarray(0, length);
+}
+
 /** Read a root-owned selector file, not a caller-controlled mutable pointer.
  * The caller MUST pin selectionPath through administrator-controlled config.
  * The returned digest still requires a trusted authorization decision.
@@ -55,7 +73,10 @@ export async function readTrustedGenerationSelection(selectionPath, expectedAgen
     const entry = await lstat(selectionPath);
     if (!trustedSelectionFile(before) || !trustedSelectionFile(entry) ||
         before.dev !== entry.dev || before.ino !== entry.ino) invalid();
-    const bytes = await handle.readFile();
+    // A root-controlled selector can still be rewritten by an administrator
+    // while this read is pending. Never use readFile() after a size preflight:
+    // it can allocate without a bound if the file grows concurrently.
+    const bytes = await readBoundedSelectionBytes(handle, before.size);
     const after = await handle.stat();
     if (bytes.length !== before.size || bytes.length > MAX_SELECTION_BYTES ||
         before.dev !== after.dev || before.ino !== after.ino ||
