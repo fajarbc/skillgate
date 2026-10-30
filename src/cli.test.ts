@@ -111,7 +111,7 @@ describe("CLI", () => {
   it("fails closed before changing an existing trace or Codex files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
-    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\\nname: react-testing\\ndescription: Test React components\\n---\\n");
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
     await mkdir(join(root, ".skillgate"), { recursive: true });
     const trace = join(root, ".skillgate", "trace.json");
     await writeFile(trace, "USER-OWNED TRACE");
@@ -131,7 +131,7 @@ describe("CLI", () => {
   it("fails closed without creating a trace or Claude files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
-    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\\nname: react-testing\\ndescription: Test React components\\n---\\n");
+    await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
 
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
