@@ -227,7 +227,12 @@ export async function run(argv: string[]): Promise<number> {
     }
   }
 
-  await saveTrace(traceRecord, root);
+  // A successful adapter apply must not be followed by an unrelated legacy
+  // trace write. saveTrace() follows predictable workspace pathnames and can
+  // overwrite a user-owned symlink target even when the adapter itself is
+  // safe against arbitrary concurrent writers. Keep adapter invocations
+  // trace-write-free until traces have an independently protected backend.
+  if (!values.adapter) await saveTrace(traceRecord, root);
 
   if (values.json) {
     console.log(
