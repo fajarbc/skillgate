@@ -19,7 +19,7 @@ export interface ImmutableBlob {
 }
 
 /** Require a pre-existing private store; never silently create it in workspace. */
-async function assertPrivateStore(store: string): Promise<string> {
+export async function assertPrivateStore(store: string): Promise<string> {
   if (typeof process.getuid !== "function" ||
       typeof constants.O_NOFOLLOW !== "number" ||
       typeof constants.O_NONBLOCK !== "number" ||
