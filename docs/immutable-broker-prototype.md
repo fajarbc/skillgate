@@ -369,3 +369,40 @@ Positive root-owned fixture tests require root and skip under ordinary UIDs.
 An isolated Linux root/UID-61001 check confirmed that a distinct non-root
 client could read a root-owned selector but could not overwrite it. This is
 not the full built broker or npm/Vitest validation.
+
+## Experimental root-selected broker generation composition (2026-10-30)
+
+`scripts/immutable-broker-root-selected-generation.mjs` composes the
+root-owned selector and digest-authenticated, **read-only** broker consumer.
+The selector is validated **before any blob transport is called**. The
+administrator must independently pin the selection pathname, expected agent,
+broker UID/GID and socket path outside untrusted workspace configuration.
+
+~~~js
+import { readRootSelectedBrokerGeneration } from './scripts/immutable-broker-root-selected-generation.mjs';
+const { generation, files } = await readRootSelectedBrokerGeneration(
+  '/protected/root-controlled/codex.selection',
+  '/protected/public/immutable.sock',
+  'codex',
+  { expectedBrokerUid: brokerUid, expectedBrokerGid: brokerGid },
+);
+~~~
+
+This is a composition of existing experimental primitives, **not** a
+generation-publication authorization service, a strict adapter lifecycle
+implementation, or a semantic replacement for `readPinnedAdapterContext`.
+Root ownership protects the selection file from unrelated UIDs; it does not
+prove that the selected generation was reviewed or approved. The administrator
+must authorize its contents before selecting its digest. Persistent quotas,
+the production consumer boundary, and full integration remain outstanding.
+
+The companion `resolveRootSelectedGeneration` accepts an injected
+digest-only blob reader for focused tests; production callers should use the
+socket-bound function above. Run
+`node --test scripts/immutable-broker-root-selected-generation.test.mjs`
+as root for the positive root-owned selector fixtures (they skip for non-root
+UIDs). Five isolated Node.js 22 tests passed against exact-Git-blob copies of
+the selector and generation resolver with a **stub broker transport**,
+covering valid apply/cleanup, selection rejection before transport, symlink
+rejection, and tampered manifest rejection. This does **not** replace the
+full npm build, Vitest, built broker smoke or adversarial end-to-end tests.
