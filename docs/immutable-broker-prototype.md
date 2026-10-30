@@ -293,3 +293,42 @@ smoke, and SIGKILL generation recovery remain unexecuted. This proxy is
 experimental; it does **not** implement generation authorization, consumer
 migration, or strict adapter lifecycle integration. Keep #28 open and PR #97
 draft until those boundaries and full validation are complete.
+
+## Experimental digest-pinned broker generation reader (2026-10-30)
+
+`scripts/immutable-broker-generation-client.mjs` adds a **read-only**, in-memory
+consumer for generation records already published to the immutable blob store.
+It resolves a **caller-supplied SHA-256 digest**, verifies the generation's
+schema, expected agent, sorted unique logical paths, per-file SHA-256 and sizes,
+and a 32 MiB aggregate payload limit. Cleanup tombstones return an empty file
+map. It never selects a mutable "latest" pathname, creates an adapter-visible
+file, or deletes any workspace entry.
+
+Example (the generation digest must come from an **independently trusted**
+selector, not from an untrusted workspace file or arbitrary user input):
+
+~~~js
+import { readPinnedBrokerGeneration } from './scripts/immutable-broker-generation-client.mjs';
+const { generation, files } = await readPinnedBrokerGeneration(
+  '/protected/public/immutable.sock',
+  trustedGenerationDigest,
+  'codex',
+  { expectedBrokerUid: brokerUid, expectedBrokerGid: brokerGid },
+);
+// files is a Map<string, Buffer>; it does not materialize workspace paths.
+~~~
+
+The pure resolver also accepts a digest-based `readBlob` callback for isolated
+testing. Its output authenticates **content**, not the authority of the caller
+to select a generation. It is **not** a replacement for `readPinnedAdapterContext`
+semantic metadata validation, and must not be used as an unrestricted
+multi-tenant generation browser. Trusted selection, authorization, consumer
+migration and strict lifecycle integration are still required for Option B.
+
+Run the dependency-free unit tests with
+`node --test scripts/immutable-broker-generation-client.test.mjs`.
+Six local Node 22 unit tests passed for valid apply/cleanup, agent pinning,
+tampering, unsafe/duplicate paths, aggregate size, schema and size mismatch.
+They used an in-memory blob fixture and a stub transport import; **the real
+broker transport, full npm build/Vitest, privileged smoke and adversarial
+end-to-end integration remain unvalidated**.
