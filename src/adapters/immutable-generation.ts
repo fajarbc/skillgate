@@ -3,7 +3,7 @@
  * A generation is explicitly pinned by digest; there is no mutable "current"
  * pathname. This is an experimental foundation, not yet an adapter backend.
  */
-import { MAX_IMMUTABLE_BLOB_BYTES, putImmutableBlob, readImmutableBlob } from "./immutable-store.js";
+import { MAX_IMMUTABLE_BLOB_BYTES, assertPrivateStore, putImmutableBlob, readImmutableBlob } from "./immutable-store.js";
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -233,6 +233,9 @@ export async function readPinnedGenerationFile(
  * non-cooperating writer; the store must still have trusted OS ownership.
  */
 async function assertStoreOutsideWorkspace(workspaceRoot: string, storePath: string): Promise<void> {
+  // Plan and apply must enforce the same store ownership, ancestry and kernel
+  // flag preflight before reading skill sources. The check is read-only.
+  await assertPrivateStore(storePath);
   // Match the canonical pathname used by immutable-store I/O. Resolving the
   // raw symlink/../ path instead can disagree with its lexical normalization.
   const [workspace, store] = await Promise.all([realpath(workspaceRoot), realpath(resolve(storePath))]);
