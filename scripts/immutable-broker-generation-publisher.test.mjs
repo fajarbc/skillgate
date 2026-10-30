@@ -111,3 +111,46 @@ test('independent publications of unchanged inputs have identical generation dig
   const b = await publishBrokerGenerationWith(transport().put, 'codex', 'apply', files);
   assert.deepEqual(a, b);
 });
+
+class MisleadingGenerationMap extends Map {
+  get size() { return 1; }
+  *[Symbol.iterator]() {
+    for (let i = 0; i < 257; i++) {
+      yield [`skills/${i}/SKILL.md`, Buffer.from('x')];
+    }
+  }
+}
+
+class DuplicateGenerationMap extends Map {
+  get size() { return 2; }
+  *[Symbol.iterator]() {
+    yield ['skills/a/SKILL.md', Buffer.from('x')];
+    yield ['skills/a/SKILL.md', Buffer.from('y')];
+  }
+}
+
+class HiddenCleanupMap extends Map {
+  get size() { return 0; }
+  *[Symbol.iterator]() { yield ['skills/a/SKILL.md', Buffer.from('x')]; }
+}
+
+test('rejects map iterator exceeding max files before broker I/O', async () => {
+  let calls = 0;
+  await assert.rejects(publishBrokerGenerationWith(async () => { calls++; },
+    'codex', 'apply', new MisleadingGenerationMap()), /file count/);
+  assert.equal(calls, 0);
+});
+
+test('rejects duplicate logical paths from a custom iterator before broker I/O', async () => {
+  let calls = 0;
+  await assert.rejects(publishBrokerGenerationWith(async () => { calls++; },
+    'codex', 'apply', new DuplicateGenerationMap()), /Duplicate/);
+  assert.equal(calls, 0);
+});
+
+test('cleanup rejects hidden iterator entries before broker I/O', async () => {
+  let calls = 0;
+  await assert.rejects(publishBrokerGenerationWith(async () => { calls++; },
+    'codex', 'cleanup', new HiddenCleanupMap()), /file count/);
+  assert.equal(calls, 0);
+});
