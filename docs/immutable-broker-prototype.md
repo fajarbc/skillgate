@@ -332,3 +332,40 @@ tampering, unsafe/duplicate paths, aggregate size, schema and size mismatch.
 They used an in-memory blob fixture and a stub transport import; **the real
 broker transport, full npm build/Vitest, privileged smoke and adversarial
 end-to-end integration remain unvalidated**.
+
+
+## Experimental root-controlled generation selector (2026-10-30)
+
+`scripts/immutable-broker-trusted-selection.mjs` exposes
+`readTrustedGenerationSelection(selectionPath, expectedAgent)`. This is a
+**read-only selector prototype**, not a strict adapter backend, and it does
+not change legacy workspace files. An administrator must pin the absolute
+selection pathname through trusted configuration **outside the untrusted
+workspace**. The file is root-owned, regular, single-link, no group/world
+write, at most 192 bytes, and under root-owned directory ancestry. The reader
+uses `O_NOFOLLOW | O_NONBLOCK`, checks descriptor/path identity and file
+stability, rejects symlinks and hardlinks, and accepts only ASCII
+`skillgate-generation-v1 <agent> <64-lowercase-sha256>\n`. Root-owned sticky
+ancestors such as `/tmp` are permitted, but an administrator should prefer
+a dedicated root-owned non-writable directory.
+
+The root-controlled selector is **outside** the immutable blob store and is
+not a workspace `current` pathname. An administrator may change it to choose
+a new pinned digest; an untrusted workspace UID must not own or be able to
+modify its file or ancestors. A consumer may call
+`readPinnedBrokerGeneration(socketPath, await
+readTrustedGenerationSelection(adminPinnedPath, agent), agent, brokerOptions)`.
+Do not derive `adminPinnedPath` from user input or a mutable workspace.
+The selected digest authenticates content bytes, but selecting it **does not
+by itself prove that the content was approved**. The administrator must
+validate and authorize a generation before publishing its digest into the
+root-controlled selection file. Per-client policy, durable storage quotas,
+strict lifecycle wiring, and a complete end-to-end threat-model review are
+still required.
+
+Run the dependency-free focused tests with
+`node --test scripts/immutable-broker-trusted-selection.test.mjs`.
+Positive root-owned fixture tests require root and skip under ordinary UIDs.
+An isolated Linux root/UID-61001 check confirmed that a distinct non-root
+client could read a root-owned selector but could not overwrite it. This is
+not the full built broker or npm/Vitest validation.
