@@ -115,7 +115,11 @@ async function verifyBlob(path: string, digest: string, expectedSize?: number): 
 
 /** Read and authenticate a pinned immutable digest; never interpret it as a path. */
 export async function readImmutableBlob(store: string, digest: string): Promise<Buffer> {
-  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Invalid SkillGate blob digest");
+  // Reject non-string selectors before RegExp.test() can coerce a caller-owned
+  // object or perform any store filesystem I/O.
+  if (typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest)) {
+    throw new Error("Invalid SkillGate blob digest");
+  }
   const safeStore = await assertPrivateStore(store);
   return verifyBlob(join(safeStore, digest), digest);
 }
