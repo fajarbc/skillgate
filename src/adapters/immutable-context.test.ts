@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -221,6 +221,53 @@ describe("immutable context adapter integration", () => {
       await expect(adapter.applyContext(context)).rejects.toThrow(/outside the workspace/);
       expect(await readdir(insideStore)).toEqual([]);
       expect(await readdir(outsideStore)).toEqual([]);
+    });
+  });
+
+  it("rejects unsafe store ownership and ancestry during both context plan and apply", async () => {
+    if (process.platform === "win32") return;
+    await withFixture(async (root, store) => {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Source");
+      const context = { root, task: "task", skills: [{
+        path: source, metadata: { name: "example", description: "Example" },
+        score: 1, reasons: [],
+      }] };
+
+      // realpath() alone considers this alias outside the workspace, but
+      // the immutable writer rejects symlinked store ancestry.
+      const alias = join(root, "store-alias");
+      await symlink(store, alias, "dir");
+      const symlinked = new CodexAdapter().immutable(alias);
+      await expect(symlinked.planContext(context)).rejects.toThrow(/ancestry/);
+      await expect(symlinked.applyContext(context)).rejects.toThrow(/ancestry/);
+
+      // The preview must not succeed for a directory that apply would reject
+      // for exposing its contents to the broker's group.
+      await chmod(store, 0o770);
+      const weakStore = new CodexAdapter().immutable(store);
+      await expect(weakStore.planContext(context)).rejects.toThrow(/private POSIX/);
+      await expect(weakStore.applyContext(context)).rejects.toThrow(/private POSIX/);
+      await chmod(store, 0o700);
+
+      // A writable non-sticky ancestor allows a non-cooperating writer to
+      // substitute the entire store, despite a private leaf directory.
+      const parent = await mkdtemp(join(tmpdir(), "skillgate-untrusted-store-parent-"));
+      try {
+        const nested = join(parent, "private");
+        await mkdir(nested, { mode: 0o700 });
+        await chmod(parent, 0o777);
+        const unsafeAncestor = new CodexAdapter().immutable(nested);
+        await expect(unsafeAncestor.planContext(context)).rejects.toThrow(/writable.*ancestor/);
+        await expect(unsafeAncestor.applyContext(context)).rejects.toThrow(/writable.*ancestor/);
+        expect(await readdir(nested)).toEqual([]);
+      } finally {
+        await rm(parent, { recursive: true, force: true });
+      }
+
+      // The same valid external store still permits a read-only preview.
+      await expect(new CodexAdapter().immutable(store).planContext(context)).resolves.toHaveProperty("digest");
+      expect(await readdir(store)).toEqual([]);
     });
   });
 
