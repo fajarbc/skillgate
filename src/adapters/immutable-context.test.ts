@@ -198,6 +198,24 @@ describe("immutable context adapter integration", () => {
   });
 
 
+  it("rejects a workspace nested inside the protected immutable store", async () => {
+    await withFixture(async (_root, store) => {
+      const workspace = join(store, "untrusted-workspace");
+      await mkdir(workspace, { mode: 0o700 });
+      const source = join(workspace, "source.md");
+      await writeFile(source, "# source");
+      const adapter = new CodexAdapter().immutable(store);
+      const context = { root: workspace, task: "task", skills: [{
+        path: source, metadata: { name: "test", description: "test" },
+        score: 1, reasons: [],
+      }] };
+      await expect(adapter.planContext(context)).rejects.toThrow(/outside the immutable store/);
+      await expect(adapter.applyContext(context)).rejects.toThrow(/outside the immutable store/);
+      expect(await readdir(workspace)).toEqual(["source.md"]);
+      expect(await readdir(store)).toEqual(["untrusted-workspace"]);
+    });
+  });
+
   it("rejects symlink/.. store aliases that would publish inside the workspace", async () => {
     await withFixture(async (root, outside) => {
       const insideStore = join(root, "safe");
