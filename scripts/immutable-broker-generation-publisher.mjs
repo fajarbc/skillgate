@@ -40,6 +40,10 @@ export function prepareBrokerGeneration(agent, kind, files) {
   const snapshots = [];
   let total = 0;
   for (const [path, bytes] of files) {
+    // Validate actual iterator output, not only the caller-overridable size.
+    if (snapshots.length >= MAX_FILES || kind === 'cleanup') {
+      throw new Error('Invalid immutable broker generation file count');
+    }
     assertLogicalPath(path);
     if (!Buffer.isBuffer(bytes)) throw new Error('Immutable broker generation content must be a Buffer');
     total += bytes.length;
@@ -47,6 +51,11 @@ export function prepareBrokerGeneration(agent, kind, files) {
     snapshots.push([path, Buffer.from(bytes)]);
   }
   snapshots.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  for (let i = 1; i < snapshots.length; i++) {
+    if (snapshots[i - 1][0] === snapshots[i][0]) {
+      throw new Error('Duplicate immutable broker generation logical path');
+    }
+  }
   const generation = {
     schemaVersion: '1', agent, kind,
     files: snapshots.map(([path, bytes]) => ({ path, digest: digest(bytes), size: bytes.length })),
