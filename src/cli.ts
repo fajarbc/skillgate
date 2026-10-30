@@ -79,6 +79,14 @@ export async function run(argv: string[]): Promise<number> {
     return 1;
   }
 
+  // An explicitly supplied empty adapter is still an adapter request.
+  // Treating --adapter "" as absent would bypass the strict adapter gate and
+  // fall through to the legacy trace writer's mutable workspace pathname.
+  if (values.adapter !== undefined && values.adapter.trim().length === 0) {
+    console.error("Adapter name must not be empty");
+    return 1;
+  }
+
   const root = values.root ?? cwd();
 
   if (command === "config") {
