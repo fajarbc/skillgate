@@ -205,6 +205,7 @@ describe("CLI", () => {
     for (const [directory, name, description] of [
       ["denied", "react-testing", "React testing workflows"],
       ["allowed", "testing-helper", "Testing workflows"],
+      ["backup", "backup-helper", "Testing workflows"],
     ]) {
       await mkdir(join(root, "skills", directory), { recursive: true });
       await writeFile(join(root, "skills", directory, "SKILL.md"),
@@ -234,6 +235,11 @@ describe("CLI", () => {
         { source: "name", term: "react", points: 5 },
         { source: "name", term: "testing", points: 5 },
       ],
+    });
+    expect(trace.candidates.find((candidate: { name: string }) =>
+      candidate.name === "backup-helper")).toMatchObject({
+      status: "rejected", decisionReason: "candidate limit reached", score: 2,
+      reasons: [{ source: "description", term: "testing", points: 2 }],
     });
   });
 
