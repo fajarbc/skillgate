@@ -229,7 +229,11 @@ describe("CLI", () => {
     expect(trace.selectedCount).toBe(1);
     expect(trace.candidates.find((candidate: { name: string }) =>
       candidate.name === "react-testing")).toMatchObject({
-      status: "rejected", policyDecision: "deny",
+      status: "rejected", policyDecision: "deny", score: 10,
+      reasons: [
+        { source: "name", term: "react", points: 5 },
+        { source: "name", term: "testing", points: 5 },
+      ],
     });
   });
 
