@@ -30,6 +30,40 @@ test('publishes sorted immutable content before manifest, with digest-authentica
   assert.equal(t.blobs.get(result.digest).toString(), JSON.stringify(result.generation));
 });
 
+test('publishes one blob for 256 identical logical files without exhausting proxy request quota', async () => {
+  const t = transport();
+  const files = new Map(Array.from({ length: 256 }, (_, index) => [
+    `skills/${String(index).padStart(3, '0')}/SKILL.md`, Buffer.from('shared'),
+  ]));
+  const published = await publishBrokerGenerationWith(t.put, 'codex', 'apply', files);
+  assert.equal(published.generation.files.length, 256);
+  assert.equal(t.calls.length, 2, 'one unique content PUT and one manifest PUT');
+  assert.equal(t.calls[0].toString(), 'shared');
+  assert.equal(sha(t.calls[1]), published.digest);
+  const { resolvePinnedBrokerGeneration } = await import('./immutable-broker-generation-client.mjs');
+  const read = await resolvePinnedBrokerGeneration(d => t.blobs.get(d), published.digest, 'codex');
+  assert.equal(read.files.size, 256);
+  assert.equal(read.files.get('skills/255/SKILL.md').toString(), 'shared');
+});
+
+test('deduplicates only matching content while preserving manifest ordering and acknowledgements', async () => {
+  const t = transport();
+  const files = new Map([
+    ['skills/d/SKILL.md', Buffer.from('A')],
+    ['skills/c/SKILL.md', Buffer.from('B')],
+    ['skills/b/SKILL.md', Buffer.from('A')],
+    ['skills/a/SKILL.md', Buffer.from('A')],
+  ]);
+  const published = await publishBrokerGenerationWith(t.put, 'codex', 'apply', files);
+  assert.deepEqual(t.calls.map(b => b.toString()).slice(0, 2), ['A', 'B']);
+  assert.equal(t.calls.length, 3);
+  assert.deepEqual(published.generation.files.map(f => f.path), [
+    'skills/a/SKILL.md', 'skills/b/SKILL.md',
+    'skills/c/SKILL.md', 'skills/d/SKILL.md',
+  ]);
+  assert.equal(sha(t.calls[2]), published.digest);
+});
+
 test('snapshots caller buffers before the first asynchronous publication', async () => {
   const input = Buffer.from('original');
   const files = new Map([['skills/a/SKILL.md', input]]);
