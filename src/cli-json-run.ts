@@ -91,7 +91,7 @@ function sanitizeTraceRecord(value: unknown): unknown | null {
  * on special files or emitting arbitrary JSON through a symlinked trace.
  * This is a read-only defense, not an atomic guarantee against external writers.
  */
-async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
+export async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
   const directory = join(root, ".skillgate");
   const file = join(directory, "trace.json");
   const maxBytes = 32 * 1024 * 1024;
