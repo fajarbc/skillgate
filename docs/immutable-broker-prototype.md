@@ -207,6 +207,17 @@ before forwarding any request bytes. It rejects callers sharing the permitted
 socket group but not the explicitly configured client UID. No Node-internal
 socket APIs or third-party Python packages are required.
 
+The optional root-only Linux regression `python3 scripts/smoke-immutable-proxy-peers.py`
+launches the real Python proxy under a dedicated non-root UID with capabilities
+removed and `NoNewPrivs=1`. It checks that the pinned client UID can reach a
+minimal protocol backend, an unauthorized UID sharing the same socket GID
+cannot forward any request bytes, and a root-owned backend with forged
+broker-owned socket metadata is rejected by kernel `SO_PEERCRED`. Run only
+on an isolated host: the script chooses currently unused numeric UID/GID
+values without reserving host accounts. This smoke uses a **stub backend**,
+not the built Node broker or immutable blob store; it does not establish
+full strict Option B lifecycle safety, quotas, or crash recovery.
+
 The administrator must create **two distinct broker-owned directories** under
 root- or broker-owned protected ancestors:
 
