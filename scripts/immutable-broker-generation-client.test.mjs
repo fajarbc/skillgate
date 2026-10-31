@@ -88,3 +88,57 @@ test('rejects oversized aggregate, malformed schema, and size mismatch', async (
   const h = fixture((d, size) => ({ ...apply(d, size), files: [{ path: 'skills/a', digest: d, size: size + 1 }] }));
   await assert.rejects(resolvePinnedBrokerGeneration(h.get, h.manifestDigest, 'codex'), /size mismatch/);
 });
+
+
+test('reuses authenticated shared blobs without exhausting proxy request quota', async () => {
+  const content = Buffer.from('shared skill bytes');
+  const f = fixture((d, size) => ({
+    schemaVersion: '1', agent: 'codex', kind: 'apply',
+    files: Array.from({ length: 256 }, (_, index) => ({
+      path: `skills/${String(index).padStart(3, '0')}/SKILL.md`, digest: d, size,
+    })),
+  }), content);
+  const reads = [];
+  const result = await resolvePinnedBrokerGeneration(async d => {
+    reads.push(d);
+    return f.blobs.get(d);
+  }, f.manifestDigest, 'codex');
+  assert.deepEqual(reads, [f.manifestDigest, digest(content)],
+    'manifest plus one unique blob must require only two broker requests');
+  assert.equal(result.files.size, 256);
+  const first = result.files.get('skills/000/SKILL.md');
+  const second = result.files.get('skills/001/SKILL.md');
+  first[0] = 0;
+  assert.equal(second.toString(), content.toString(),
+    'logical files must not share mutable Buffer objects');
+});
+
+test('reused digest still rejects inconsistent file sizes', async () => {
+  const f = fixture((d, size) => ({
+    schemaVersion: '1', agent: 'codex', kind: 'apply',
+    files: [
+      { path: 'skills/a', digest: d, size },
+      { path: 'skills/b', digest: d, size: size + 1 },
+    ],
+  }));
+  await assert.rejects(
+    resolvePinnedBrokerGeneration(f.get, f.manifestDigest, 'codex'),
+    /size mismatch/,
+  );
+});
+
+test('reused digest cannot bypass content authentication', async () => {
+  const f = fixture((d, size) => ({
+    schemaVersion: '1', agent: 'codex', kind: 'apply',
+    files: [
+      { path: 'skills/a', digest: d, size },
+      { path: 'skills/b', digest: d, size },
+    ],
+  }));
+  const contentDigest = digest(Buffer.from('hello'));
+  f.blobs.set(contentDigest, Buffer.from('evil!'));
+  await assert.rejects(
+    resolvePinnedBrokerGeneration(f.get, f.manifestDigest, 'codex'),
+    /authentication/,
+  );
+});
