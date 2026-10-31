@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DiscoveredSkill } from "../discovery/index.js";
@@ -7,6 +7,7 @@ import type { ProjectSignal } from "../detection/index.js";
 import type { RankedSkill } from "../ranking/index.js";
 import type { SkillPolicyEvaluation } from "../policy/index.js";
 import { estimateTokens } from "./estimate.js";
+import { loadBoundedJsonTrace } from "../cli-json-run.js";
 import { sanitizeText } from "./sanitize.js";
 import type { CandidateTrace, TraceRecord } from "./types.js";
 
@@ -149,11 +150,7 @@ export async function saveTrace(record: TraceRecord, root: string): Promise<stri
 }
 
 export async function loadLatestTrace(root: string): Promise<TraceRecord | null> {
-  const file = join(root, TRACE_DIR, TRACE_FILE);
-  try {
-    const content = await readFile(file, "utf8");
-    return JSON.parse(content) as TraceRecord;
-  } catch {
-    return null;
-  }
+  // Keep the exported trace API aligned with the descriptor-checked, bounded,
+  // schema-sanitizing reader used by both human and JSON CLI transports.
+  return await loadBoundedJsonTrace(root) as TraceRecord | null;
 }
