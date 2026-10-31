@@ -32,11 +32,16 @@ function logicalPath(path) {
 }
 
 function authenticateBlob(bytes, digest) {
-  if (!Buffer.isBuffer(bytes) || bytes.length > MAX_BLOB_BYTES ||
-      createHash('sha256').update(bytes).digest('hex') !== digest) {
+  if (!Buffer.isBuffer(bytes) || bytes.length > MAX_BLOB_BYTES) {
     throw new Error('Pinned broker blob failed authentication');
   }
-  return bytes;
+  // Retain a private snapshot, not a transport-owned Buffer that may be
+  // mutated during a later awaited blob read and reused from the digest cache.
+  const snapshot = Buffer.from(bytes);
+  if (createHash('sha256').update(snapshot).digest('hex') !== digest) {
+    throw new Error('Pinned broker blob failed authentication');
+  }
+  return snapshot;
 }
 
 /** Resolve only an externally trusted, explicit digest. The injected readBlob
