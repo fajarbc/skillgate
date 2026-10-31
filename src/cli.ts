@@ -133,7 +133,9 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   if (command === "trace") {
-    // Use the same bounded, descriptor-checked reader as the JSON transport.\n    // Human trace output must not follow symlinks or block on special files.\n    const trace = await loadBoundedJsonTrace(root) as TraceRecord | null;
+    // Use the same bounded, descriptor-checked reader as the JSON transport.
+    // Human trace output must not follow symlinks or block on special files.
+    const trace = await loadBoundedJsonTrace(root) as TraceRecord | null;
     if (!trace) {
       if (values.json) {
         console.log(JSON.stringify({ error: "no trace found" }, null, 2));
