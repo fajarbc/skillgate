@@ -73,11 +73,18 @@ export function prepareBrokerGeneration(agent, kind, files) {
 export async function publishBrokerGenerationWith(putBlob, agent, kind, files) {
   if (typeof putBlob !== 'function') throw new Error('Invalid immutable broker publisher');
   const prepared = prepareBrokerGeneration(agent, kind, files);
+  // Identical logical files share one content-addressed blob. Repeated PUTs
+  // consume the authenticated proxy's limited request quota without creating
+  // new content; authenticate each unique acknowledgement before skipping it.
+  const publishedDigests = new Set();
   for (const [index, [, bytes]] of prepared.snapshots.entries()) {
+    const expectedDigest = prepared.generation.files[index].digest;
+    if (publishedDigests.has(expectedDigest)) continue;
     const published = await putBlob(bytes);
-    if (published?.digest !== prepared.generation.files[index].digest) {
+    if (published?.digest !== expectedDigest) {
       throw new Error('Immutable broker generation content acknowledgement mismatch');
     }
+    publishedDigests.add(expectedDigest);
   }
   const manifest = await putBlob(prepared.manifestBytes);
   if (manifest?.digest !== prepared.digest) {
