@@ -142,3 +142,36 @@ test('reused digest cannot bypass content authentication', async () => {
     /authentication/,
   );
 });
+
+test('snapshots authenticated transport buffers before later awaited reads', async () => {
+  const first = Buffer.from('first');
+  const second = Buffer.from('other');
+  const firstDigest = digest(first);
+  const secondDigest = digest(second);
+  const manifest = Buffer.from(JSON.stringify({
+    schemaVersion: '1', agent: 'codex', kind: 'apply',
+    files: [
+      { path: 'skills/a', digest: firstDigest, size: 5 },
+      { path: 'skills/b', digest: secondDigest, size: 5 },
+      { path: 'skills/c', digest: firstDigest, size: 5 },
+    ],
+  }));
+  const manifestDigest = digest(manifest);
+  const reads = [];
+  const result = await resolvePinnedBrokerGeneration(async requested => {
+    reads.push(requested);
+    if (requested === manifestDigest) return manifest;
+    if (requested === firstDigest) return first;
+    if (requested === secondDigest) {
+      // The transport still owns its returned Buffer. A subsequent awaited
+      // read may mutate it, but cached authenticated content must not change.
+      first.fill(0x58);
+      return second;
+    }
+    throw new Error('Unexpected digest');
+  }, manifestDigest, 'codex');
+  assert.deepEqual(reads, [manifestDigest, firstDigest, secondDigest]);
+  assert.equal(result.files.get('skills/a').toString(), 'first');
+  assert.equal(result.files.get('skills/b').toString(), 'other');
+  assert.equal(result.files.get('skills/c').toString(), 'first');
+});
