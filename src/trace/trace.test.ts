@@ -137,4 +137,49 @@ describe("trace", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("does not follow a symlinked trace file or directory when loading", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-trace-read-symlink-"));
+    try {
+      const dir = join(root, ".skillgate");
+      await mkdir(dir);
+      const foreign = join(root, "foreign.json");
+      const record = createTraceRecord({ task: "private", root, signals: [], discoveredSkills: [], rankedSkills: [] });
+      await writeFile(foreign, JSON.stringify(record));
+      await symlink(foreign, join(dir, "trace.json"));
+      expect(await loadLatestTrace(root)).toBeNull();
+
+      await rm(join(dir, "trace.json"));
+      await rm(dir, { recursive: true });
+      const foreignDir = join(root, "foreign-dir");
+      await mkdir(foreignDir);
+      await writeFile(join(foreignDir, "trace.json"), JSON.stringify(record));
+      await symlink(foreignDir, dir, "dir");
+      expect(await loadLatestTrace(root)).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects oversized, hardlinked, and malformed trace records through the exported loader", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-trace-read-invalid-"));
+    try {
+      const dir = join(root, ".skillgate");
+      await mkdir(dir);
+      const file = join(dir, "trace.json");
+      const foreign = join(root, "foreign.json");
+      const record = createTraceRecord({ task: "valid", root, signals: [], discoveredSkills: [], rankedSkills: [] });
+      await writeFile(foreign, JSON.stringify(record));
+      await link(foreign, file);
+      expect(await loadLatestTrace(root)).toBeNull();
+      await rm(file);
+
+      await writeFile(file, JSON.stringify({ ...record, selectedCount: 999 }));
+      expect(await loadLatestTrace(root)).toBeNull();
+      await writeFile(file, "x".repeat(32 * 1024 * 1024 + 1));
+      expect(await loadLatestTrace(root)).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
