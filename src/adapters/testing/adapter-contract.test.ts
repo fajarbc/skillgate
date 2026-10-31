@@ -2,8 +2,24 @@ import { mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentAdapter, AdapterContext } from "../types.js";
+import type { AgentAdapter, AdapterContext, LifecycleOptions } from "../types.js";
 import type { RankedSkill } from "../../ranking/index.js";
+
+/**
+ * Legacy lifecycle tests intentionally exercise the cooperating-writer backend.
+ * Production adapters are strict-by-default; never use this fixture for
+ * strict-policy tests or mistake these tests for Option B concurrency evidence.
+ */
+export function legacyCooperativeAdapter<T extends AgentAdapter>(adapter: T): T {
+  const apply = adapter.apply.bind(adapter);
+  const cleanup = adapter.cleanup.bind(adapter);
+  return Object.assign(adapter, {
+    apply: (context: AdapterContext, options?: LifecycleOptions) =>
+      apply(context, { ...options, concurrency: "cooperative" }),
+    cleanup: (context: AdapterContext, options?: LifecycleOptions) =>
+      cleanup(context, { ...options, concurrency: "cooperative" }),
+  });
+}
 
 export interface AdapterContractConfig {
   readonly label: string;
@@ -29,6 +45,31 @@ export async function writeSkill(skill: RankedSkill, content = "# Instructions\n
 // leak into the production build. Keep one small self-test so Vitest can also
 // discover the helper module directly without reporting an empty suite.
 describe("adapter contract fixtures", () => {
+  it("passes explicit cooperative mode through legacy fixtures without discarding force", async () => {
+    const seen: LifecycleOptions[] = [];
+    const fake: AgentAdapter = {
+      name: "fake",
+      format: () => "",
+      plan: async () => ({ agent: "fake", writes: [], removals: [], conflicts: [], skills: [], summary: "" }),
+      apply: async (_context, options) => {
+        seen.push(options ?? {});
+        return { agent: "fake", filesWritten: [], exposedSkills: [], summary: "" };
+      },
+      cleanup: async (_context, options) => {
+        seen.push(options ?? {});
+        return { agent: "fake", filesRemoved: [], summary: "" };
+      },
+    };
+    const adapter = legacyCooperativeAdapter(fake);
+    const context: AdapterContext = { task: "test", root: "/unused", skills: [] };
+    await adapter.apply(context, { force: true });
+    await adapter.cleanup(context);
+    expect(seen).toEqual([
+      { force: true, concurrency: "cooperative" },
+      { concurrency: "cooperative" },
+    ]);
+  });
+
   it("creates a valid ranked skill fixture", async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "skillgate-fixture-"));
     try {

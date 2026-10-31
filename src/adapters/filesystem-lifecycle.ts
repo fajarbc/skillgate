@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { link, lstat, mkdir, open, realpath, rename, rm, rmdir, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -15,13 +15,16 @@ import type {
 } from "./types.js";
 
 export const OWNERSHIP_HEADER = "<!-- Managed by SkillGate. Do not edit directly. -->\n";
+const MAX_OWNERSHIP_FILE_BYTES = 32 * 1024 * 1024;
+// Reserve room for the ownership header within the reader's size limit.
+const MAX_SKILL_SOURCE_BYTES = MAX_OWNERSHIP_FILE_BYTES - Buffer.byteLength(OWNERSHIP_HEADER);
 /**
  * Serialize mutations by cooperating SkillGate processes targeting one adapter root.
  * The lock lives outside the workspace so cleanup never creates a missing root.
  * Crashed-process locks require manual inspection; external writers are not protected.
  */
 async function withAdapterMutationLock<T>(agentRoot: string, work: () => Promise<T>): Promise<T> {
-  const lockPath = join(tmpdir(), `skillgate-adapter-${digest(agentRoot)}.lock`);
+  const lockPath = join(await realpath(tmpdir()), `skillgate-adapter-${digest(agentRoot)}.lock`);
   const startedAt = Date.now();
   await assertNoSymlinkAncestors(lockPath);
   while (true) {
@@ -100,7 +103,7 @@ export class AdapterConflictError extends Error {
 export async function readPreviousManifest(manifestPath: string, expectedAgent?: string): Promise<ManifestData | null> {
   try {
     await assertNoSymlinkAncestors(manifestPath);
-    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(manifestPath));
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readStableOwnershipFile(manifestPath));
     const parsed = JSON.parse(raw);
     if (parsed && parsed.managedBy === "skillgate" && parsed.version === "1.0" &&
       typeof parsed.agent === "string" && parsed.agent.length > 0 &&
@@ -175,8 +178,58 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
   }
 }
 
+/**
+ * Read ownership evidence through a stable descriptor, refusing final symlinks
+ * and observable path substitution/in-place edits. This narrows the read-time
+ * race; it cannot make a later rename() or rm() compare-and-swap atomic.
+ */
+export async function readStableOwnershipFile(path: string): Promise<Buffer> {
+  await assertNoSymlinkAncestors(path);
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const before = await handle.stat();
+    // Hard-linked ownership evidence can be changed through another pathname,
+    // bypassing the managed destination's path checks and cooperative lock.
+    if (!before.isFile() || before.nlink !== 1 || before.size > MAX_OWNERSHIP_FILE_BYTES) {
+      throw new AdapterConflictError([path]);
+    }
+    const chunks: Buffer[] = [];
+    let length = 0;
+    while (true) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_OWNERSHIP_FILE_BYTES + 1 - length));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+      if (length > MAX_OWNERSHIP_FILE_BYTES) throw new AdapterConflictError([path]);
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    const bytes = Buffer.concat(chunks, length);
+    const after = await handle.stat();
+    await assertNoSymlinkAncestors(path);
+    const current = await lstat(path);
+    if (!current.isFile() || bytes.length !== before.size ||
+        before.dev !== after.dev || before.ino !== after.ino ||
+        after.nlink !== 1 || current.nlink !== 1 ||
+        before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+        before.ctimeMs !== after.ctimeMs ||
+        current.dev !== after.dev || current.ino !== after.ino ||
+        current.size !== after.size || current.mtimeMs !== after.mtimeMs ||
+        current.ctimeMs !== after.ctimeMs) {
+      throw new AdapterConflictError([path]);
+    }
+    return bytes;
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Stage complete bytes before replacing a managed destination. */
-async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string; ownershipManifestPath?: string; ownershipManifestDigest?: string }): Promise<void> {
+/** @internal: exposed for focused filesystem safety regression tests. */
+export async function writeManagedFile(path: string, content: string, options?: { force?: boolean; manifest?: boolean; agent?: string; expectedManifest?: ManifestData | null; expectedManifestDigest?: string; ownershipManifestPath?: string; ownershipManifestDigest?: string }): Promise<void> {
+  // Every managed output, including the final manifest, must remain readable.
+  if (Buffer.byteLength(content, "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([path]);
+  }
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
@@ -192,14 +245,21 @@ async function writeManagedFile(path: string, content: string, options?: { force
     // access() follows symlinks and treats dangling symlinks as missing.
     // lstat() detects the directory entry itself, preventing unsafe writes.
     let exists = false;
+    let originalEntry: Awaited<ReturnType<typeof lstat>> | undefined;
     try {
       const entry = await lstat(path);
       if (entry.isSymbolicLink() || !entry.isFile()) {
         throw new AdapterConflictError([path]);
       }
       exists = true;
+      originalEntry = entry;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    // Losing a previously verified manifest revokes permission to install a new one.
+    // Force cannot bypass an ownership snapshot disappearing mid-apply.
+    if (options?.manifest && options.expectedManifestDigest && !exists) {
+      throw new AdapterConflictError([path]);
     }
     if (exists) {
       // Force permits an intentional overwrite, not replacement of a manifest
@@ -211,7 +271,7 @@ async function writeManagedFile(path: string, content: string, options?: { force
           throw new AdapterConflictError([path]);
         }
         if (options.expectedManifestDigest) {
-          const current = await readFile(path);
+          const current = await readStableOwnershipFile(path);
           if (digest(current) !== options.expectedManifestDigest) {
             throw new AdapterConflictError([path]);
           }
@@ -236,7 +296,27 @@ async function writeManagedFile(path: string, content: string, options?: { force
       throw new AdapterConflictError([path]);
     }
     if (exists) {
-      // Replacing an existing owned file still requires stronger concurrency coordination.
+      // Reject observable substitution after the ownership checks. This does not
+      // eliminate a non-cooperating writer's race after this final lstat().
+      const currentEntry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") throw new AdapterConflictError([path]);
+        throw error;
+      });
+      if (!originalEntry || !currentEntry.isFile() || currentEntry.isSymbolicLink() ||
+          originalEntry.dev !== currentEntry.dev || originalEntry.ino !== currentEntry.ino ||
+          originalEntry.size !== currentEntry.size || originalEntry.mtimeMs !== currentEntry.mtimeMs ||
+          originalEntry.ctimeMs !== currentEntry.ctimeMs || originalEntry.nlink !== currentEntry.nlink) {
+        throw new AdapterConflictError([path]);
+      }
+      // Reapplying identical, verified managed bytes must not replace the inode.
+      // Avoiding unnecessary rename() calls also reduces exposure to the
+      // non-cooperating-writer TOCTOU window (it does not eliminate that race).
+      if (!options?.manifest && !options?.force &&
+          currentEntry.size === Buffer.byteLength(content, "utf8") &&
+          (await readStableOwnershipFile(path)).equals(Buffer.from(content, "utf8"))) {
+        return;
+      }
+      // Still only safe against cooperating writers; rename is not compare-and-swap.
       await rename(temporaryPath, path);
     } else {
       // A hard link creates the destination atomically without replacing a file
@@ -275,7 +355,7 @@ function digest(content: string | Buffer): string {
 async function assertManifestDigest(manifestPath: string, expectedDigest: string): Promise<void> {
   await assertNoSymlinkAncestors(manifestPath);
   try {
-    if (digest(await readFile(manifestPath)) === expectedDigest) return;
+    if (digest(await readStableOwnershipFile(manifestPath)) === expectedDigest) return;
   } catch {
     // Missing or unreadable ownership metadata cannot authorize mutations.
   }
@@ -289,12 +369,12 @@ export async function isManagedFile(
   if (!previousManifest || !previousManifest.managedFiles.includes(filePath)) return false;
   try {
     await assertNoSymlinkAncestors(filePath);
-    const content = await readFile(filePath);
+    const content = await readStableOwnershipFile(filePath);
     if (!content.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) return false;
     // A digest-aware manifest must prove ownership for this exact file.
-    // Older manifests without fileDigests retain legacy marker compatibility.
-    if (previousManifest.fileDigests === undefined) return true;
-    const expected = previousManifest.fileDigests[filePath];
+    // Legacy marker-only manifests remain readable, but do not authorize
+    // replacement or deletion: their file bytes were never authenticated.
+    const expected = previousManifest.fileDigests?.[filePath];
     const actual = digest(content);
     if (typeof expected === "string" && expected === actual) return true;
     return previousManifest.phase === "pending" &&
@@ -302,6 +382,135 @@ export async function isManagedFile(
   } catch {
     return false;
   }
+}
+
+/** Collect only previously verified ownership bytes for pending recovery metadata. */
+async function collectVerifiedOwnedDigests(
+  agentRoot: string,
+  manifestPath: string,
+  prior: ManifestData | null,
+): Promise<Record<string, string>> {
+  const verifiedDigests: Record<string, string> = {};
+  if (!prior) return verifiedDigests;
+  for (const filePath of prior.managedFiles) {
+    if (!isSafeManagedFilePath(agentRoot, filePath) || filePath === manifestPath) continue;
+    await assertNoSymlinkAncestors(filePath);
+    try {
+      const current = await readStableOwnershipFile(filePath);
+      if (!current.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) continue;
+      const currentDigest = digest(current);
+      // A legacy marker-only manifest cannot authenticate existing file bytes.
+      if (prior.fileDigests?.[filePath] === currentDigest ||
+          (prior.phase === "pending" && prior.previousFileDigests?.[filePath] === currentDigest)) {
+        verifiedDigests[filePath] = currentDigest;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return verifiedDigests;
+}
+
+/** Read and validate the exact bytes apply would consume, without workspace writes. */
+/** @internal: separately testable path identity check after a descriptor read. */
+export async function assertSourcePathSnapshot(
+  path: string,
+  descriptorSnapshot: import("node:fs").Stats,
+  originalPathEntry?: import("node:fs").Stats,
+): Promise<void> {
+  // stat() follows symlinks: replacing a direct path with a symlink to the
+  // same inode would otherwise pass the descriptor identity check.
+  const pathEntry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") throw new AdapterConflictError([path]);
+    throw error;
+  });
+  if (originalPathEntry && (
+      pathEntry.dev !== originalPathEntry.dev || pathEntry.ino !== originalPathEntry.ino ||
+      pathEntry.mode !== originalPathEntry.mode || pathEntry.size !== originalPathEntry.size ||
+      pathEntry.mtimeMs !== originalPathEntry.mtimeMs ||
+      pathEntry.ctimeMs !== originalPathEntry.ctimeMs ||
+      pathEntry.nlink !== originalPathEntry.nlink)) {
+    throw new AdapterConflictError([path]);
+  }
+  const pathSnapshot = await stat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") throw new AdapterConflictError([path]);
+    throw error;
+  });
+  if (!pathSnapshot.isFile() || pathSnapshot.dev !== descriptorSnapshot.dev ||
+      pathSnapshot.ino !== descriptorSnapshot.ino || pathSnapshot.size !== descriptorSnapshot.size ||
+      pathSnapshot.mtimeMs !== descriptorSnapshot.mtimeMs ||
+      pathSnapshot.ctimeMs !== descriptorSnapshot.ctimeMs) {
+    throw new AdapterConflictError([path]);
+  }
+}
+
+/** Bounded, snapshot-verified, read-only source preparation shared with immutable adapters. */
+export async function readPreparedSkillSource(skill: AdapterContext["skills"][number]): Promise<string> {
+    // A FIFO or device can block readFile() indefinitely before apply begins.
+    // Open nonblocking and reject non-regular sources before reading bytes.
+    let source;
+    let sourcePathEntry: Awaited<ReturnType<typeof lstat>> | undefined;
+    try {
+      // Capture the pathname entry separately from the opened target inode.
+      // This preserves stable symlink sources but detects entry replacement.
+      sourcePathEntry = await lstat(skill.path);
+      source = await open(skill.path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Missing at the initial lstat() may use the metadata fallback. If the
+      // entry existed but vanished before open(), fail closed instead of
+      // silently publishing fabricated content during a source-path race.
+      if (sourcePathEntry) throw new AdapterConflictError([skill.path]);
+      // JSON-quoted strings are valid YAML scalars, except JSON.stringify leaves
+      // Unicode line separators literal; YAML interprets them as line breaks.
+      const yamlQuoted = (value: string): string => JSON.stringify(value).replace(
+        /[\u0085\u2028\u2029]/g,
+        (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
+      );
+      return `---\nname: ${yamlQuoted(skill.metadata.name)}\ndescription: ${yamlQuoted(skill.metadata.description)}\n---\n`;
+    }
+    try {
+      const before = await source.stat();
+      if (!before.isFile() || before.size > MAX_SKILL_SOURCE_BYTES) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      // Bound reads even if the source grows after stat(), before mutation.
+      const chunks: Buffer[] = [];
+      let total = 0;
+      while (true) {
+        const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_SKILL_SOURCE_BYTES + 1 - total));
+        const { bytesRead } = await source.read(chunk, 0, chunk.length, null);
+        if (bytesRead === 0) break;
+        total += bytesRead;
+        if (total > MAX_SKILL_SOURCE_BYTES) throw new AdapterConflictError([skill.path]);
+        chunks.push(chunk.subarray(0, bytesRead));
+      }
+      const after = await source.stat();
+      if (total !== before.size || before.dev !== after.dev || before.ino !== after.ino ||
+          before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+          before.ctimeMs !== after.ctimeMs) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      // A descriptor remains readable after an external rename/unlink. Confirm
+      // the source pathname still identifies the same snapshot before using it.
+      // This detects observable substitution, not an atomic external-writer lock.
+      await assertSourcePathSnapshot(skill.path, after, sourcePathEntry);
+      // Reject malformed UTF-8 rather than silently replacing invalid bytes
+      // with U+FFFD and publishing corrupted skill content.
+      let content: string;
+      try {
+        content = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
+      } catch {
+        throw new AdapterConflictError([skill.path]);
+      }
+      // Keep the decoded-size guard even if the decoder changes in the future.
+      if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
+        throw new AdapterConflictError([skill.path]);
+      }
+      return content;
+    } finally {
+      await source.close();
+    }
 }
 
 export async function planFilesystemAdapter(
@@ -319,8 +528,58 @@ export async function planFilesystemAdapter(
   const previousManifest = await readPreviousManifest(manifestPath, agentName);
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
 
+  // The manifest contains the task and every selected skill's metadata. A
+  // manifest that cannot fit the ownership reader's bound must fail at plan()
+  // too, before apply() stages a pending manifest or touches the workspace.
+  // This is a lower bound: the actual manifest adds paths, digests and state.
+  const requiredManifestMetadata = {
+    task: context.task,
+    skills: preparedSkills.map(({ skill, safeId }) => ({
+      name: skill.metadata.name, identifier: safeId,
+      description: skill.metadata.description, path: skill.path,
+      score: skill.score, capabilities: skill.metadata.capabilities ?? [],
+    })),
+  };
+  if (Buffer.byteLength(JSON.stringify(requiredManifestMetadata), "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([manifestPath]);
+  }
+
+  // Project the full pending manifest, including retained ownership metadata.
+  // Use the same verified-digest collector as apply so existing-manifest plans
+  // also reject an envelope that apply cannot safely persist.
+  const verifiedDigests = await collectVerifiedOwnedDigests(agentRoot, manifestPath, previousManifest);
+  const projectedPending: ManifestData = {
+    managedBy: "skillgate", version: "1.0", agent: agentName,
+    task: context.task, updatedAt: new Date().toISOString(),
+    managedFiles: [...new Set([
+      ...(previousManifest?.managedFiles ?? []).filter((p) => isSafeManagedFilePath(agentRoot, p)),
+      ...preparedSkills.map(({ dirPath }) => resolveSafeSubpath(dirPath, "SKILL.md")),
+      manifestPath,
+    ])],
+    fileDigests: {
+      ...(previousManifest?.fileDigests ?? {}),
+      ...Object.fromEntries(preparedSkills.map(({ dirPath }) => [
+        resolveSafeSubpath(dirPath, "SKILL.md"), "0".repeat(64),
+      ])),
+    },
+    phase: "pending",
+    previousFileDigests: verifiedDigests,
+    skills: requiredManifestMetadata.skills,
+  };
+  if (Buffer.byteLength(JSON.stringify(projectedPending, null, 2), "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([manifestPath]);
+  }
+
   const plannedWrites: string[] = [];
   const conflicts: string[] = [];
+
+  // Planning must reject sources that apply would refuse, without mutating the workspace.
+  for (const { skill } of preparedSkills) {
+    const content = await readPreparedSkillSource(skill);
+    if (Buffer.byteLength(content, "utf8") > MAX_SKILL_SOURCE_BYTES) {
+      throw new AdapterConflictError([skill.path]);
+    }
+  }
 
   for (const { dirPath } of preparedSkills) {
     const destFile = resolveSafeSubpath(dirPath, "SKILL.md");
@@ -388,26 +647,23 @@ async function applyFilesystemAdapterUnlocked(
   const preparedSkills = prepareSafeSkillPaths(context.skills, skillsDir);
   // Read every source before creating directories or changing managed files.
   // A missing or unreadable later source must not leave a partial apply.
-  const preparedContents = await Promise.all(preparedSkills.map(async ({ skill }) => {
-    try {
-      return await readFile(skill.path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return `---\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\n---\n`;
+  const preparedContents = await Promise.all(preparedSkills.map(({ skill }) => readPreparedSkillSource(skill)));
+  for (let index = 0; index < preparedContents.length; index++) {
+    if (Buffer.byteLength(preparedContents[index] ?? "", "utf8") > MAX_SKILL_SOURCE_BYTES) {
+      throw new AdapterConflictError([preparedSkills[index]!.skill.path]);
     }
-  }));
+  }
 
   // Persist intended ownership before mutating skill files so cleanup can
   // recover files from an interrupted apply.
   await assertNoSymlinkAncestors(manifestPath);
-  await mkdir(agentRoot, { recursive: true });
   const prior = await readPreviousManifest(manifestPath, agentName);
   // Do not proceed if an unrecognized or foreign manifest appeared after plan().
   // A missing manifest is the only safe no-digest starting state.
   if (!prior && await fileExists(manifestPath) && !options?.force) {
     throw new AdapterConflictError([manifestPath]);
   }
-  const priorManifestBytes = prior ? await readFile(manifestPath) : undefined;
+  const priorManifestBytes = prior ? await readStableOwnershipFile(manifestPath) : undefined;
   const priorManifestRaw = priorManifestBytes === undefined ? undefined :
     new TextDecoder("utf-8", { fatal: true }).decode(priorManifestBytes);
   // The parsed manifest and digest must describe the same snapshot. Otherwise
@@ -422,25 +678,8 @@ async function applyFilesystemAdapterUnlocked(
     }
   }
   const priorManifestDigest = priorManifestBytes === undefined ? undefined : digest(priorManifestBytes);
-  // Record only current, verified owned bytes before advertising replacements.
-  const previousVerifiedDigests: Record<string, string> = {};
-  if (prior) {
-    for (const filePath of prior.managedFiles) {
-      if (!isSafeManagedFilePath(agentRoot, filePath) || filePath === manifestPath) continue;
-      await assertNoSymlinkAncestors(filePath);
-      try {
-        const current = await readFile(filePath);
-        if (!current.subarray(0, Buffer.byteLength(OWNERSHIP_HEADER)).equals(Buffer.from(OWNERSHIP_HEADER))) continue;
-        const currentDigest = digest(current);
-        const verified = prior.fileDigests === undefined ||
-          prior.fileDigests[filePath] === currentDigest ||
-          (prior.phase === "pending" && prior.previousFileDigests?.[filePath] === currentDigest);
-        if (verified) previousVerifiedDigests[filePath] = currentDigest;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-    }
-  }
+  // Use the same verified ownership snapshot as the plan-time size preflight.
+  const previousVerifiedDigests = await collectVerifiedOwnedDigests(agentRoot, manifestPath, prior);
   const plannedDigests = Object.fromEntries(preparedSkills.map(({ dirPath }, index) => [
     resolveSafeSubpath(dirPath, "SKILL.md"),
     digest(`${OWNERSHIP_HEADER}${preparedContents[index]}`),
@@ -462,8 +701,13 @@ async function applyFilesystemAdapterUnlocked(
       score: skill.score, capabilities: skill.metadata.capabilities ?? [],
     })),
   };
-  const pendingDigest = digest(JSON.stringify(pending, null, 2));
-  await writeManagedFile(manifestPath, JSON.stringify(pending, null, 2), {
+  const pendingContent = JSON.stringify(pending, null, 2);
+  if (Buffer.byteLength(pendingContent, "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
+    throw new AdapterConflictError([manifestPath]);
+  }
+  const pendingDigest = digest(pendingContent);
+  await mkdir(agentRoot, { recursive: true });
+  await writeManagedFile(manifestPath, pendingContent, {
     force: options?.force, manifest: true, agent: agentName,
     expectedManifestDigest: priorManifestDigest,
   });
@@ -493,6 +737,8 @@ async function applyFilesystemAdapterUnlocked(
     // Recheck ownership before deleting: the file may have changed since plan().
     if (!(await isManagedFile(staleFile, prior))) continue;
     await assertManifestDigest(manifestPath, pendingDigest);
+    // Manifest verification is asynchronous; reject a stale file changed meanwhile.
+    if (!(await isManagedFile(staleFile, prior))) continue;
     await rm(staleFile, { force: true });
     filesRemoved.push(staleFile);
     delete fileDigests[staleFile];
@@ -568,7 +814,7 @@ async function cleanupFilesystemAdapterUnlocked(
   const previousManifest = await readPreviousManifest(manifestPath, agentName);
   // Capture the exact manifest bytes used to authorize cleanup. A different
   // valid manifest must not be removed just because its agent name matches.
-  const manifestBytes = previousManifest ? await readFile(manifestPath) : undefined;
+  const manifestBytes = previousManifest ? await readStableOwnershipFile(manifestPath) : undefined;
   const manifestRaw = manifestBytes === undefined ? undefined :
     new TextDecoder("utf-8", { fatal: true }).decode(manifestBytes);
   if (manifestRaw) {
@@ -598,6 +844,10 @@ async function cleanupFilesystemAdapterUnlocked(
       // Preserve the manifest when any owned skill file remains (including
       // user-edited files), so a later cleanup can safely recover.
       if (filePath === manifestPath) {
+        // A legacy marker-only manifest is self-asserted ownership evidence.
+        // Without digest metadata it must not authorize deletion of itself,
+        // even if every listed skill file is already missing.
+        if (previousManifest.fileDigests === undefined) continue;
         const remaining = await Promise.all(
           previousManifest.managedFiles
             .filter((candidate) => candidate !== manifestPath && isSafeManagedFilePath(agentRoot, candidate))
@@ -614,12 +864,20 @@ async function cleanupFilesystemAdapterUnlocked(
       if (await fileExists(filePath)) {
         const managed = filePath === manifestPath
           ? (await readPreviousManifest(filePath, agentName)) !== null &&
-            digest(await readFile(filePath)) === expectedManifestDigest
+            digest(await readStableOwnershipFile(filePath)) === expectedManifestDigest
           : await isManagedFile(filePath, previousManifest);
         // Cleanup only removes bytes verified against the previous manifest.
         // Force does not authorize deletion of independently edited files.
         if (managed) {
           if (expectedManifestDigest) await assertManifestDigest(manifestPath, expectedManifestDigest);
+          // Recheck after the manifest await, immediately before deletion.
+          if (filePath === manifestPath) {
+            if (digest(await readStableOwnershipFile(filePath)) !== expectedManifestDigest) {
+              throw new AdapterConflictError([filePath]);
+            }
+          } else if (!(await isManagedFile(filePath, previousManifest))) {
+            continue;
+          }
           await rm(filePath, { force: true });
           filesRemoved.push(filePath);
           try {
@@ -639,6 +897,20 @@ async function cleanupFilesystemAdapterUnlocked(
   };
 }
 
+/**
+ * Option B is the default: path-based replacement/removal is not atomic with
+ * ownership verification. Never infer consent to cooperative-only safety from
+ * an omitted policy, including when force=true.
+ *
+ * Explicit cooperative mode is retained solely for existing callers and is
+ * NOT an implementation of the strict external-writer guarantee.
+ */
+function assertSupportedMutationConcurrency(options?: LifecycleOptions): void {
+  if (options?.concurrency !== "cooperative") {
+    throw new Error("Strict external-writer lifecycle safety is not supported by the current filesystem backend; no workspace mutation attempted. Explicit cooperative mode does not protect against unrelated writers.");
+  }
+}
+
 /** Mutating lifecycle operations for the same adapter root are serialized. */
 export async function applyFilesystemAdapter(
   agentName: string,
@@ -646,6 +918,7 @@ export async function applyFilesystemAdapter(
   context: AdapterContext,
   options?: LifecycleOptions,
 ): Promise<AdapterResult> {
+  assertSupportedMutationConcurrency(options);
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   return withAdapterMutationLock(agentRoot, () =>
     applyFilesystemAdapterUnlocked(agentName, managedDirName, context, options));
@@ -657,6 +930,7 @@ export async function cleanupFilesystemAdapter(
   context: AdapterContext,
   options?: LifecycleOptions,
 ): Promise<CleanupResult> {
+  assertSupportedMutationConcurrency(options);
   const agentRoot = resolveSafeSubpath(context.root, managedDirName);
   return withAdapterMutationLock(agentRoot, () =>
     cleanupFilesystemAdapterUnlocked(agentName, managedDirName, context, options));

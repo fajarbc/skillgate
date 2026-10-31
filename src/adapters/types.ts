@@ -9,6 +9,11 @@ export interface AdapterContext {
 
 export interface LifecycleOptions {
   force?: boolean;
+  /**
+   * Defaults to strict: mutation fails closed until an atomic backend exists.
+   * Explicit cooperative mode is a legacy opt-in and does not meet Option B.
+   */
+  concurrency?: "cooperative" | "strict";
 }
 
 export interface AdapterPlan {

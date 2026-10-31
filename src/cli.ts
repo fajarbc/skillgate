@@ -10,8 +10,8 @@ import { discoverSkills } from "./discovery/index.js";
 import { formatDoctorReport, runDiagnostics } from "./doctor/index.js";
 import { evaluatePolicies, loadPolicy, PolicyError } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
-import { runJson } from "./cli-json-run.js";
-import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
+import { runJson, loadBoundedJsonTrace } from "./cli-json-run.js";
+import { createTraceRecord, saveTrace, type TraceRecord } from "./trace/index.js";
 
 const VERSION = "0.0.0";
 
@@ -102,6 +102,14 @@ export async function run(argv: string[]): Promise<number> {
     return 1;
   }
 
+  // An explicitly supplied empty adapter is still an adapter request.
+  // Treating --adapter "" as absent would bypass the strict adapter gate and
+  // fall through to the legacy trace writer's mutable workspace pathname.
+  if (values.adapter !== undefined && values.adapter.trim().length === 0) {
+    console.error("Adapter name must not be empty");
+    return 1;
+  }
+
   const root = values.root ?? cwd();
 
   if (command === "config") {
@@ -125,7 +133,9 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   if (command === "trace") {
-    const trace = await loadLatestTrace(root);
+    // Use the same bounded, descriptor-checked reader as the JSON transport.
+    // Human trace output must not follow symlinks or block on special files.
+    const trace = await loadBoundedJsonTrace(root) as TraceRecord | null;
     if (!trace) {
       if (values.json) {
         console.log(JSON.stringify({ error: "no trace found" }, null, 2));
@@ -222,8 +232,9 @@ export async function run(argv: string[]): Promise<number> {
     rankedSkills: approvedRecommendations,
     policyEvaluations: evalMap,
   });
-  await saveTrace(traceRecord, root);
-
+  // Strict adapter mutation can reject before touching any workspace path.
+  // Do not persist a trace until adapter application has succeeded; otherwise
+  // a failed strict apply would still overwrite a predictable trace pathname.
   let adapterSummary: string | undefined;
   if (values.adapter) {
     if (configuration.adapters.length > 0 && !configuration.adapters.includes(values.adapter)) {
@@ -235,14 +246,26 @@ export async function run(argv: string[]): Promise<number> {
       console.error(`Unknown adapter: ${values.adapter}. Available adapters: ${listAdapters().join(", ")}`);
       return 1;
     }
-    const result = await adapter.apply({
-      task,
-      root,
-      skills: approvedRecommendations,
-      options: configuration.adapterOptions[adapter.name] ?? configuration.adapterOptions[values.adapter],
-    });
-    adapterSummary = result.summary;
+    try {
+      const result = await adapter.apply({
+        task,
+        root,
+        skills: approvedRecommendations,
+        options: configuration.adapterOptions[adapter.name] ?? configuration.adapterOptions[values.adapter],
+      });
+      adapterSummary = result.summary;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Adapter application failed");
+      return 1;
+    }
   }
+
+  // A successful adapter apply must not be followed by an unrelated legacy
+  // trace write. saveTrace() follows predictable workspace pathnames and can
+  // overwrite a user-owned symlink target even when the adapter itself is
+  // safe against arbitrary concurrent writers. Keep adapter invocations
+  // trace-write-free until traces have an independently protected backend.
+  if (!values.adapter) await saveTrace(traceRecord, root);
 
   if (values.json) {
     console.log(

@@ -1,3 +1,4 @@
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("ClaudeCodeAdapter", () => {
   it("formats skills into Markdown instructions for Claude Code", async () => {
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
     const formatted = await adapter.format({
       task: "build backend",
       root: "/tmp",
@@ -33,7 +34,7 @@ describe("ClaudeCodeAdapter", () => {
   it("preflights source reads before changing existing Claude state", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-claude-preflight-"));
     try {
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const source = join(root, "source.md");
       await writeFile(source, "# Initial");
       const select = (path: string, name: string) => ({
@@ -61,7 +62,7 @@ describe("ClaudeCodeAdapter", () => {
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Instructions");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const context = { task: "repeat", root, skills: [{
         path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [],
@@ -86,7 +87,7 @@ describe("ClaudeCodeAdapter", () => {
       const userFile = join(root, "keep.md");
       await writeFile(source, "# Managed");
       await writeFile(userFile, "# User");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const selected = { path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [] };
       await adapter.apply({ task: "first", root, skills: [selected] });
@@ -108,7 +109,7 @@ describe("ClaudeCodeAdapter", () => {
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const selected = { path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [] };
       const context = { task: "test", root, skills: [selected] };
@@ -130,7 +131,7 @@ describe("ClaudeCodeAdapter", () => {
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const context = { task: "plan only", root, skills: [{
         path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [],
@@ -151,7 +152,7 @@ describe("ClaudeCodeAdapter", () => {
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const context = { task: "cleanup", root, skills: [{
         path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [],
@@ -178,7 +179,7 @@ describe("ClaudeCodeAdapter", () => {
       "---\nname: my-skill\ndescription: A test skill\n---\n# Instructions\nExecute tests.",
     );
 
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
     const result = await adapter.apply({
       task: "run tests",
       root,

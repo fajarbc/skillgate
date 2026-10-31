@@ -1,3 +1,4 @@
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 import { CodexAdapter } from "./codex.js";
 import { getAdapter, listAdapters } from "./index.js";
@@ -6,14 +7,14 @@ import { describe, expect, it } from "vitest";
 
 runAdapterContractSuite({
   label: "Codex",
-  createAdapter: () => new CodexAdapter(),
+  createAdapter: () => legacyCooperativeAdapter(new CodexAdapter()),
   managedDirectory: ".codex",
   expectedAgent: "codex",
 });
 
 runAdapterContractSuite({
   label: "Claude Code",
-  createAdapter: () => new ClaudeCodeAdapter(),
+  createAdapter: () => legacyCooperativeAdapter(new ClaudeCodeAdapter()),
   managedDirectory: ".claude",
   expectedAgent: "claude-code",
 });
