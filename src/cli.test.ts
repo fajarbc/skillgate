@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -93,6 +93,37 @@ describe("CLI", () => {
     expect(await run(["trace", "--root", root])).toBe(0);
     expect(log).toHaveBeenCalledWith("No trace found. Run `skillgate recommend` first.");
     log.mockRestore();
+  });
+
+  it("does not expose symlinked or malformed foreign JSON in human trace output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-human-trace-"));
+    const directory = join(root, ".skillgate");
+    const trace = join(directory, "trace.json");
+    const foreign = join(root, "private.json");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await mkdir(directory);
+      await writeFile(foreign, JSON.stringify({
+        id: "private-trace", timestamp: "2026-10-01T00:00:00Z",
+        task: "SECRET TASK", root: "/private",
+        signals: [], candidates: [],
+        selectedCount: 0, rejectedCount: 0, totalEstimatedTokens: 0,
+      }));
+      await symlink(foreign, trace);
+      expect(await run(["trace", "--root", root])).toBe(0);
+      expect(log).toHaveBeenCalledWith("No trace found. Run `skillgate recommend` first.");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET TASK");
+
+      await rm(trace);
+      await writeFile(trace, JSON.stringify({ id: "foreign", task: "SECRET TASK" }));
+      log.mockClear();
+      expect(await run(["trace", "--root", root])).toBe(0);
+      expect(log).toHaveBeenCalledWith("No trace found. Run `skillgate recommend` first.");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET TASK");
+    } finally {
+      log.mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("persists trace during recommend and displays with trace command", async () => {
