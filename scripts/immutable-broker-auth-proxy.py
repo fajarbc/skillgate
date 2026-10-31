@@ -239,6 +239,11 @@ async def main():
             request = await read_bounded_client_request(reader, quota, quota_entry)
             if request is None:
                 return
+            # A valid first frame must not leave the client transport reading
+            # unmetered pipelined bytes while the backend performs disk I/O.
+            # The protocol is one request per connection and never requires
+            # a client half-close before the backend sends its response.
+            writer.transport.pause_reading()
             check_backend(backend, uid, gid)
             upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=MAX_WIRE_BYTES + 1)
             # The pathname preflight is not atomic with connect(). Authenticate
