@@ -169,6 +169,11 @@ async function main() {
           socket.destroy();
           return;
         }
+        // One frame per connection. Stop kernel reads before async store I/O:
+        // otherwise a pipelining peer can stream unmetered bytes while the
+        // broker is busy, even though subsequent data events are ignored.
+        // Pausing reads does not prevent socket.end() from sending a response.
+        socket.pause();
         chunks.push(chunk.subarray(0, newline));
         let line;
         try {
