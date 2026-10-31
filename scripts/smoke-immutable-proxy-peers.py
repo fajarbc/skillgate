@@ -106,6 +106,12 @@ def run():
     with tempfile.TemporaryDirectory(prefix='skillgate-peer-smoke-') as temp:
         base = Path(temp)
         base.chmod(0o755)  # root-owned ancestor; broker UID can traverse
+        # The checkout may be under /root (0700), which the isolated broker
+        # UID cannot traverse. Run an administrator-owned, readable copy from
+        # the trusted disposable directory instead of the checkout pathname.
+        proxy_copy = base / 'immutable-broker-auth-proxy.py'
+        shutil.copyfile(proxy_script, proxy_copy)
+        proxy_copy.chmod(0o644)
         private = base / 'private'
         public = base / 'public'
         private.mkdir()
@@ -129,7 +135,7 @@ def run():
             env = dict(os.environ, SKILLGATE_BROKER_CLIENT_UID=str(client_uid),
                        SKILLGATE_BROKER_CLIENT_GID=str(client_gid))
             proxy = subprocess.Popen(dropped(broker_uid, client_gid) +
-                [sys.executable, '-I', str(proxy_script), str(proxy_socket), str(backend_socket)],
+                [sys.executable, '-I', str(proxy_copy), str(proxy_socket), str(backend_socket)],
                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             wait_socket(proxy_socket, proxy)
             if (proxy_socket.stat().st_mode & 0o777) != 0o660:
@@ -168,7 +174,7 @@ def run():
             os.chown(backend_socket, broker_uid, client_gid)
             backend_socket.chmod(0o660)
             proxy = subprocess.Popen(dropped(broker_uid, client_gid) +
-                [sys.executable, '-I', str(proxy_script), str(proxy_socket), str(backend_socket)],
+                [sys.executable, '-I', str(proxy_copy), str(proxy_socket), str(backend_socket)],
                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             wait_socket(proxy_socket, proxy)
             rejected = client(client_uid, client_gid)
