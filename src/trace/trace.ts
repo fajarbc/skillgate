@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DiscoveredSkill } from "../discovery/index.js";
@@ -114,8 +115,36 @@ export function createTraceRecord(options: CreateTraceOptions): TraceRecord {
 export async function saveTrace(record: TraceRecord, root: string): Promise<string> {
   const dir = join(root, TRACE_DIR);
   await mkdir(dir, { recursive: true });
+  // Reject a pre-existing directory symlink. This is a non-strict trace
+  // writer, not a substitute for the protected Option B filesystem backend.
+  const directory = await lstat(dir);
+  if (!directory.isDirectory() || directory.isSymbolicLink()) {
+    throw new Error("Refusing to save trace through a symlinked trace directory");
+  }
+
   const file = join(dir, TRACE_FILE);
-  await writeFile(file, JSON.stringify(record, null, 2), "utf8");
+  const temporaryFile = join(dir, `.trace-${randomUUID()}.tmp`);
+  let published = false;
+  try {
+    // Never truncate the existing pathname: it could be a symlink (or a
+    // hardlink) to an unrelated user-owned file. Publish by replacing the
+    // directory entry, rather than following its target.
+    const handle = await open(
+      temporaryFile,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      await handle.writeFile(JSON.stringify(record, null, 2), "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temporaryFile, file);
+    published = true;
+  } finally {
+    if (!published) await unlink(temporaryFile).catch(() => {});
+  }
   return file;
 }
 
