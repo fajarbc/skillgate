@@ -82,8 +82,15 @@ export async function resolvePinnedBrokerGeneration(readBlob, digest, expectedAg
     }
   }
   const files = new Map();
+  // Multiple logical files may reference one content-addressed blob. Fetch it
+  // once to conserve the authenticated proxy's strict per-minute request quota.
+  const verifiedBlobs = new Map();
   for (const entry of manifest.files) {
-    const bytes = authenticateBlob(await readBlob(entry.digest), entry.digest);
+    let bytes = verifiedBlobs.get(entry.digest);
+    if (bytes === undefined) {
+      bytes = authenticateBlob(await readBlob(entry.digest), entry.digest);
+      verifiedBlobs.set(entry.digest, bytes);
+    }
     if (bytes.length !== entry.size) {
       throw new Error('Pinned generation file size mismatch');
     }
