@@ -10,8 +10,8 @@ import { discoverSkills } from "./discovery/index.js";
 import { formatDoctorReport, runDiagnostics } from "./doctor/index.js";
 import { evaluatePolicies, loadPolicy, PolicyError } from "./policy/index.js";
 import { rankSkills } from "./ranking/index.js";
-import { runJson } from "./cli-json-run.js";
-import { createTraceRecord, loadLatestTrace, saveTrace } from "./trace/index.js";
+import { runJson, loadBoundedJsonTrace } from "./cli-json-run.js";
+import { createTraceRecord, saveTrace, type TraceRecord } from "./trace/index.js";
 
 const VERSION = "0.0.0";
 
@@ -133,7 +133,7 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   if (command === "trace") {
-    const trace = await loadLatestTrace(root);
+    // Use the same bounded, descriptor-checked reader as the JSON transport.\n    // Human trace output must not follow symlinks or block on special files.\n    const trace = await loadBoundedJsonTrace(root) as TraceRecord | null;
     if (!trace) {
       if (values.json) {
         console.log(JSON.stringify({ error: "no trace found" }, null, 2));
