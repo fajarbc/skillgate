@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { McpJsonLineDecoder } from "./json-line.js";
 import { McpJsonRpcSession } from "./json-rpc.js";
+import { nextMcpChunk } from "./stdio-next.js";
 
 /** Bound stalled writes even when a client stays connected but stops reading.
  * No transport response may wait indefinitely for a write callback or drain.
@@ -90,17 +91,13 @@ export async function runMcpStdio(
   // removed its per-write listener. Keep a session listener so such errors
   // cannot become uncaught process-level exceptions.
   let outputFailed = false;
-  // Output can disappear while the client leaves stdin open and idle. A plain
-  // for-await loop would then wait forever for another input chunk. Race each
-  // read against the output failure signal so the session can terminate.
-  const outputClosed = Symbol("MCP output closed");
-  let signalOutputClosed!: () => void;
-  const outputFailure = new Promise<typeof outputClosed>((resolve) => {
-    signalOutputClosed = () => resolve(outputClosed);
-  });
+  // Output can disappear while the client leaves stdin open and idle. Wait
+  // on an abortable read, removing its listener after each chunk. Racing each
+  // read with one never-settling Promise leaks one reaction per input chunk.
+  const outputAbort = new AbortController();
   const onOutputError = () => {
     outputFailed = true;
-    signalOutputClosed();
+    outputAbort.abort();
   };
   output.on("error", onOutputError);
   // A client can close stdout between replies, including immediately before
@@ -111,8 +108,7 @@ export async function runMcpStdio(
   try {
     if (output.destroyed || output.writableEnded) onOutputError();
     while (true) {
-      const next = await Promise.race([iterator.next(), outputFailure]);
-      if (next === outputClosed) throw new Error("MCP output failed");
+      const next = await nextMcpChunk(iterator, outputAbort.signal);
       if (next.done) {
         inputCompleted = true;
         break;
