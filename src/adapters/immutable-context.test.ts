@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { join } from "node:path";
 import { CodexAdapter } from "./codex.js";
@@ -93,6 +93,27 @@ describe("immutable context adapter integration", () => {
         score: 0, reasons: [],
       }] })).rejects.toThrow();
       expect(await readdir(store)).toEqual([]);
+    });
+  });
+
+  it.skipIf(process.platform === "win32")("rejects FIFO and symlink-to-FIFO sources without publishing", async () => {
+    await withFixture(async (root, store) => {
+      const fifo = join(root, "skill-source.pipe");
+      const created = spawnSync("mkfifo", [fifo], { timeout: 3000 });
+      if ((created.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
+      expect(created.status).toBe(0);
+      const alias = join(root, "skill-source-alias.md");
+      await symlink(fifo, alias);
+      const adapter = new CodexAdapter().immutable(store);
+      for (const source of [fifo, alias]) {
+        const context = { root, task: "reject nonregular source", skills: [{
+          path: source, metadata: { name: "pipe", description: "unsafe source" },
+          score: 1, reasons: [],
+        }] };
+        await expect(adapter.planContext(context)).rejects.toThrow();
+        await expect(adapter.applyContext(context)).rejects.toThrow();
+        expect(await readdir(store)).toEqual([]);
+      }
     });
   });
 
