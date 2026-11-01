@@ -229,6 +229,17 @@ root- or broker-owned protected ancestors:
   the dedicated client GID. The proxy binds a `0660` socket here. Clients
   use **only this public socket**, with their pinned expected broker UID/GID.
 
+The raw Node broker retains its experimental direct-group mode by default
+for compatibility with existing clients. For a deployment using the authenticated
+proxy, **set `SKILLGATE_BROKER_PROXY_ONLY=1` on the Node broker**. This requires
+the raw socket's immediate parent to have no group/other permission bits
+(`0700` or more restrictive), so a same-group unauthorized UID cannot bypass
+`SO_PEERCRED` and the proxy's request quotas by connecting directly to the
+raw `0660` socket. An invalid value fails startup; omitting the variable
+leaves the less-restricted experimental direct mode. The Python proxy already
+rejects a backend whose parent is not private. This is a deployment guard,
+**not** strict lifecycle integration or per-generation authorization.
+
 Launch the Node broker first, then launch the Python proxy with the same
 dedicated broker UID and primary GID. Both must have real/effective/saved
 credentials set to that non-root UID/GID, no supplementary groups, zero Linux
@@ -237,6 +248,7 @@ the directories and provisioned distinct identities:
 
 ~~~sh
 # Broker: private socket is inaccessible to the untrusted client UID.
+SKILLGATE_BROKER_PROXY_ONLY=1 \
 SKILLGATE_BROKER_CLIENT_UID=<client-uid> \
 SKILLGATE_BROKER_CLIENT_GID=<client-gid> \
   node scripts/immutable-store-broker.mjs \
