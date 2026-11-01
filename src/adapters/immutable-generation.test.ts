@@ -35,6 +35,35 @@ describe("pinned immutable adapter generations", () => {
     });
   });
 
+  it("isolates repeated content digests and rejects inconsistent claimed sizes", async () => {
+    await withStore(async (store) => {
+      const shared = Buffer.from("same immutable content");
+      const published = await publishImmutableGeneration(store, "codex", "apply", {
+        "skills/a.md": shared,
+        "skills/b.md": shared,
+      });
+      expect(published.generation.files[0]!.digest).toBe(published.generation.files[1]!.digest);
+      const resolved = await readImmutableGeneration(store, published.digest, "codex");
+      const first = resolved.files.get("skills/a.md")!;
+      const second = resolved.files.get("skills/b.md")!;
+      expect(first).toEqual(second);
+      expect(first).not.toBe(second);
+      first.fill(0);
+      expect(second).toEqual(shared);
+
+      // Reusing an authenticated digest must not bypass per-path size checks.
+      const malformed = {
+        ...published.generation,
+        files: published.generation.files.map((file, index) => ({
+          ...file, size: index === 1 ? file.size + 1 : file.size,
+        })),
+      };
+      const { digest } = await putImmutableBlob(store, Buffer.from(JSON.stringify(malformed)));
+      await expect(readImmutableGeneration(store, digest, "codex"))
+        .rejects.toThrow(/file size mismatch/);
+    });
+  });
+
   it("represents cleanup as a tombstone without removing the previous generation", async () => {
     await withStore(async (store) => {
       const before = await publishImmutableGeneration(store, "claude-code", "apply", {
