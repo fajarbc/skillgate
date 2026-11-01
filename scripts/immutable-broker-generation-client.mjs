@@ -110,17 +110,6 @@ export async function resolvePinnedBrokerGeneration(readBlob, digest, expectedAg
   if (!raw.equals(canonical)) {
     throw new Error('Noncanonical pinned generation manifest');
   }
-  // A digest has exactly one byte length. Reject inconsistent declarations
-  // before any content GET, rather than consuming proxy quota and exposing
-  // partial results while validating a malformed generation.
-  const declaredSizes = new Map();
-  for (const entry of manifest.files) {
-    const previousSize = declaredSizes.get(entry.digest);
-    if (previousSize !== undefined && previousSize !== entry.size) {
-      throw new Error('Pinned generation file size mismatch');
-    }
-    declaredSizes.set(entry.digest, entry.size);
-  }
   const files = new Map();
   // Multiple logical files may reference one content-addressed blob. Fetch it
   // once to conserve the authenticated proxy's strict per-minute request quota.
