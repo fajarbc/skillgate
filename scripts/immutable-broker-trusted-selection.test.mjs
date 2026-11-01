@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { spawn, spawnSync } from 'node:child_process';
+import { stat, readFile } from 'node:fs/promises';
 import { mkdtemp, writeFile, chmod, symlink, link, rm, chown, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -103,4 +105,45 @@ test('bounded selector read rejects concurrent growth and never reads beyond 193
 test('bounded selector read rejects concurrent truncation and invalid expected sizes', async () => {
   await assert.rejects(readBoundedSelectionBytes(readerWithBytes(Buffer.alloc(4)), 10), /Untrusted/);
   await assert.rejects(readBoundedSelectionBytes(readerWithBytes(Buffer.alloc(1)), 193), /Untrusted/);
+});
+
+test('root-owned selector resists a concurrent non-cooperating UID', { ...rootOnly, timeout: 10000 }, async t => {
+  if (process.platform !== 'linux') return t.skip('Linux UID isolation required');
+  const privilegeDrop = ['--no-new-privs', '--bounding-set=-all', '--reuid', '61001',
+    '--regid', '61002', '--clear-groups'];
+  const probe = spawnSync('setpriv', [...privilegeDrop, 'id'], { timeout: 3000 });
+  if (probe.status !== 0) return t.skip('setpriv and UID isolation unavailable');
+  await sandbox(async dir => {
+    const path = join(dir, 'selection');
+    await writeFile(path, line, { mode: 0o644 });
+    const attack = `const fs=require('node:fs');const p=process.argv[1];let success=0;
+      for(let i=0;i<500;i++)for(const attempt of [
+        ()=>fs.writeFileSync(p,'attacker'),()=>fs.unlinkSync(p),
+        ()=>fs.renameSync(p,p+'.old'),()=>fs.symlinkSync('/etc/passwd',p)]){
+        try{attempt();success++}catch(error){
+          if(!['EACCES','EPERM','EEXIST'].includes(error.code))throw error;
+        }
+      }process.stdout.write(String(success));`;
+    const attacker = spawn('setpriv', [...privilegeDrop, process.execPath, '-e', attack, path],
+      { stdio: ['ignore', 'pipe', 'pipe'] });
+    const exit = new Promise((resolve, reject) => {
+      attacker.once('exit', resolve);
+      attacker.once('error', reject);
+    });
+    let output = '';
+    let stderr = '';
+    attacker.stdout.on('data', chunk => { output += chunk; });
+    attacker.stderr.on('data', chunk => { stderr += chunk; });
+    try {
+      for (let i = 0; i < 500; i++) {
+        assert.equal(await readTrustedGenerationSelection(path, 'codex'), DIGEST);
+      }
+      assert.equal(await exit, 0, stderr);
+      assert.equal(output, '0', 'untrusted UID must not mutate root-controlled selector');
+      assert.equal(await readFile(path, 'utf8'), line);
+      assert.equal((await stat(path)).uid, 0);
+    } finally {
+      attacker.kill();
+    }
+  });
 });
