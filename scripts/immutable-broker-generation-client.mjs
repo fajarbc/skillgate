@@ -86,6 +86,21 @@ export async function resolvePinnedBrokerGeneration(readBlob, digest, expectedAg
       throw new Error('Pinned generation exceeds total byte limit');
     }
   }
+  // The publisher emits one deterministic byte encoding. Reject duplicate
+  // JSON keys, reordered fields, and alternate escapes or whitespace before
+  // requesting any referenced blobs: independent parsers must not disagree
+  // about the meaning of an administrator-selected generation digest.
+  const canonical = Buffer.from(JSON.stringify({
+    schemaVersion: manifest.schemaVersion,
+    agent: manifest.agent,
+    kind: manifest.kind,
+    files: manifest.files.map(entry => ({
+      path: entry.path, digest: entry.digest, size: entry.size,
+    })),
+  }), 'utf8');
+  if (!raw.equals(canonical)) {
+    throw new Error('Noncanonical pinned generation manifest');
+  }
   const files = new Map();
   // Multiple logical files may reference one content-addressed blob. Fetch it
   // once to conserve the authenticated proxy's strict per-minute request quota.
