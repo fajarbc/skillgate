@@ -210,12 +210,20 @@ export async function readImmutableGeneration(
     throw new Error("Immutable generation belongs to another agent");
   }
   const files = new Map<string, Buffer>();
+  // A generation may reference the same immutable digest from many paths.
+  // Authenticate each unique blob once, while returning independent buffers
+  // so mutating one resolved file cannot change another logical file.
+  const verifiedBlobs = new Map<string, Buffer>();
   for (const entry of decoded.files) {
-    const bytes = await readImmutableBlob(store, entry.digest);
+    let bytes = verifiedBlobs.get(entry.digest);
+    if (bytes === undefined) {
+      bytes = await readImmutableBlob(store, entry.digest);
+      verifiedBlobs.set(entry.digest, bytes);
+    }
     if (bytes.length !== entry.size) {
       throw new Error("Immutable generation file size mismatch");
     }
-    files.set(entry.path, bytes);
+    files.set(entry.path, Buffer.from(bytes));
   }
   return { generation: decoded, files };
 }
