@@ -63,6 +63,13 @@ async function checkProtectedParent(path, privateSocket = false) {
 function decodeRequest(line) {
   let request;
   try { request = JSON.parse(line); } catch { throw new Error('invalid JSON'); }
+  // Reject duplicate JSON keys and alternate spellings before interpreting
+  // operations. The trusted client always emits canonical JSON.stringify
+  // frames; accepting ambiguous forms makes future operation authorization
+  // dependent on a parser's duplicate-key and number normalization rules.
+  if (line !== JSON.stringify(request)) {
+    throw new Error('noncanonical broker request');
+  }
   if (request === null || typeof request !== 'object' || Array.isArray(request) ||
       request.v !== 1 || typeof request.op !== 'string') {
     throw new Error('invalid broker request');
