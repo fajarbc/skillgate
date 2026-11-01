@@ -128,6 +128,43 @@ class BoundedRequestTests(unittest.IsolatedAsyncioTestCase):
         quota = deque([[0, previous, 0], entry]) if previous else deque([entry])
         return quota, entry
 
+    @unittest.skipIf(sys.platform == 'win32', 'requires Unix sockets')
+    async def test_small_transport_buffer_accepts_large_request(self):
+        # StreamReader's high-water mark is not the maximum frame size.
+        # Keep buffering bounded even when a peer pipelines bytes after a
+        # complete request; large valid frames must still stream successfully.
+        payload = b'{' + b'x' * (1024 * 1024) + b'}\\n'
+        self.assertLess(proxy.STREAM_BUFFER_BYTES, len(payload))
+        completed = asyncio.get_running_loop().create_future()
+
+        async def handle(reader, writer):
+            quota, entry = self.make_quota()
+            try:
+                frame = await proxy.read_bounded_client_request(reader, quota, entry)
+                completed.set_result((frame, entry[1]))
+            except Exception as error:
+                completed.set_exception(error)
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'proxy-test.sock')
+            server = await asyncio.start_unix_server(
+                handle, path=path, limit=proxy.STREAM_BUFFER_BYTES)
+            async with server:
+                _reader, writer = await asyncio.open_unix_connection(
+                    path, limit=proxy.STREAM_BUFFER_BYTES)
+                try:
+                    writer.write(payload)
+                    await writer.drain()
+                    frame, charged = await asyncio.wait_for(completed, 10)
+                    self.assertEqual(frame, payload)
+                    self.assertEqual(charged, len(payload))
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
+
     async def test_complete_request_charges_all_bytes(self):
         reader = asyncio.StreamReader()
         reader.feed_data(b'{"v":1}\n')
