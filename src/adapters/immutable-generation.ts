@@ -198,8 +198,17 @@ export async function publishImmutableGeneration(
 export async function readImmutableGeneration(
   store: string,
   digest: string,
+  expectedAgent?: string,
 ): Promise<{ generation: ImmutableGeneration; files: Map<string, Buffer> }> {
+  if (expectedAgent !== undefined && !validAgent(expectedAgent)) {
+    throw new Error("Invalid immutable generation identity");
+  }
   const decoded = decodeImmutableGeneration(await readImmutableBlob(store, digest));
+  // An authenticated manifest can still belong to another agent. Reject it
+  // before fetching any referenced blobs, including missing or costly ones.
+  if (expectedAgent !== undefined && decoded.agent !== expectedAgent) {
+    throw new Error("Immutable generation belongs to another agent");
+  }
   const files = new Map<string, Buffer>();
   for (const entry of decoded.files) {
     const bytes = await readImmutableBlob(store, entry.digest);
@@ -327,10 +336,7 @@ export async function readPinnedAdapterContext(
   sourcePath: string; score: number; capabilities: string[];
 }>; files: Map<string, Buffer> } | null> {
   if (!validAgent(expectedAgent)) throw new Error("Invalid immutable generation identity");
-  const { generation, files } = await readImmutableGeneration(store, generationDigest);
-  if (generation.agent !== expectedAgent) {
-    throw new Error("Immutable generation belongs to another agent");
-  }
+  const { generation, files } = await readImmutableGeneration(store, generationDigest, expectedAgent);
   if (generation.kind === "cleanup") return null;
   const raw = files.get("skills.json");
   if (!raw) throw new Error("Missing immutable adapter context metadata");
