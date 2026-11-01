@@ -454,7 +454,13 @@ export async function readPreparedSkillSource(skill: AdapterContext["skills"][nu
       // Capture the pathname entry separately from the opened target inode.
       // This preserves stable symlink sources but detects entry replacement.
       sourcePathEntry = await lstat(skill.path);
-      source = await open(skill.path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+      // A source can be replaced by a FIFO between lstat() and open().
+      // Without O_NONBLOCK, opening that FIFO could hang indefinitely before
+      // stat() has a chance to reject it. Never silently omit this flag.
+      if (typeof constants.O_NONBLOCK !== "number") {
+        throw new AdapterConflictError([skill.path]);
+      }
+      source = await open(skill.path, constants.O_RDONLY | constants.O_NONBLOCK);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       // Missing at the initial lstat() may use the metadata fallback. If the
