@@ -29,6 +29,11 @@ MAX_REQUEST_BYTES_PER_MINUTE = 256 * 1024 * 1024
 # Tiny GET requests can amplify into large responses; bound egress separately.
 MAX_RESPONSE_BYTES_PER_MINUTE = 256 * 1024 * 1024
 MAX_CONNECTION_SECONDS = 15
+# StreamReader.read() consumes bounded chunks, so its transport high-water
+# mark need not match the 32 MiB blob frame. A small limit prevents a peer
+# from buffering tens of MiB of unmetered pipelined bytes after the first
+# newline while the one-request-per-connection proxy pauses reads.
+STREAM_BUFFER_BYTES = 64 * 1024
 # Optional consumer-only proxy: only the exact canonical GET frame may reach
 # the private broker. In particular, duplicate JSON keys cannot smuggle a PUT.
 READ_ONLY_GET_FRAME = re.compile(rb'\{"v":1,"op":"get","digest":"[a-f0-9]{64}"\}\n')
@@ -261,7 +266,7 @@ async def main():
             # a client half-close before the backend sends its response.
             writer.transport.pause_reading()
             check_backend(backend, uid, gid)
-            upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=MAX_WIRE_BYTES + 1)
+            upstream_reader, upstream_writer = await asyncio.open_unix_connection(backend, limit=STREAM_BUFFER_BYTES)
             # The pathname preflight is not atomic with connect(). Authenticate
             # the actual connected server using kernel-provided peer credentials
             # before forwarding any client request bytes.
@@ -296,7 +301,7 @@ async def main():
         except asyncio.TimeoutError:
             writer.transport.abort()
 
-    server = await asyncio.start_unix_server(timed_exchange, path=public, limit=MAX_WIRE_BYTES + 1)
+    server = await asyncio.start_unix_server(timed_exchange, path=public, limit=STREAM_BUFFER_BYTES)
     entry = os.lstat(public)
     if not stat.S_ISSOCK(entry.st_mode) or entry.st_uid != uid or \
             entry.st_gid != gid or (entry.st_mode & 0o777) != 0o660:
