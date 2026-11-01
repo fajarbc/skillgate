@@ -111,6 +111,26 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 25));
     }
     assert.ok(ready, 'broker did not create its socket: ' + brokerErrors);
+    // The direct-mode smoke uses a group-traversable 0710 socket parent.
+    // Proxy-only deployment must reject this layout: otherwise another UID
+    // in the socket group can bypass the SO_PEERCRED proxy and its quotas.
+    const refusedProxyOnly = spawnSync('setpriv', priv(brokerUid, clientGid, [
+      join(scripts, 'immutable-store-broker.mjs'),
+      join(socketDir, 'proxy-only-refused.sock'), store,
+    ]), {
+      encoding: 'utf8', timeout: 5000,
+      env: {
+        ...process.env,
+        SKILLGATE_BROKER_CLIENT_UID: String(clientUid),
+        SKILLGATE_BROKER_CLIENT_GID: String(clientGid),
+        SKILLGATE_BROKER_PROXY_ONLY: '1',
+      },
+    });
+    assert.ifError(refusedProxyOnly.error);
+    assert.equal(refusedProxyOnly.status, 1,
+      'proxy-only broker must reject group-traversable backend ancestry');
+    assert.match(refusedProxyOnly.stderr, /proxy-only socket parent must be broker-owned and private/);
+    console.log('PASS: proxy-only broker refuses group-traversable raw backend socket');
     // Independently verify the broker-owned, group-only socket boundary.
     const socketEntry = await lstat(socketPath);
     assert.equal(socketEntry.uid, brokerUid, 'broker must own the socket');
