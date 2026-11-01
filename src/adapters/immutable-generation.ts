@@ -67,6 +67,10 @@ function assertGeneration(value: unknown): asserts value is ImmutableGeneration 
   }
   let previous = "";
   let total = 0;
+  // Every consumer, including single-file readers, must interpret a digest
+  // consistently. Reject contradictory size claims at manifest validation,
+  // before any referenced blob I/O or partial file result can be returned.
+  const digestSizes = new Map<string, number>();
   for (const item of value.files) {
     if (!isRecord(item) || typeof item.path !== "string" ||
         typeof item.digest !== "string" || !/^[a-f0-9]{64}$/.test(item.digest) ||
@@ -76,6 +80,11 @@ function assertGeneration(value: unknown): asserts value is ImmutableGeneration 
       throw new Error("Invalid immutable generation file entry");
     }
     assertLogicalPath(item.path);
+    const priorSize = digestSizes.get(item.digest);
+    if (priorSize !== undefined && priorSize !== item.size) {
+      throw new Error("Immutable generation file size mismatch");
+    }
+    digestSizes.set(item.digest, item.size);
     if (previous && previous >= item.path) {
       throw new Error("Immutable generation paths must be sorted and unique");
     }
