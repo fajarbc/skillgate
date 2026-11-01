@@ -185,7 +185,15 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
  */
 export async function readStableOwnershipFile(path: string): Promise<Buffer> {
   await assertNoSymlinkAncestors(path);
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  // Path checks cannot prevent a final-component swap before open(). Without
+  // O_NOFOLLOW a symlink could redirect the read, and without O_NONBLOCK a
+  // swapped FIFO could hang before descriptor validation. Fail closed rather
+  // than silently dropping either kernel protection on unsupported systems.
+  if (typeof constants.O_NOFOLLOW !== "number" ||
+      typeof constants.O_NONBLOCK !== "number") {
+    throw new AdapterConflictError([path]);
+  }
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const before = await handle.stat();
     // Hard-linked ownership evidence can be changed through another pathname,
