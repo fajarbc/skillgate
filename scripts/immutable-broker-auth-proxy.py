@@ -9,6 +9,7 @@ import asyncio
 import ctypes
 from collections import deque
 import os
+import re
 from pathlib import Path
 import socket
 import stat
@@ -28,6 +29,9 @@ MAX_REQUEST_BYTES_PER_MINUTE = 256 * 1024 * 1024
 # Tiny GET requests can amplify into large responses; bound egress separately.
 MAX_RESPONSE_BYTES_PER_MINUTE = 256 * 1024 * 1024
 MAX_CONNECTION_SECONDS = 15
+# Optional consumer-only proxy: only the exact canonical GET frame may reach
+# the private broker. In particular, duplicate JSON keys cannot smuggle a PUT.
+READ_ONLY_GET_FRAME = re.compile(rb'\{"v":1,"op":"get","digest":"[a-f0-9]{64}"\}\n')
 
 
 def reject(message):
@@ -208,6 +212,9 @@ async def main():
     client_gid = positive_id('SKILLGATE_BROKER_CLIENT_GID')
     if client_uid == uid or client_gid != gid:
         reject('client UID must differ and client GID must equal proxy GID')
+    read_only = os.environ.get('SKILLGATE_BROKER_PROXY_READ_ONLY')
+    if read_only not in (None, '1'):
+        reject('SKILLGATE_BROKER_PROXY_READ_ONLY must be 1 when configured')
     public, backend = sys.argv[1:]
     if public == backend:
         reject('public and private socket must differ')
@@ -243,6 +250,10 @@ async def main():
             quota.append(quota_entry)
             request = await read_bounded_client_request(reader, quota, quota_entry)
             if request is None:
+                return
+            # Enforce consumer-only authority BEFORE opening the private
+            # backend; a valid UID alone must not imply publication rights.
+            if read_only == '1' and READ_ONLY_GET_FRAME.fullmatch(request) is None:
                 return
             # A valid first frame must not leave the client transport reading
             # unmetered pipelined bytes while the backend performs disk I/O.
