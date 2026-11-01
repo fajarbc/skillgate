@@ -20,6 +20,29 @@ proxy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proxy)
 
 
+class ReadOnlyProxyFrameTests(unittest.TestCase):
+    def test_canonical_get_is_accepted(self):
+        request = b'{"v":1,"op":"get","digest":"' + b'a' * 64 + b'"}\\n'
+        self.assertIsNotNone(proxy.READ_ONLY_GET_FRAME.fullmatch(request))
+
+    def test_put_and_ambiguous_or_noncanonical_frames_are_denied(self):
+        get = b'{"v":1,"op":"get","digest":"' + b'a' * 64 + b'"}\\n'
+        rejected = [
+            b'{"v":1,"op":"put","bytes":"eA=="}\\n',
+            get.replace(b'"get"', b'"put"'),
+            get.replace(b'"op":"get"', b'"op":"put","op":"get"'),
+            get.replace(b'"op":"get"', b'"op":"get","op":"put"'),
+            get.replace(b'"v":1', b'"v":2'),
+            get.replace(b'a' * 64, b'A' * 64),
+            get.replace(b'"op"', b' "op"'),
+            get + b'garbage',
+            get[:-1],
+        ]
+        for request in rejected:
+            with self.subTest(request=request[:100]):
+                self.assertIsNone(proxy.READ_ONLY_GET_FRAME.fullmatch(request))
+
+
 class BoundedResponseTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.original_wire = proxy.MAX_WIRE_BYTES
