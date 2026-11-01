@@ -41,7 +41,10 @@ import socket, sys
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
     client.settimeout(3)
     client.connect(sys.argv[1])
-    client.sendall(b'{"v":1,"op":"get","digest":"' + b'a'*64 + b'"}\n')
+    request = b'{"v":1,"op":"get","digest":"' + b'a'*64 + b'"}\n'
+    if len(sys.argv) > 2 and sys.argv[2] == 'put':
+        request = b'{"v":1,"op":"put","bytes":"eA=="}\n'
+    client.sendall(request)
     try:
         result = client.recv(4096)
     except (ConnectionResetError, BrokenPipeError):
@@ -141,9 +144,9 @@ def run():
             if (proxy_socket.stat().st_mode & 0o777) != 0o660:
                 raise AssertionError('Proxy socket is not mode 0660')
 
-            def client(uid, gid):
+            def client(uid, gid, operation='get'):
                 completed = subprocess.run(dropped(uid, gid) +
-                    [sys.executable, '-I', '-c', CLIENT, str(proxy_socket)],
+                    [sys.executable, '-I', '-c', CLIENT, str(proxy_socket), operation],
                     capture_output=True, text=True, timeout=5)
                 return completed
 
@@ -159,6 +162,27 @@ def run():
             if backend_log.read_bytes() != before:
                 raise AssertionError('Unauthorized request reached backend')
             print('PASS: authorized UID forwarded; same-GID unauthorized UID rejected')
+
+            # Consumer-only deployments must deny publication even from the
+            # authorized UID, without forwarding PUT bytes to the backend.
+            stop(proxy)
+            proxy = None
+            proxy_socket.unlink()
+            read_only_env = dict(env, SKILLGATE_BROKER_PROXY_READ_ONLY='1')
+            proxy = subprocess.Popen(dropped(broker_uid, client_gid) +
+                [sys.executable, '-I', str(proxy_copy), str(proxy_socket), str(backend_socket)],
+                env=read_only_env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            wait_socket(proxy_socket, proxy)
+            read_only_get = client(client_uid, client_gid)
+            if read_only_get.returncode or read_only_get.stdout.strip() != RESPONSE.hex():
+                raise AssertionError('Read-only proxy rejected authorized GET')
+            before = backend_log.read_bytes()
+            read_only_put = client(client_uid, client_gid, 'put')
+            if read_only_put.returncode or read_only_put.stdout.strip() != '':
+                raise AssertionError('Read-only proxy allowed PUT')
+            if backend_log.read_bytes() != before:
+                raise AssertionError('Read-only proxy forwarded PUT to backend')
+            print('PASS: read-only proxy forwards GET and denies PUT before backend I/O')
 
             stop(proxy)
             stop(backend)
