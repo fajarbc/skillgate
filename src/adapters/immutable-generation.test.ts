@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publishImmutableGeneration, previewImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile, PinnedImmutableAdapter } from "./immutable-generation.js";
+import { publishImmutableGeneration, previewImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile, readPinnedAdapterContext, PinnedImmutableAdapter } from "./immutable-generation.js";
 import { putImmutableBlob } from "./immutable-store.js";
 
 async function withStore(work: (store: string) => Promise<void>): Promise<void> {
@@ -78,6 +78,25 @@ describe("pinned immutable adapter generations", () => {
         files: [{ path: "skills/a.md", digest: "a".repeat(64), size: 1 }],
       })));
       await expect(readImmutableGeneration(store, blob.digest)).rejects.toThrow(/cleanup manifest/);
+    });
+  });
+
+  it("rejects a cross-agent generation before reading its referenced blobs", async () => {
+    await withStore(async (store) => {
+      // The referenced digest intentionally does not exist. An unauthorized
+      // consumer must fail on agent identity, not attempt a content read.
+      const manifest = await putImmutableBlob(store, Buffer.from(JSON.stringify({
+        schemaVersion: "1", agent: "claude-code", kind: "apply",
+        files: [{ path: "skills/a.md", digest: "a".repeat(64), size: 1 }],
+      })));
+      await expect(readImmutableGeneration(store, manifest.digest, "codex"))
+        .rejects.toThrow(/another agent/);
+      await expect(readPinnedAdapterContext(store, manifest.digest, "codex"))
+        .rejects.toThrow(/another agent/);
+      await expect(readImmutableGeneration(store, manifest.digest, "claude-code"))
+        .rejects.toThrow();
+      await expect(readImmutableGeneration(store, manifest.digest, "../codex"))
+        .rejects.toThrow(/identity/);
     });
   });
 
