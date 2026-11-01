@@ -490,4 +490,60 @@ describe("immutable context adapter integration", () => {
     });
   });
 
+
+  it("rejects ambiguous authenticated context metadata JSON but accepts the publisher encoding", async () => {
+    await withFixture(async (_root, store) => {
+      const adapter = new CodexAdapter().immutable(store);
+      const metadata = {
+        schemaVersion: "1", agent: "codex", task: "task", skills: [],
+      };
+      const canonical = JSON.stringify(metadata);
+      const variants = [
+        canonical.replace('"task":"task"', '"task":"hidden","task":"task"'),
+        canonical.replace('"agent":"codex"', '"agent":"claude","agent":"codex"'),
+        JSON.stringify({ agent: "codex", schemaVersion: "1", task: "task", skills: [] }),
+        canonical.replace("{", "{ "),
+        canonical.replace('"codex"', '"\\\\u0063odex"'),
+        canonical + "\\n",
+      ];
+      const accepted = await adapter.apply({ "skills.json": Buffer.from(canonical) });
+      expect((await adapter.readContext(accepted.digest))?.task).toBe("task");
+      for (const variant of variants) {
+        const published = await adapter.apply({ "skills.json": Buffer.from(variant) });
+        await expect(adapter.readContext(published.digest))
+          .rejects.toThrow(/Noncanonical immutable adapter context metadata/);
+      }
+    });
+  });
+
+  it("rejects authenticated context skill metadata outside publisher identifier order", async () => {
+    await withFixture(async (_root, store) => {
+      const adapter = new CodexAdapter().immutable(store);
+      const skill = (identifier: string) => ({
+        name: identifier, identifier, description: "test",
+        path: `skills/${identifier}/SKILL.md`,
+        sourcePath: `${identifier}.md`, score: 1, capabilities: [],
+      });
+      const skills = [skill("alpha"), skill("zeta")];
+      const files = {
+        "skills/alpha/SKILL.md": Buffer.from(OWNERSHIP_HEADER + "# Alpha\\n"),
+        "skills/zeta/SKILL.md": Buffer.from(OWNERSHIP_HEADER + "# Zeta\\n"),
+      };
+      const canonical = await adapter.apply({
+        ...files,
+        "skills.json": Buffer.from(JSON.stringify({
+          schemaVersion: "1", agent: "codex", task: "task", skills,
+        })),
+      });
+      expect((await adapter.readContext(canonical.digest))?.skills.map((entry) => entry.identifier))
+        .toEqual(["alpha", "zeta"]);
+      const reordered = await adapter.apply({
+        ...files,
+        "skills.json": Buffer.from(JSON.stringify({
+          schemaVersion: "1", agent: "codex", task: "task", skills: skills.toReversed(),
+        })),
+      });
+      await expect(adapter.readContext(reordered.digest)).rejects.toThrow(/sorted and unique/);
+    });
+  });
 });
