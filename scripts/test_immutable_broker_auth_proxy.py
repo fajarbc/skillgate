@@ -248,5 +248,23 @@ class GenuineProcfsTests(unittest.TestCase):
                 proxy.check_identity()
 
 
+class GenerationQuotaCompatibilityTests(unittest.TestCase):
+    def test_full_generation_publish_and_read_fit_request_window(self):
+        # One manifest and up to 256 distinct file blobs per operation.
+        # A rate limit below 514 makes a valid maximum-size generation
+        # impossible to publish and immediately consume via this proxy.
+        required = 2 * (proxy.MAX_GENERATION_FILES + 1)
+        self.assertGreaterEqual(proxy.MAX_REQUESTS_PER_MINUTE, required)
+        # Keep the request-count limit finite; the byte and connection
+        # budgets remain independent resource-exhaustion protections.
+        self.assertLessEqual(proxy.MAX_REQUESTS_PER_MINUTE, 1024)
+
+    def test_byte_budgets_still_bound_maximum_blob_round_trip(self):
+        # A 32 MiB blob expands on the wire via base64. Publication and
+        # retrieval must each fit within their respective rolling budgets.
+        self.assertGreaterEqual(proxy.MAX_REQUEST_BYTES_PER_MINUTE, proxy.MAX_WIRE_BYTES)
+        self.assertGreaterEqual(proxy.MAX_RESPONSE_BYTES_PER_MINUTE, proxy.MAX_WIRE_BYTES)
+
+
 if __name__ == '__main__':
     unittest.main()
