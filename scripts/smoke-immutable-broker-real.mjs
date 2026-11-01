@@ -175,10 +175,10 @@ async function main() {
     // last-key-wins parser. An ambiguous frame could otherwise publish a
     // blob despite appearing to be a GET to a different validator.
     const ambiguousFrames = [
-      `{"v":1,"op":"get","op":"put","bytes":"${Buffer.from('forged').toString('base64')}"}\\n`,
-      `{"v":1,"op":"put","op":"get","digest":"${digest}"}\\n`,
-      `{"v":1.0,"op":"get","digest":"${digest}"}\\n`,
-      `{"v":1, "op":"get","digest":"${digest}"}\\n`,
+      `{"v":1,"op":"get","op":"put","bytes":"${Buffer.from('forged').toString('base64')}"}\n`,
+      `{"v":1,"op":"put","op":"get","digest":"${digest}"}\n`,
+      `{"v":1.0,"op":"get","digest":"${digest}"}\n`,
+      `{"v":1, "op":"get","digest":"${digest}"}\n`,
     ];
     for (const frame of ambiguousFrames) {
       const peer = new Socket();
@@ -192,7 +192,7 @@ async function main() {
         peer.write(frame);
         await ended;
         assert.equal(Buffer.concat(chunks).toString('utf8'),
-          '{"v":1,"ok":false,"error":"request rejected"}\\n',
+          '{"v":1,"ok":false,"error":"request rejected"}\n',
           'ambiguous raw broker frame must fail closed');
       } finally {
         peer.destroy();
