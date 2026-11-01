@@ -69,6 +69,10 @@ export async function resolvePinnedBrokerGeneration(readBlob, digest, expectedAg
   }
   let previous = '';
   let total = 0;
+  // Reject contradictory declarations before any content fetch. Otherwise a
+  // malformed manifest can spend the authenticated proxy's limited GET quota
+  // on files that can never form a valid generation.
+  const digestSizes = new Map();
   for (const entry of manifest.files) {
     if (!record(entry, 'digest,path,size') || typeof entry.path !== 'string' ||
         typeof entry.digest !== 'string' || !DIGEST.test(entry.digest) ||
@@ -77,6 +81,11 @@ export async function resolvePinnedBrokerGeneration(readBlob, digest, expectedAg
       throw new Error('Invalid pinned generation file entry');
     }
     logicalPath(entry.path);
+    const previousSize = digestSizes.get(entry.digest);
+    if (previousSize !== undefined && previousSize !== entry.size) {
+      throw new Error('Pinned generation file size mismatch');
+    }
+    digestSizes.set(entry.digest, entry.size);
     if (previous && previous >= entry.path) {
       throw new Error('Pinned generation paths must be sorted and unique');
     }
