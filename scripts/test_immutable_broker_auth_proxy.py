@@ -253,6 +253,8 @@ class GenerationQuotaCompatibilityTests(unittest.TestCase):
         # One manifest and up to 256 distinct file blobs per operation.
         # A rate limit below 514 makes a valid maximum-size generation
         # impossible to publish and immediately consume via this proxy.
+        self.assertEqual(proxy.MAX_GENERATION_FILES, 256,
+                         'proxy capacity must track the v1 generation format')
         required = 2 * (proxy.MAX_GENERATION_FILES + 1)
         self.assertGreaterEqual(proxy.MAX_REQUESTS_PER_MINUTE, required)
         # Keep the request-count limit finite; the byte and connection
