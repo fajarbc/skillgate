@@ -171,6 +171,34 @@ async function main() {
     assert.match(await runAs(clientUid, clientGid, [
       '--input-type=module', '--eval', clientCode,
     ]), /PASS real broker/);
+    // The raw broker must not interpret duplicate JSON keys using a
+    // last-key-wins parser. An ambiguous frame could otherwise publish a
+    // blob despite appearing to be a GET to a different validator.
+    const ambiguousFrames = [
+      `{"v":1,"op":"get","op":"put","bytes":"${Buffer.from('forged').toString('base64')}"}\\n`,
+      `{"v":1,"op":"put","op":"get","digest":"${digest}"}\\n`,
+      `{"v":1.0,"op":"get","digest":"${digest}"}\\n`,
+      `{"v":1, "op":"get","digest":"${digest}"}\\n`,
+    ];
+    for (const frame of ambiguousFrames) {
+      const peer = new Socket();
+      const chunks = [];
+      try {
+        const connected = once(peer, 'connect', { signal: AbortSignal.timeout(3000) });
+        peer.connect(socketPath);
+        await connected;
+        peer.on('data', chunk => chunks.push(chunk));
+        const ended = once(peer, 'end', { signal: AbortSignal.timeout(3000) });
+        peer.write(frame);
+        await ended;
+        assert.equal(Buffer.concat(chunks).toString('utf8'),
+          '{"v":1,"ok":false,"error":"request rejected"}\\n',
+          'ambiguous raw broker frame must fail closed');
+      } finally {
+        peer.destroy();
+      }
+    }
+    console.log('PASS: raw broker rejects ambiguous and noncanonical JSON frames');
     // A peer may read the full response but deliberately keep its writable
     // half open. 'finish' alone must not free the broker's connection slot
     // while leaving a server-side descriptor alive for the 15s deadline.
