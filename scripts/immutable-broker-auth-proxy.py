@@ -18,7 +18,12 @@ import time
 
 MAX_BLOB_BYTES = 32 * 1024 * 1024
 MAX_WIRE_BYTES = 4 * ((MAX_BLOB_BYTES + 2) // 3) + 2048
-MAX_REQUESTS_PER_MINUTE = 64
+# A 256-file generation needs up to 257 PUTs (files + manifest) and
+# 257 GETs to read it back. Keep one full publish/read round trip possible
+# within a rolling minute; the independent 256 MiB ingress/egress budgets,
+# one-connection limit and 15s deadline still bound resource use.
+MAX_GENERATION_FILES = 256
+MAX_REQUESTS_PER_MINUTE = 2 * (MAX_GENERATION_FILES + 1)
 MAX_REQUEST_BYTES_PER_MINUTE = 256 * 1024 * 1024
 # Tiny GET requests can amplify into large responses; bound egress separately.
 MAX_RESPONSE_BYTES_PER_MINUTE = 256 * 1024 * 1024
