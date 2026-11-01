@@ -64,6 +64,26 @@ describe("pinned immutable adapter generations", () => {
     });
   });
 
+  it("rejects contradictory shared-digest sizes before either local reader returns content", async () => {
+    await withStore(async (store) => {
+      const blob = await putImmutableBlob(store, Buffer.from("a"));
+      const manifest = await putImmutableBlob(store, Buffer.from(JSON.stringify({
+        schemaVersion: "1", agent: "codex", kind: "apply",
+        files: [
+          { path: "skills/a.md", digest: blob.digest, size: 1 },
+          { path: "skills/b.md", digest: blob.digest, size: 2 },
+        ],
+      })));
+      // Before manifest-wide validation, a single-file read of a.md
+      // succeeded even though a full generation read rejected b.md.
+      await expect(readPinnedGenerationFile(store, manifest.digest, "skills/a.md", "codex"))
+        .rejects.toThrow(/file size mismatch/);
+      await expect(readImmutableGeneration(store, manifest.digest, "codex"))
+        .rejects.toThrow(/file size mismatch/);
+      expect(await readFile(join(store, blob.digest), "utf8")).toBe("a");
+    });
+  });
+
   it("represents cleanup as a tombstone without removing the previous generation", async () => {
     await withStore(async (store) => {
       const before = await publishImmutableGeneration(store, "claude-code", "apply", {
