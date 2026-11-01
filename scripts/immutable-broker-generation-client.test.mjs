@@ -175,3 +175,29 @@ test('snapshots authenticated transport buffers before later awaited reads', asy
   assert.equal(result.files.get('skills/b').toString(), 'other');
   assert.equal(result.files.get('skills/c').toString(), 'first');
 });
+
+test('rejects noncanonical manifest variants before fetching any content blob', async () => {
+  const content = Buffer.from('hello');
+  const contentDigest = digest(content);
+  const entry = { path: 'skills/alpha/SKILL.md', digest: contentDigest, size: content.length };
+  const manifest = { schemaVersion: '1', agent: 'codex', kind: 'apply', files: [entry] };
+  const canonical = JSON.stringify(manifest);
+  const variants = [
+    canonical.replace('"agent":"codex"', '"agent":"claude","agent":"codex"'),
+    canonical.replace('"size":5', '"size":1,"size":5'),
+    JSON.stringify({ agent: 'codex', schemaVersion: '1', kind: 'apply', files: [entry] }),
+    JSON.stringify({ ...manifest, files: [{ digest: contentDigest, path: entry.path, size: 5 }] }),
+    canonical.replace('{', '{ '),
+    canonical.replace('"codex"', '"\\u0063odex"'),
+  ];
+  for (const rawText of variants) {
+    const raw = Buffer.from(rawText);
+    const id = digest(raw);
+    const reads = [];
+    await assert.rejects(resolvePinnedBrokerGeneration(async requested => {
+      reads.push(requested);
+      return requested === id ? raw : content;
+    }, id, 'codex'), /Noncanonical pinned generation manifest/);
+    assert.deepEqual(reads, [id], 'noncanonical manifest must not request file contents');
+  }
+});
