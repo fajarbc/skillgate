@@ -87,6 +87,30 @@ function assertGeneration(value: unknown): asserts value is ImmutableGeneration 
   }
 }
 
+/** Require the publisher's exact canonical bytes, not merely parseable JSON.
+ * Duplicate keys or alternative encodings must not let different consumers
+ * interpret the same digest as different generation records.
+ */
+function decodeImmutableGeneration(raw: Buffer): ImmutableGeneration {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  } catch {
+    throw new Error("Invalid immutable generation manifest");
+  }
+  assertGeneration(decoded);
+  const canonical = Buffer.from(JSON.stringify({
+    schemaVersion: decoded.schemaVersion,
+    agent: decoded.agent,
+    kind: decoded.kind,
+    files: decoded.files.map(({ path, digest, size }) => ({ path, digest, size })),
+  }), "utf8");
+  if (!raw.equals(canonical)) {
+    throw new Error("Noncanonical immutable generation manifest");
+  }
+  return decoded;
+}
+
 /** Publish blobs first, then a complete immutable generation record last.
  * A failed operation may leave unreachable blobs but never a partial record.
  * Caller must retain the returned digest; there is no mutable latest pointer.
@@ -175,14 +199,7 @@ export async function readImmutableGeneration(
   store: string,
   digest: string,
 ): Promise<{ generation: ImmutableGeneration; files: Map<string, Buffer> }> {
-  const raw = await readImmutableBlob(store, digest);
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
-  } catch {
-    throw new Error("Invalid immutable generation manifest");
-  }
-  assertGeneration(decoded);
+  const decoded = decodeImmutableGeneration(await readImmutableBlob(store, digest));
   const files = new Map<string, Buffer>();
   for (const entry of decoded.files) {
     const bytes = await readImmutableBlob(store, entry.digest);
@@ -207,14 +224,7 @@ export async function readPinnedGenerationFile(
 ): Promise<Buffer | null> {
   assertLogicalPath(logicalPath);
   if (!validAgent(expectedAgent)) throw new Error("Invalid immutable generation identity");
-  const raw = await readImmutableBlob(store, generationDigest);
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
-  } catch {
-    throw new Error("Invalid immutable generation manifest");
-  }
-  assertGeneration(decoded);
+  const decoded = decodeImmutableGeneration(await readImmutableBlob(store, generationDigest));
   if (decoded.agent !== expectedAgent) {
     throw new Error("Immutable generation belongs to another agent");
   }
