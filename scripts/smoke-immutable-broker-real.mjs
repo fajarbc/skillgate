@@ -166,7 +166,7 @@ async function main() {
         peer.connect(socketPath);
         await connected;
         const ended = once(peer, 'end', { signal: AbortSignal.timeout(3000) });
-        peer.write(JSON.stringify({ v: 1, op: 'get', digest }) + '\\n');
+        peer.write(JSON.stringify({ v: 1, op: 'get', digest }) + '\n');
         await ended;
         await new Promise(resolve => setTimeout(resolve, 10));
       }
