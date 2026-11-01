@@ -99,6 +99,30 @@ describe("pinned immutable adapter generations", () => {
     });
   });
 
+  it("rejects noncanonical pinned generation encodings in both local readers", async () => {
+    await withStore(async (store) => {
+      const entry = { path: "skills/a.md", digest: "a".repeat(64), size: 5 };
+      const canonical = JSON.stringify({
+        schemaVersion: "1", agent: "codex", kind: "apply", files: [entry],
+      });
+      const variants = [
+        canonical.replace('"agent":"codex"', '"agent":"claude","agent":"codex"'),
+        canonical.replace('"size":5', '"size":1,"size":5'),
+        JSON.stringify({ agent: "codex", schemaVersion: "1", kind: "apply", files: [entry] }),
+        JSON.stringify({ schemaVersion: "1", agent: "codex", kind: "apply",
+          files: [{ digest: entry.digest, path: entry.path, size: entry.size }] }),
+        canonical.replace("{", "{ "),
+        canonical.replace('"codex"', '"\\\\u0063odex"'),
+      ];
+      for (const text of variants) {
+        const { digest } = await putImmutableBlob(store, Buffer.from(text));
+        await expect(readImmutableGeneration(store, digest)).rejects.toThrow(/Noncanonical/);
+        await expect(readPinnedGenerationFile(store, digest, entry.path, "codex"))
+          .rejects.toThrow(/Noncanonical/);
+      }
+    });
+  });
+
   it("does not overwrite an existing user-owned path outside the store", async () => {
     await withStore(async (store) => {
       const outside = await mkdtemp(join(tmpdir(), "skillgate-workspace-test-"));
