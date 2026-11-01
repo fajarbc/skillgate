@@ -503,8 +503,8 @@ describe("immutable context adapter integration", () => {
         canonical.replace('"agent":"codex"', '"agent":"claude","agent":"codex"'),
         JSON.stringify({ agent: "codex", schemaVersion: "1", task: "task", skills: [] }),
         canonical.replace("{", "{ "),
-        canonical.replace('"codex"', '"\\\\u0063odex"'),
-        canonical + "\\n",
+        canonical.replace('"codex"', '"\\u0063odex"'),
+        canonical + "\n",
       ];
       const accepted = await adapter.apply({ "skills.json": Buffer.from(canonical) });
       expect((await adapter.readContext(accepted.digest))?.task).toBe("task");
@@ -526,8 +526,8 @@ describe("immutable context adapter integration", () => {
       });
       const skills = [skill("alpha"), skill("zeta")];
       const files = {
-        "skills/alpha/SKILL.md": Buffer.from(OWNERSHIP_HEADER + "# Alpha\\n"),
-        "skills/zeta/SKILL.md": Buffer.from(OWNERSHIP_HEADER + "# Zeta\\n"),
+        "skills/alpha/SKILL.md": Buffer.from(OWNERSHIP_HEADER + "# Alpha\n"),
+        "skills/zeta/SKILL.md": Buffer.from(OWNERSHIP_HEADER + "# Zeta\n"),
       };
       const canonical = await adapter.apply({
         ...files,
@@ -540,7 +540,7 @@ describe("immutable context adapter integration", () => {
       const reordered = await adapter.apply({
         ...files,
         "skills.json": Buffer.from(JSON.stringify({
-          schemaVersion: "1", agent: "codex", task: "task", skills: skills.toReversed(),
+          schemaVersion: "1", agent: "codex", task: "task", skills: [...skills].reverse(),
         })),
       });
       await expect(adapter.readContext(reordered.digest)).rejects.toThrow(/sorted and unique/);
