@@ -348,6 +348,7 @@ export async function readPinnedAdapterContext(
     throw new Error("Invalid immutable adapter context metadata");
   }
   const paths = new Set<string>(["skills.json"]);
+  let previousIdentifier = "";
   const validated: Array<{
     name: string; identifier: string; description: string; path: string;
     sourcePath: string; score: number; capabilities: string[];
@@ -381,6 +382,13 @@ export async function readPinnedAdapterContext(
         paths.has(entry.path) || !files.has(entry.path)) {
       throw new Error("Immutable adapter context references an invalid skill file");
     }
+    // The real-context publisher sorts skills by identifier. A digest does
+    // not by itself prove that a hand-authored metadata blob followed that
+    // canonical ordering, which consumers may otherwise interpret differently.
+    if (previousIdentifier && previousIdentifier >= entry.identifier) {
+      throw new Error("Immutable adapter skills must be sorted and unique");
+    }
+    previousIdentifier = entry.identifier;
     // A digest authenticates stored bytes but does not prove that a pinned
     // generation contains a valid SkillGate-managed skill document. The
     // real-context publisher always prefixes the ownership header and reads
@@ -406,6 +414,16 @@ export async function readPinnedAdapterContext(
   }
   if (paths.size !== files.size) {
     throw new Error("Immutable adapter context contains unreferenced files");
+  }
+  // The context publisher has one deterministic JSON representation. Reject
+  // duplicate keys, reordered properties and alternate escapes/whitespace so
+  // authenticated metadata cannot have parser-dependent interpretations.
+  const canonicalMetadata = Buffer.from(JSON.stringify({
+    schemaVersion: "1", agent: metadata.agent, task: metadata.task,
+    skills: validated,
+  }), "utf8");
+  if (!raw.equals(canonicalMetadata)) {
+    throw new Error("Noncanonical immutable adapter context metadata");
   }
   return { task: metadata.task, skills: validated, files };
 }
