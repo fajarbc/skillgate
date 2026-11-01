@@ -127,6 +127,26 @@ test('reused digest still rejects inconsistent file sizes', async () => {
   );
 });
 
+test('rejects conflicting shared digest sizes before any content GET', async () => {
+  const f = fixture((d, size) => ({
+    schemaVersion: '1', agent: 'codex', kind: 'apply',
+    files: [
+      { path: 'skills/a', digest: d, size },
+      { path: 'skills/b', digest: d, size: size + 1 },
+    ],
+  }));
+  const reads = [];
+  await assert.rejects(
+    resolvePinnedBrokerGeneration(async requested => {
+      reads.push(requested);
+      return f.blobs.get(requested);
+    }, f.manifestDigest, 'codex'),
+    /size mismatch/,
+  );
+  assert.deepEqual(reads, [f.manifestDigest],
+    'invalid shared digest lengths must not consume any content GET quota');
+});
+
 test('reused digest cannot bypass content authentication', async () => {
   const f = fixture((d, size) => ({
     schemaVersion: '1', agent: 'codex', kind: 'apply',
