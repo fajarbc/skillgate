@@ -22,13 +22,13 @@ spec.loader.exec_module(proxy)
 
 class ReadOnlyProxyFrameTests(unittest.TestCase):
     def test_canonical_get_is_accepted(self):
-        request = b'{"v":1,"op":"get","digest":"' + b'a' * 64 + b'"}\\n'
+        request = b'{"v":1,"op":"get","digest":"' + b'a' * 64 + b'"}\n'
         self.assertIsNotNone(proxy.READ_ONLY_GET_FRAME.fullmatch(request))
 
     def test_put_and_ambiguous_or_noncanonical_frames_are_denied(self):
-        get = b'{"v":1,"op":"get","digest":"' + b'a' * 64 + b'"}\\n'
+        get = b'{"v":1,"op":"get","digest":"' + b'a' * 64 + b'"}\n'
         rejected = [
-            b'{"v":1,"op":"put","bytes":"eA=="}\\n',
+            b'{"v":1,"op":"put","bytes":"eA=="}\n',
             get.replace(b'"get"', b'"put"'),
             get.replace(b'"op":"get"', b'"op":"put","op":"get"'),
             get.replace(b'"op":"get"', b'"op":"get","op":"put"'),
