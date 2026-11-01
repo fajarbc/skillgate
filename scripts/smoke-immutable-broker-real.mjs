@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { chmod, chown, copyFile, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { Socket } from 'node:net';
+import { chmod, chown, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -150,6 +151,37 @@ async function main() {
     assert.match(await runAs(clientUid, clientGid, [
       '--input-type=module', '--eval', clientCode,
     ]), /PASS real broker/);
+    // A peer may read the full response but deliberately keep its writable
+    // half open. 'finish' alone must not free the broker's connection slot
+    // while leaving a server-side descriptor alive for the 15s deadline.
+    const heldPeers = [];
+    const brokerFds = () => readdir(`/proc/${broker.pid}/fd`);
+    const baselineFdCount = (await brokerFds()).length;
+    try {
+      for (let i = 0; i < 16; i++) {
+        const peer = new Socket({ allowHalfOpen: true });
+        peer.on('data', () => {});
+        heldPeers.push(peer);
+        const connected = once(peer, 'connect', { signal: AbortSignal.timeout(3000) });
+        peer.connect(socketPath);
+        await connected;
+        const ended = once(peer, 'end', { signal: AbortSignal.timeout(3000) });
+        peer.write(JSON.stringify({ v: 1, op: 'get', digest }) + '\\n');
+        await ended;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      let observedFdCount = Infinity;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        observedFdCount = (await brokerFds()).length;
+        if (observedFdCount <= baselineFdCount + 4) break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.ok(observedFdCount <= baselineFdCount + 4,
+        `broker leaked half-open response sockets: ${observedFdCount} vs ${baselineFdCount}`);
+      console.log('PASS: broker closes response sockets despite half-open clients');
+    } finally {
+      for (const peer of heldPeers) peer.destroy();
+    }
     const attackCode = [
       'import assert from "node:assert/strict";',
       'import {chmod,rename,writeFile} from "node:fs/promises";',
