@@ -152,9 +152,11 @@ async function main() {
       clearTimeout(lifetime);
       closed = true; chunks = []; release();
     });
-    // A completed response no longer occupies the in-flight operation slot.
-    // The peer may still be closing its socket when it opens the next one.
-    socket.once('finish', () => { closed = true; release(); });
+    // Writable 'finish' only means our response was queued/flushed; the peer
+    // may still keep its read half open. Do not release the sole connection
+    // slot until the descriptor actually closes. Close promptly after pending
+    // response bytes flush so a peer cannot retain many idle broker sockets.
+    socket.once('finish', () => { socket.destroySoon(); });
     socket.on('error', () => {});
     socket.on('data', chunk => {
       if (done) return;
