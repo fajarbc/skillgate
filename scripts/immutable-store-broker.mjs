@@ -28,7 +28,7 @@ function usageError(message) {
   throw new Error('Immutable broker configuration: ' + message);
 }
 
-async function checkProtectedParent(path) {
+async function checkProtectedParent(path, privateSocket = false) {
   const parent = dirname(path);
   const root = parse(parent).root;
   const chain = [];
@@ -45,8 +45,14 @@ async function checkProtectedParent(path) {
       usageError('socket ancestor is owned by an untrusted UID');
     }
     if (entryPath === parent) {
-      if (entry.uid !== process.getuid() || (entry.mode & 0o022) !== 0) {
-        usageError('socket parent must be broker-owned and not group/world writable');
+      // A proxy-only backend must be unreachable by client-group members.
+      // Group execute on the parent would bypass SO_PEERCRED and quotas by
+      // allowing direct connections to this raw 0660 broker socket.
+      const forbidden = privateSocket ? 0o077 : 0o022;
+      if (entry.uid !== process.getuid() || (entry.mode & forbidden) !== 0) {
+        usageError(privateSocket
+          ? 'proxy-only socket parent must be broker-owned and private (0700)'
+          : 'socket parent must be broker-owned and not group/world writable');
       }
     } else if ((entry.mode & 0o022) !== 0 && (entry.mode & 0o1000) === 0) {
       usageError('socket ancestor is writable without sticky protection');
@@ -113,7 +119,13 @@ async function main() {
   }
   const socketPath = resolve(process.argv[2]);
   const store = resolve(process.argv[3]);
-  await checkProtectedParent(socketPath);
+  // Direct group-access mode remains experimental. In proxy-only mode, fail
+  // closed unless the raw backend socket lives behind a non-traversable parent.
+  const proxyOnly = process.env.SKILLGATE_BROKER_PROXY_ONLY;
+  if (proxyOnly !== undefined && proxyOnly !== '1') {
+    usageError('SKILLGATE_BROKER_PROXY_ONLY must be 1 when configured');
+  }
+  await checkProtectedParent(socketPath, proxyOnly === '1');
   try {
     await lstat(socketPath);
     usageError('socket path already exists; refusing to unlink it');
