@@ -133,7 +133,7 @@ class BoundedRequestTests(unittest.IsolatedAsyncioTestCase):
         # StreamReader's high-water mark is not the maximum frame size.
         # Keep buffering bounded even when a peer pipelines bytes after a
         # complete request; large valid frames must still stream successfully.
-        payload = b'{' + b'x' * (1024 * 1024) + b'}\\n'
+        payload = b'{' + b'x' * (1024 * 1024) + b'}\n'
         self.assertLess(proxy.STREAM_BUFFER_BYTES, len(payload))
         completed = asyncio.get_running_loop().create_future()
 
