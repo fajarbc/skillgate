@@ -214,7 +214,8 @@ minimal protocol backend, an unauthorized UID sharing the same socket GID
 cannot forward any request bytes, and a root-owned backend with forged
 broker-owned socket metadata is rejected by kernel `SO_PEERCRED`. Run only
 on an isolated host: the script chooses currently unused numeric UID/GID
-values without reserving host accounts. This smoke uses a **stub backend**,
+values without reserving host accounts. The smoke also checks that optional consumer-only mode forwards GET but never
+forwards PUT from the authorized UID. This smoke uses a **stub backend**,
 not the built Node broker or immutable blob store; it does not establish
 full strict Option B lifecycle safety, quotas, or crash recovery.
 
@@ -239,6 +240,17 @@ raw `0660` socket. An invalid value fails startup; omitting the variable
 leaves the less-restricted experimental direct mode. The Python proxy already
 rejects a backend whose parent is not private. This is a deployment guard,
 **not** strict lifecycle integration or per-generation authorization.
+
+For a **consumer-only** client UID, start a separate Python proxy with
+`SKILLGATE_BROKER_PROXY_READ_ONLY=1`. It forwards only the canonical
+`{"v":1,"op":"get","digest":"<64 lowercase hex>"}` newline-framed request.
+PUT, duplicate JSON keys, noncanonical frames, and invalid mode values are
+rejected before backend I/O. This is an optional *operation-level* boundary,
+not authorization to select a generation digest. Keep the raw Node broker
+behind its broker-owned private `0700` socket parent and use a separate
+proxy/socket and pinned UID for a publisher if publication is required.
+Without this setting the proxy continues to permit both PUT and GET from its
+single configured client UID; never give untrusted consumers publisher access.
 
 Launch the Node broker first, then launch the Python proxy with the same
 dedicated broker UID and primary GID. Both must have real/effective/saved
