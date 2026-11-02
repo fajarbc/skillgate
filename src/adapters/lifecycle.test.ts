@@ -1,5 +1,5 @@
 import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ import {
 
 describe("adapter lifecycle", () => {
   it("computes dry-run plan matching subsequent apply writes and removals", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-lifecycle-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-lifecycle-"));
     const skillPath = join(root, "my-skill.md");
     await writeFile(skillPath, "---\nname: my-skill\ndescription: Test skill\n---\n# Docs");
 
@@ -41,7 +41,7 @@ describe("adapter lifecycle", () => {
   });
 
   it("applies changes idempotently without conflicts on repeat runs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-lifecycle-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-lifecycle-"));
     const skillPath = join(root, "my-skill.md");
     await writeFile(skillPath, "---\nname: my-skill\ndescription: Test skill\n---\n# Docs");
 
@@ -69,7 +69,7 @@ describe("adapter lifecycle", () => {
   });
 
   it("detects conflict and refuses to overwrite user-owned files without force", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-lifecycle-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-lifecycle-"));
     const skillPath = join(root, "my-skill.md");
     await writeFile(skillPath, "---\nname: my-skill\ndescription: Test skill\n---\n# Docs");
 
@@ -104,7 +104,7 @@ describe("adapter lifecycle", () => {
   });
 
   it("removes stale SkillGate-managed files when skill selection changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-lifecycle-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-lifecycle-"));
     const skill1 = join(root, "skill-one.md");
     const skill2 = join(root, "skill-two.md");
     await writeFile(skill1, "---\nname: skill-one\ndescription: Skill one\n---\n");
@@ -162,7 +162,7 @@ describe("adapter lifecycle", () => {
   });
 
   it("cleans up managed files completely", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-lifecycle-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-lifecycle-"));
     const skill = join(root, "skill.md");
     await writeFile(skill, "---\nname: my-skill\ndescription: Skill\n---\n");
 
