@@ -182,3 +182,20 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
 });
+
+
+// On Windows this backend is deliberately unavailable: do not silently
+// substitute pathname-based checks for POSIX descriptor and ownership guards.
+describe.skipIf(process.platform !== "win32")("immutable store Windows fail-closed contract", () => {
+  it("rejects publication before creating or changing any store entries", async () => {
+    const store = await mkdtemp(join(tmpdir(), "skillgate-win-fail-closed-"));
+    try {
+      await expect(putImmutableBlob(store, Buffer.from("must-not-publish")))
+        .rejects.toThrow(/requires POSIX ownership and safe open flags/);
+      const { readdir } = await import("node:fs/promises");
+      expect(await readdir(store)).toEqual([]);
+    } finally {
+      await rm(store, { recursive: true, force: true });
+    }
+  });
+});
