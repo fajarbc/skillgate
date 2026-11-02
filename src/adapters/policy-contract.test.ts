@@ -38,12 +38,12 @@ for (const { alias, directory } of targets) {
     }
 
     async function recommend() {
-      const exit = await run(["recommend", "test TypeScript contracts", "--root", root, "--adapter", alias, "--json"]);
+      const exit = await run(["recommend", "test TypeScript contracts", "--root", root, "--adapter", alias]);
       expect(exit).toBe(0);
       const log = vi.mocked(console.log);
-      expect(log).toHaveBeenCalledTimes(1);
-      const output = JSON.parse(String(log.mock.calls[0]?.[0]));
-      return output.recommendations.map((item: { metadata: { name: string } }) => item.metadata.name);
+      return log.mock.calls.map((call) => String(call[0]))
+        .filter((line) => /^\S+  score=/.test(line))
+        .map((line) => line.split("  score=")[0]);
     }
 
     it("exposes only approved skills, excluding denied capabilities and invalid metadata", async () => {
@@ -77,7 +77,7 @@ for (const { alias, directory } of targets) {
     it("fails closed on invalid policy before creating adapter output", async () => {
       await skill("allowed-testing");
       await writeFile(join(root, "policy.json"), "{ invalid JSON");
-      expect(await run(["recommend", "test TypeScript", "--root", root, "--adapter", alias, "--json"]))
+      expect(await run(["recommend", "test TypeScript", "--root", root, "--adapter", alias]))
         .toBe(1);
       expect(console.log).not.toHaveBeenCalled();
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Failed to parse policy JSON"));
