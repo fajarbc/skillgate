@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -71,7 +71,7 @@ describe("adapter contract fixtures", () => {
   });
 
   it("creates a valid ranked skill fixture", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "skillgate-fixture-"));
+    const fixtureRoot = await mkdtemp(join(await realpath(tmpdir()), "skillgate-fixture-"));
     try {
       const skill = makeSkill(fixtureRoot, "fixture");
       expect(skill.metadata.name).toBe("fixture");
@@ -128,7 +128,7 @@ export function runAdapterContractSuite(config: AdapterContractConfig): void {
     let adapter: AgentAdapter;
 
     beforeEach(async () => {
-      root = await mkdtemp(join(tmpdir(), "skillgate-adapter-contract-"));
+      root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-adapter-contract-"));
       adapter = config.createAdapter();
     });
 
