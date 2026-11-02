@@ -180,7 +180,7 @@ describe("pinned immutable adapter generations", () => {
         JSON.stringify({ schemaVersion: "1", agent: "codex", kind: "apply",
           files: [{ digest: entry.digest, path: entry.path, size: entry.size }] }),
         canonical.replace("{", "{ "),
-        canonical.replace('"codex"', '"\\\\u0063odex"'),
+        canonical.replace('"codex"', '"\\u0063odex"'),
       ];
       for (const text of variants) {
         const { digest } = await putImmutableBlob(store, Buffer.from(text));
