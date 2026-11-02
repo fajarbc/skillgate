@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,7 +9,7 @@ import { join } from "node:path";
 describe("immutable store kernel prerequisites", () => {
   it.each(["O_NOFOLLOW", "O_NONBLOCK", "O_DIRECTORY"] as const)(
     "fails closed before staging when %s is unavailable", async (missing) => {
-      const store = await mkdtemp(join(tmpdir(), "skillgate-flags-"));
+      const store = await mkdtemp(join(await realpath(tmpdir()), "skillgate-flags-"));
       try {
         vi.resetModules();
         vi.doMock("node:fs", async (importOriginal) => {
@@ -37,7 +37,7 @@ describe("immutable store kernel prerequisites", () => {
     async (ancestorMode) => {
       if (typeof process.getuid !== "function") return;
       const { mkdir } = await import("node:fs/promises");
-      const parent = await mkdtemp(join(tmpdir(), "skillgate-foreign-owner-"));
+      const parent = await mkdtemp(join(await realpath(tmpdir()), "skillgate-foreign-owner-"));
       const store = join(parent, "private");
       await mkdir(store, { mode: 0o700 });
       const foreignUid = process.getuid() === 65534 ? 65533 : 65534;
@@ -75,7 +75,7 @@ describe("immutable store kernel prerequisites", () => {
     if (process.platform === "win32") return;
     const { constants } = await import("node:fs");
     const { mkdir, readdir } = await import("node:fs/promises");
-    const parent = await mkdtemp(join(tmpdir(), "skillgate-swap-"));
+    const parent = await mkdtemp(join(await realpath(tmpdir()), "skillgate-swap-"));
     const store = join(parent, "private");
     const displaced = join(parent, "displaced");
     const outside = join(parent, "outside");
@@ -112,7 +112,7 @@ describe("immutable store kernel prerequisites", () => {
     if (process.platform === "win32") return;
     const { constants } = await import("node:fs");
     const { createHash } = await import("node:crypto");
-    const store = await mkdtemp(join(tmpdir(), "skillgate-retry-sync-"));
+    const store = await mkdtemp(join(await realpath(tmpdir()), "skillgate-retry-sync-"));
     let directorySyncs = 0;
     try {
       vi.resetModules();
