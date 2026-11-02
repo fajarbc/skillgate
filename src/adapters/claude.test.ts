@@ -1,5 +1,5 @@
 import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("preflights source reads before changing existing Claude state", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-preflight-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-preflight-"));
     try {
       const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const source = join(root, "source.md");
@@ -58,7 +58,7 @@ describe("ClaudeCodeAdapter", () => {
 
 
   it("keeps the Claude ownership manifest unchanged on equivalent reapply", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-idempotent-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-idempotent-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Instructions");
@@ -81,7 +81,7 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("cleans up stale Claude-managed skills without deleting unrelated user files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-cleanup-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-cleanup-"));
     try {
       const source = join(root, "source.md");
       const userFile = join(root, "keep.md");
@@ -105,7 +105,7 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("rejects a user-owned Claude skill without force", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-conflict-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-conflict-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
@@ -127,7 +127,7 @@ describe("ClaudeCodeAdapter", () => {
 
 
   it("planning is deterministic and does not write Claude files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-plan-only-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-plan-only-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
@@ -148,7 +148,7 @@ describe("ClaudeCodeAdapter", () => {
 
 
   it("preserves user-edited Claude skill and manifest during cleanup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-edited-cleanup-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-edited-cleanup-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
@@ -172,7 +172,7 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("applies skills by writing to .claude directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-"));
     const skillPath = join(root, "my-skill.md");
     await writeFile(
       skillPath,
