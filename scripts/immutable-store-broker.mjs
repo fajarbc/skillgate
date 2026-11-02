@@ -10,7 +10,7 @@
  *   node scripts/immutable-store-broker.mjs <socket-path> <store-path>
  */
 import { createServer } from 'node:net';
-import { constants } from 'node:fs';
+import { assertBrokerSafeOpenFlags } from './immutable-broker-open-flags.mjs';
 import { lstat, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, parse, resolve } from 'node:path';
 import { assertDedicatedBrokerIdentity } from './immutable-broker-identity.mjs';
@@ -95,10 +95,7 @@ function decodeRequest(line) {
 }
 
 async function main() {
-  if (process.platform === 'win32' ||
-      typeof constants.O_NOFOLLOW !== 'number' || typeof constants.O_DIRECTORY !== 'number') {
-    usageError('requires POSIX ownership and safe open flags');
-  }
+  assertBrokerSafeOpenFlags();
   // Real and effective credentials must agree. Checking getuid() alone can
   // miss a process with effective root privileges or retained root credentials.
   const { uid: brokerUid, gid: brokerGid } = assertDedicatedBrokerIdentity();
