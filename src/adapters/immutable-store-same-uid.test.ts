@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ import { putImmutableBlob, readImmutableBlob } from "./immutable-store.js";
 describe("same-UID immutable-store adversary", () => {
   it("can rewrite a published read-only inode; digest reads fail closed", async () => {
     if (process.platform === "win32" || typeof process.getuid !== "function") return;
-    const store = await mkdtemp(join(tmpdir(), "skillgate-same-uid-"));
+    const store = await mkdtemp(join(await realpath(tmpdir()), "skillgate-same-uid-"));
     try {
       const original = Buffer.from("trusted content");
       const published = await putImmutableBlob(store, original);
@@ -38,7 +38,7 @@ describe("same-UID immutable-store adversary", () => {
 
   it("can replace a private store directory under a same-UID ancestor", async () => {
     if (process.platform === "win32" || typeof process.getuid !== "function") return;
-    const parent = await mkdtemp(join(tmpdir(), "skillgate-same-uid-parent-"));
+    const parent = await mkdtemp(join(await realpath(tmpdir()), "skillgate-same-uid-parent-"));
     const store = join(parent, "private");
     try {
       const { mkdir } = await import("node:fs/promises");
