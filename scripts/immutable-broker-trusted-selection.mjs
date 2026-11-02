@@ -86,6 +86,11 @@ export async function readTrustedGenerationSelection(selectionPath, expectedAgen
     const text = bytes.toString('ascii');
     const match = /^skillgate-generation-v1 ([a-z][a-z0-9-]{0,63}) ([a-f0-9]{64})\n$/.exec(text);
     if (!match || match[1] !== expectedAgent || !DIGEST.test(match[2])) invalid();
+    // Ancestor trust can change while descriptor I/O is in progress. Recheck
+    // before returning the selection, not just before opening the file.
+    // This is defense in depth; it is not a substitute for trusted ownership
+    // and kernel-enforced isolation of the selector's parent directories.
+    await checkTrustedAncestors(selectionPath);
     return match[2];
   } finally {
     await handle.close();
