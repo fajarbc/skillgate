@@ -1,11 +1,29 @@
 import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
-import { mkdtemp, readFile, rm, writeFile , realpath } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("ClaudeCodeAdapter", () => {
+  it.skipIf(process.platform !== "win32")("fails closed on Windows before publishing a source without nonblocking open", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-win-source-guard-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Existing source");
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
+      const context = {
+        root, task: "guard test",
+        skills: [{ path: source, metadata: { name: "example", description: "example" }, score: 1, reasons: [] }],
+      };
+      await expect(adapter.apply(context)).rejects.toThrow(/Destination contains user-owned content/);
+      expect(await readdir(root)).toEqual(["source.md"]);
+      expect(await readFile(source, "utf8")).toBe("# Existing source");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
     const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
     const formatted = await adapter.format({
