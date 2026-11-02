@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, readFile, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -13,7 +13,7 @@ const portableSkill = `---\nname: portable-testing\ndescription: Run focused tes
 
 describe("metadata integration", () => {
   it("preserves portable metadata while ranking and policy use only their own inputs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-metadata-integration-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-metadata-integration-"));
     try {
       await mkdir(join(root, "portable"), { recursive: true });
       await writeFile(join(root, "portable", "SKILL.md"), portableSkill);
@@ -72,7 +72,7 @@ describe("metadata integration", () => {
     ["mixed array", "[network, 7]"],
     ["null", "null"],
   ])("fails closed for malformed %s capability declarations", async (_kind, declaration) => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-capabilities-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-malformed-capabilities-"));
     try {
       await mkdir(join(root, "bad"), { recursive: true });
       await writeFile(
@@ -95,7 +95,7 @@ describe("metadata integration", () => {
   });
 
   it("copies complete original SKILL.md bytes, including portable and host fields", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-adapter-metadata-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-adapter-metadata-"));
     try {
       const source = join(root, "SKILL.md");
       await writeFile(source, portableSkill);
