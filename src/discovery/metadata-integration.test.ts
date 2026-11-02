@@ -109,8 +109,10 @@ describe("metadata integration", () => {
         reasons: [],
       };
 
-      await new ClaudeCodeAdapter().apply({ task: "test", root, skills: [selected] });
-      await new CodexAdapter().apply({ task: "test", root, skills: [selected] });
+      // Explicit legacy opt-in is confined to this byte-copy compatibility fixture.
+      // Production strict mode remains fail-closed against external writers.
+      await new ClaudeCodeAdapter().apply({ task: "test", root, skills: [selected] }, { concurrency: "cooperative" });
+      await new CodexAdapter().apply({ task: "test", root, skills: [selected] }, { concurrency: "cooperative" });
 
       expect(await readFile(join(root, ".claude", "skills", "portable-testing", "SKILL.md"), "utf8"))
         .toBe(`${OWNERSHIP_HEADER}${portableSkill}`);
