@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
@@ -10,8 +10,8 @@ import { OWNERSHIP_HEADER } from "./filesystem-lifecycle.js";
 import { prepareImmutableAdapterContext } from "./immutable-context.js";
 
 async function withFixture(work: (root: string, store: string) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-context-workspace-"));
-  const store = await mkdtemp(join(tmpdir(), "skillgate-context-store-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-context-workspace-"));
+  const store = await mkdtemp(join(await realpath(tmpdir()), "skillgate-context-store-"));
   try {
     await work(root, store);
   } finally {
@@ -62,7 +62,7 @@ describe("immutable context adapter integration", () => {
 
   it("publishes Claude generations even if the legacy adapter root is a symlink", async () => {
     await withFixture(async (root, store) => {
-      const outside = await mkdtemp(join(tmpdir(), "skillgate-legacy-outside-"));
+      const outside = await mkdtemp(join(await realpath(tmpdir()), "skillgate-legacy-outside-"));
       try {
         await writeFile(join(outside, "victim"), "USER CONTENT");
         await symlink(outside, join(root, ".claude"), "dir");
@@ -122,7 +122,7 @@ describe("immutable context adapter integration", () => {
     await withFixture(async (root, store) => {
       const source = join(root, "stable-source.md");
       await writeFile(source, "# Stable source");
-      const outside = await mkdtemp(join(tmpdir(), "skillgate-external-victim-"));
+      const outside = await mkdtemp(join(await realpath(tmpdir()), "skillgate-external-victim-"));
       const victim = join(outside, "victim.md");
       await writeFile(victim, "USER-OWNED VICTIM");
       const legacy = join(root, ".codex");
@@ -291,7 +291,7 @@ describe("immutable context adapter integration", () => {
 
       // A writable non-sticky ancestor allows a non-cooperating writer to
       // substitute the entire store, despite a private leaf directory.
-      const parent = await mkdtemp(join(tmpdir(), "skillgate-untrusted-store-parent-"));
+      const parent = await mkdtemp(join(await realpath(tmpdir()), "skillgate-untrusted-store-parent-"));
       try {
         const nested = join(parent, "private");
         await mkdir(nested, { mode: 0o700 });
