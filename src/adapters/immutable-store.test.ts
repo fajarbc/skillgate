@@ -13,7 +13,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
     return mkdtemp(join(await realpath(tmpdir()), prefix));
   }
   it("reuses identical blobs without replacing their directory entries", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
+    const store = await privateTemp("skillgate-blob-test-");
     try {
       const first = await putImmutableBlob(store, Buffer.from("alpha"));
       const second = await putImmutableBlob(store, Buffer.from("alpha"));
@@ -25,7 +25,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("rejects a pre-existing entry with the expected digest name but wrong bytes", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
+    const store = await privateTemp("skillgate-blob-test-");
     try {
       const { createHash } = await import("node:crypto");
       const digest = createHash("sha256").update("alpha").digest("hex");
@@ -35,7 +35,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
     } finally { await rm(store, { recursive: true, force: true }); }
   });
   it("rejects oversized input before staging any file", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
+    const store = await privateTemp("skillgate-blob-test-");
     try {
       const { MAX_IMMUTABLE_BLOB_BYTES } = await import("./immutable-store.js");
       const { readdir } = await import("node:fs/promises");
@@ -46,7 +46,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("rejects a writable collision even when its bytes match the digest", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
+    const store = await privateTemp("skillgate-blob-test-");
     try {
       const { createHash } = await import("node:crypto");
       const digest = createHash("sha256").update("alpha").digest("hex");
@@ -58,7 +58,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("publishes read-only blobs under concurrent create attempts", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
+    const store = await privateTemp("skillgate-blob-test-");
     try {
       const results = await Promise.all(Array.from({ length: 12 }, () =>
         putImmutableBlob(store, Buffer.from("same immutable content"))));
@@ -72,7 +72,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("rejects a group-writable store before creating any staging entry", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
+    const store = await privateTemp("skillgate-blob-test-");
     try {
       const { chmod, readdir } = await import("node:fs/promises");
       await chmod(store, 0o770);
@@ -83,8 +83,8 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("never follows a symlink at the digest destination", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
-    const outside = await privateTemp( "skillgate-blob-outside-"));
+    const store = await privateTemp("skillgate-blob-test-");
+    const outside = await privateTemp("skillgate-blob-outside-");
     try {
       const { createHash } = await import("node:crypto");
       const { symlink } = await import("node:fs/promises");
@@ -101,7 +101,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("snapshots caller-owned buffers before asynchronous I/O", async () => {
-    const store = await privateTemp( "skillgate-blob-test-"));
+    const store = await privateTemp("skillgate-blob-test-");
     try {
       const input = Buffer.from("original");
       const pending = putImmutableBlob(store, input);
@@ -115,7 +115,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
 
 
   it("rejects a symlinked store ancestor before staging any blob", async () => {
-    const parent = await privateTemp( "skillgate-store-ancestor-"));
+    const parent = await privateTemp("skillgate-store-ancestor-");
     try {
       const { mkdir, symlink, readdir } = await import("node:fs/promises");
       const privateStore = join(parent, "private");
@@ -130,7 +130,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("uses the checked canonical store path rather than following a symlink/.. alias", async () => {
-    const parent = await privateTemp( "skillgate-store-lexical-"));
+    const parent = await privateTemp("skillgate-store-lexical-");
     try {
       const { mkdir, readdir, symlink } = await import("node:fs/promises");
       const safeStore = join(parent, "safe");
@@ -156,7 +156,7 @@ describe.skipIf(process.platform === "win32")("create-only immutable blob storag
   });
 
   it("rejects a non-sticky writable ancestor even when the store itself is private", async () => {
-    const parent = await privateTemp( "skillgate-store-ancestor-"));
+    const parent = await privateTemp("skillgate-store-ancestor-");
     try {
       const { chmod, mkdir, readdir } = await import("node:fs/promises");
       const privateStore = join(parent, "private");
