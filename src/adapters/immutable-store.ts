@@ -160,7 +160,12 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
-    await verifyBlob(destination, digest, bytes.length);
+    // Remove our staging hard link before validating the published inode.
+    // Unlinking a hard link updates inode ctime; verifying first can race
+    // with this publisher\'s own cleanup under concurrent identical writes.
+    // Never unlink the digest entry, including when another publisher won.
+    await rm(temporary, { force: true });
+    await verifyBlob(destination, digest, snapshot.length);
     // Also fsync when reusing a digest: an earlier publisher may have been
     // killed after link() but before syncing the directory. A successful
     // retry must establish durability, not merely observe a visible entry.
