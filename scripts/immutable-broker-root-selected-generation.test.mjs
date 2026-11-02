@@ -115,3 +115,30 @@ test('root-selected reader rejects oversized selector before blob transport', ro
     assert.equal(calls, 0);
   });
 });
+
+
+test('root-selected reader rejects mismatched generation agent before file reads', rootOnly, async () => {
+  await sandbox(async dir => {
+    const { blobs, generationDigest } = blobsFor('claude');
+    const path = await select(dir, 'codex', generationDigest);
+    const requested = [];
+    await assert.rejects(resolveRootSelectedGeneration(path, 'codex', async d => {
+      requested.push(d);
+      return blobs.get(d);
+    }), /Invalid pinned generation manifest/);
+    assert.deepEqual(requested, [generationDigest]);
+  });
+});
+
+test('root-selected reader rejects missing generation without requesting file blobs', rootOnly, async () => {
+  await sandbox(async dir => {
+    const { generationDigest } = blobsFor('codex');
+    const path = await select(dir, 'codex', generationDigest);
+    const requested = [];
+    await assert.rejects(resolveRootSelectedGeneration(path, 'codex', async d => {
+      requested.push(d);
+      return undefined;
+    }), /authentication/);
+    assert.deepEqual(requested, [generationDigest]);
+  });
+});
