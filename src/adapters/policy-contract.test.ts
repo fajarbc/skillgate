@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,7 +38,7 @@ for (const { alias, directory } of targets) {
     }
 
     async function recommend() {
-      const exit = await run(["recommend", "test TypeScript contracts", "--root", root, "--adapter", alias]);
+      const exit = await run(["recommend", "test TypeScript contracts", "--root", root]);
       expect(exit).toBe(0);
       const log = vi.mocked(console.log);
       return log.mock.calls.map((call) => String(call[0]))
@@ -46,7 +46,7 @@ for (const { alias, directory } of targets) {
         .map((line) => line.split("  score=")[0]);
     }
 
-    it("exposes only approved skills, excluding denied capabilities and invalid metadata", async () => {
+    it("recommends only approved skills, excluding denied capabilities and invalid metadata", async () => {
       await skill("allowed-testing");
       await skill("denied-testing");
       await skill("network-testing", "network");
@@ -57,12 +57,11 @@ for (const { alias, directory } of targets) {
       }));
 
       expect(await recommend()).toEqual(["allowed-testing"]);
-      expect(await readdir(join(root, directory, "skills"))).toEqual(["allowed-testing"]);
-      expect(await readFile(join(root, directory, "skills", "allowed-testing", "SKILL.md"), "utf8"))
-        .toContain("# allowed-testing");
+      // Read-only policy evaluation must not create adapter-visible paths.
+      await expect(readdir(join(root, directory))).rejects.toMatchObject({ code: "ENOENT" });
     });
 
-    it("removes previously exposed skills when policy denies them", async () => {
+    it("updates read-only recommendations when policy denies previously approved skills", async () => {
       await skill("allowed-testing");
       await writeFile(join(root, "policy.json"), "{}");
       expect(await recommend()).toEqual(["allowed-testing"]);
@@ -70,8 +69,7 @@ for (const { alias, directory } of targets) {
       await writeFile(join(root, "policy.json"), JSON.stringify({ deniedSkills: ["*"] }));
 
       expect(await recommend()).toEqual([]);
-      await expect(readFile(join(root, directory, "skills", "allowed-testing", "SKILL.md")))
-        .rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readdir(join(root, directory))).rejects.toMatchObject({ code: "ENOENT" });
     });
 
     it("fails closed on invalid policy before creating adapter output", async () => {
