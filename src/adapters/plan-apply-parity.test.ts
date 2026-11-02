@@ -1,5 +1,5 @@
 import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ describe("adapter plan/apply parity", () => {
     ["Codex", ".codex", () => legacyCooperativeAdapter(new CodexAdapter())],
     ["Claude Code", ".claude", () => legacyCooperativeAdapter(new ClaudeCodeAdapter())],
   ])("keeps %s dry-run results consistent with reconciliation", async (_name, managedDir, createAdapter) => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-plan-parity-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-plan-parity-"));
     try {
       const first = join(root, "first.md");
       const second = join(root, "second.md");
