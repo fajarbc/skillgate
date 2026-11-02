@@ -180,6 +180,7 @@ describe("adapter ownership manifest validation", () => {
       await symlink(target, alias);
       expect(await isManagedFile(alias, {
         managedBy: "skillgate", version: "1.0", agent: "codex",
+        task: "symlink ownership regression", updatedAt: new Date().toISOString(),
         managedFiles: [alias], skills: [],
         fileDigests: { [alias]: createHash("sha256").update(content).digest("hex") },
       })).toBe(false);
