@@ -165,7 +165,26 @@ export async function putImmutableBlob(store: string, bytes: Buffer): Promise<Im
     // with this publisher\'s own cleanup under concurrent identical writes.
     // Never unlink the digest entry, including when another publisher won.
     await rm(temporary, { force: true });
-    await verifyBlob(destination, digest, snapshot.length);
+    // Another publisher may still hold its staging hard link to the same
+    // inode. That publisher\'s unlink changes ctime while verifyBlob reads.
+    // Retrying only transient metadata churn is safe: every attempt still
+    // verifies the full digest, size, mode, and stable inode identity.
+    let verified = false;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        await verifyBlob(destination, digest, snapshot.length);
+        verified = true;
+        break;
+      } catch (error) {
+        if (!(error instanceof Error) ||
+            error.message !== "Immutable SkillGate blob collision or unsafe entry" ||
+            attempt === 7) throw error;
+        // Do not accept a collision based on retry count alone. The final
+        // success must be a complete stable, digest-authenticated read.
+        await new Promise<void>((resolveRetry) => setTimeout(resolveRetry, attempt + 1));
+      }
+    }
+    if (!verified) throw new Error("Immutable SkillGate blob verification failed");
     // Also fsync when reusing a digest: an earlier publisher may have been
     // killed after link() but before syncing the directory. A successful
     // retry must establish durability, not merely observe a visible entry.
