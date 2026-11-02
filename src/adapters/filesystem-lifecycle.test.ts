@@ -9,9 +9,14 @@ import { AdapterConflictError, readPreviousManifest, readStableOwnershipFile, is
 import { CodexAdapter } from "./codex.js";
 import { ClaudeCodeAdapter } from "./claude.js";
 
+async function canonicalTemp(prefix: string): Promise<string> {
+  // macOS /var is a symlink; keep security checks strict and use real ancestry.
+  return mkdtemp(join(await realpath(tmpdir()), prefix));
+}
+
 describe("adapter ownership manifest validation", () => {
   it("rejects hard-linked ownership evidence that can be edited through an alias", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-hardlink-ownership-"));
+    const root = await canonicalTemp("skillgate-hardlink-ownership-");
     try {
       const target = join(root, "SKILL.md");
       const alias = join(root, "alias.md");
@@ -34,7 +39,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects oversized ownership evidence", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-oversized-ownership-"));
+    const root = await canonicalTemp("skillgate-oversized-ownership-");
     try {
       const target = join(root, "skills.json");
       await writeFile(target, "x");
@@ -47,7 +52,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it.each([false, true])("rejects a missing previously-owned manifest (force=%s)", async (force) => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-missing-manifest-"));
+    const root = await canonicalTemp("skillgate-missing-manifest-");
     try {
       const manifestPath = join(root, "skills.json");
       const expectedManifestDigest = createHash("sha256").update("previous manifest").digest("hex");
@@ -61,7 +66,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it.skipIf(process.platform === "win32")("rejects FIFO ownership evidence without blocking", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-fifo-ownership-"));
+    const root = await canonicalTemp("skillgate-fifo-ownership-");
     try {
       const fifo = join(root, "skills.json");
       const created = spawnSync("mkfifo", [fifo], { timeout: 3000 });
@@ -75,7 +80,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("reads ownership bytes from a regular file and rejects symlink/directory evidence", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-stable-read-"));
+    const root = await canonicalTemp("skillgate-stable-read-");
     try {
       const target = join(root, "SKILL.md");
       const alias = join(root, "alias.md");
@@ -93,7 +98,7 @@ describe("adapter ownership manifest validation", () => {
 
   it("rejects a writable-by-others existing mutation lock", async () => {
     if (process.platform === "win32") return;
-    const root = await mkdtemp(join(tmpdir(), "skillgate-lock-mode-"));
+    const root = await canonicalTemp("skillgate-lock-mode-");
     const lockPath = join(await realpath(tmpdir()),
       `skillgate-adapter-${createHash("sha256").update(join(root, ".codex")).digest("hex")}.lock`);
     try {
@@ -109,7 +114,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects a regular file occupying the adapter lock path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-lock-file-"));
+    const root = await canonicalTemp("skillgate-lock-file-");
     const agentRoot = join(root, ".codex");
     const lockPath = join(await realpath(tmpdir()),
       `skillgate-adapter-${createHash("sha256").update(agentRoot).digest("hex")}.lock`);
@@ -126,7 +131,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects structurally incomplete ownership manifests", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-shape-"));
+    const root = await canonicalTemp("skillgate-manifest-shape-");
     try {
       const manifestPath = join(root, "skills.json");
       const valid = {
@@ -155,7 +160,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("does not accept ownership metadata through a symlink", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-manifest-"));
+    const root = await canonicalTemp("skillgate-symlink-manifest-");
     try {
       const target = join(root, "real.json");
       const alias = join(root, "skills.json");
@@ -171,7 +176,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("does not accept managed files through a symlink", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-symlink-file-"));
+    const root = await canonicalTemp("skillgate-symlink-file-");
     try {
       const target = join(root, "real.md");
       const alias = join(root, "SKILL.md");
@@ -190,7 +195,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects malformed UTF-8 in an otherwise valid ownership manifest", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-utf8-"));
+    const root = await canonicalTemp("skillgate-manifest-utf8-");
     try {
       const manifestPath = join(root, "skills.json");
       const valid = {
@@ -208,7 +213,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects a managed file whose invalid UTF-8 bytes replace a replacement character", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-byte-ownership-"));
+    const root = await canonicalTemp("skillgate-byte-ownership-");
     try {
       const target = join(root, "SKILL.md");
       const original = Buffer.from(OWNERSHIP_HEADER + "\uFFFD");
@@ -230,7 +235,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("serializes parallel applies targeting the same adapter root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-locked-apply-"));
+    const root = await canonicalTemp("skillgate-locked-apply-");
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Managed");
@@ -247,7 +252,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("waits for an existing adapter lock before touching the workspace", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-locked-wait-"));
+    const root = await canonicalTemp("skillgate-locked-wait-");
     const lockPath = join(await realpath(tmpdir()), `skillgate-adapter-${createHash("sha256").update(join(root, ".codex")).digest("hex")}.lock`);
     try {
       const source = join(root, "source.md");
@@ -267,7 +272,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("preserves edited managed files with intact ownership markers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-digest-"));
+    const root = await canonicalTemp("skillgate-digest-");
     try {
       const dir = join(root, ".codex", "skills", "sample");
       await mkdir(dir, { recursive: true });
@@ -287,7 +292,7 @@ describe("adapter ownership manifest validation", () => {
     }
   });
   it("requires an ownership header even for a manifest-listed file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-ownership-"));
+    const root = await canonicalTemp("skillgate-ownership-");
     try {
       const path = join(root, "SKILL.md");
       await writeFile(path, "# User-authored content");
@@ -309,7 +314,7 @@ describe("adapter ownership manifest validation", () => {
     { agent: "codex", version: "2.0", expected: "codex" },
     { agent: "codex", version: "1.0", expected: "codex" },
   ])("accepts only the supported version for the expected adapter: $agent/$version", async ({ agent, version, expected }) => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-validation-"));
+    const root = await canonicalTemp("skillgate-manifest-validation-");
     try {
       const path = join(root, "skills.json");
       const manifest = {
@@ -329,7 +334,7 @@ describe("adapter ownership manifest validation", () => {
     }
   });
   it("does not trust another adapter manifest to remove Codex files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-foreign-"));
+    const root = await canonicalTemp("skillgate-foreign-");
     try {
       const dir = join(root, ".codex", "skills", "example");
       await mkdir(dir, { recursive: true });
@@ -355,7 +360,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("preserves legacy marker-only files during interrupted cleanup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-recovery-"));
+    const root = await canonicalTemp("skillgate-recovery-");
     try {
       const dir = join(root, ".codex", "skills", "existing");
       await mkdir(dir, { recursive: true });
@@ -380,7 +385,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects replacing legacy marker-only content without force", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-legacy-apply-"));
+    const root = await canonicalTemp("skillgate-legacy-apply-");
     try {
       const dir = join(root, ".codex", "skills", "sample");
       await mkdir(dir, { recursive: true });
@@ -411,7 +416,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("refuses to overwrite an untracked file even when it carries the ownership header", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-untracked-destination-"));
+    const root = await canonicalTemp("skillgate-untracked-destination-");
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
@@ -434,7 +439,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("does not trust an untracked file merely because it has an ownership marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-untracked-marker-"));
+    const root = await canonicalTemp("skillgate-untracked-marker-");
     try {
       const path = join(root, "SKILL.md");
       await writeFile(path, OWNERSHIP_HEADER + "# User-created");
@@ -451,7 +456,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("recovers a completed pending write only when its expected digest matches", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-digest-"));
+    const root = await canonicalTemp("skillgate-pending-digest-");
     try {
       const dir = join(root, ".codex", "skills", "pending");
       await mkdir(dir, { recursive: true });
@@ -482,7 +487,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("recovers the previous managed bytes after an interrupted update", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-previous-"));
+    const root = await canonicalTemp("skillgate-pending-previous-");
     try {
       const dir = join(root, ".codex", "skills", "sample");
       await mkdir(dir, { recursive: true });
@@ -506,7 +511,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("preserves user edits and ignores previous digests in final manifests", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-pending-edited-"));
+    const root = await canonicalTemp("skillgate-pending-edited-");
     try {
       const dir = join(root, ".codex", "skills", "sample");
       await mkdir(dir, { recursive: true });
@@ -536,7 +541,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("preserves an empty legacy manifest without digest evidence", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-legacy-empty-manifest-"));
+    const root = await canonicalTemp("skillgate-legacy-empty-manifest-");
     try {
       const manifestPath = join(root, ".codex", "skills.json");
       await mkdir(join(root, ".codex"), { recursive: true });
@@ -555,7 +560,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("removes an unchanged digest-aware owned manifest during cleanup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-cleanup-manifest-"));
+    const root = await canonicalTemp("skillgate-cleanup-manifest-");
     try {
       const manifestPath = join(root, ".codex", "skills.json");
       await mkdir(join(root, ".codex"), { recursive: true });
@@ -575,7 +580,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects a dangling symlink at a managed destination", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-dangling-link-"));
+    const root = await canonicalTemp("skillgate-dangling-link-");
     try {
       const { symlink } = await import("node:fs/promises");
       const source = join(root, "source.md");
@@ -597,7 +602,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("detects dangling symlinks as existing directory entries", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-file-exists-link-"));
+    const root = await canonicalTemp("skillgate-file-exists-link-");
     try {
       const { symlink } = await import("node:fs/promises");
       const { fileExists } = await import("./filesystem-lifecycle.js");
@@ -611,7 +616,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("preserves user-edited managed files during forced cleanup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-force-cleanup-"));
+    const root = await canonicalTemp("skillgate-force-cleanup-");
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
@@ -633,7 +638,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects malformed digest metadata rather than treating it as a legacy manifest", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-malformed-digest-"));
+    const root = await canonicalTemp("skillgate-malformed-digest-");
     try {
       const path = join(root, "skills.json");
       const base = {
@@ -650,7 +655,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("never removes outside paths listed in legacy ownership manifests", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-invalid-ownership-"));
+    const root = await canonicalTemp("skillgate-invalid-ownership-");
     try {
       const agentRoot = join(root, ".codex");
       await mkdir(agentRoot, { recursive: true });
@@ -681,7 +686,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("retains user-edited stale files during reconciliation and cleanup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-stale-edited-"));
+    const root = await canonicalTemp("skillgate-stale-edited-");
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
@@ -711,7 +716,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects duplicate skill destinations before creating ownership state", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-duplicate-destination-"));
+    const root = await canonicalTemp("skillgate-duplicate-destination-");
     try {
       const first = join(root, "first.md");
       const second = join(root, "second.md");
@@ -733,7 +738,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("plans deterministically without writing managed files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-plan-readonly-"));
+    const root = await canonicalTemp("skillgate-plan-readonly-");
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Planned");
@@ -753,7 +758,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("keeps manifest bytes stable across identical applies", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-idempotent-manifest-"));
+    const root = await canonicalTemp("skillgate-idempotent-manifest-");
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Stable");
@@ -779,8 +784,8 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("rejects a symlinked managed directory without changing its external target", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-dir-link-"));
-    const outside = await mkdtemp(join(tmpdir(), "skillgate-dir-link-outside-"));
+    const root = await canonicalTemp("skillgate-dir-link-");
+    const outside = await canonicalTemp("skillgate-dir-link-outside-");
     try {
       const { symlink } = await import("node:fs/promises");
       const source = join(root, "source.md");
@@ -804,7 +809,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("cleans up Unicode skill directories generated by the adapter", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-unicode-cleanup-"));
+    const root = await canonicalTemp("skillgate-unicode-cleanup-");
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Managed");
@@ -824,7 +829,7 @@ describe("adapter ownership manifest validation", () => {
   });
 
   it("reconciles and cleans up Claude Code skills without touching source files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-lifecycle-"));
+    const root = await canonicalTemp("skillgate-claude-lifecycle-");
     try {
       const firstSource = join(root, "first.md");
       const secondSource = join(root, "second.md");
@@ -875,7 +880,7 @@ describe("adapter ownership manifest validation", () => {
 
 describe("replacement boundary regression", () => {
   it("preserves a user-edited digest-owned file when replacement is requested", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-replacement-regression-"));
+    const root = await canonicalTemp("skillgate-replacement-regression-");
     try {
       const path = join(root, "SKILL.md");
       const original = OWNERSHIP_HEADER + "# original";
@@ -899,7 +904,7 @@ describe("replacement boundary regression", () => {
   });
 
   it("never follows a forced symlink destination during replacement", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-replacement-symlink-"));
+    const root = await canonicalTemp("skillgate-replacement-symlink-");
     try {
       const userFile = join(root, "user.md");
       const target = join(root, "SKILL.md");
