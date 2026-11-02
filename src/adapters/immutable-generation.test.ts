@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { publishImmutableGeneration, previewImmutableGeneration, readImmutableGeneration, readPinnedGenerationFile, readPinnedAdapterContext, PinnedImmutableAdapter } from "./immutable-generation.js";
 import { putImmutableBlob } from "./immutable-store.js";
 
 async function withStore(work: (store: string) => Promise<void>): Promise<void> {
-  const store = await mkdtemp(join(tmpdir(), "skillgate-generation-test-"));
+  const store = await mkdtemp(join(await realpath(tmpdir()), "skillgate-generation-test-"));
   try {
     await work(store);
   } finally {
@@ -193,7 +193,7 @@ describe("pinned immutable adapter generations", () => {
 
   it("does not overwrite an existing user-owned path outside the store", async () => {
     await withStore(async (store) => {
-      const outside = await mkdtemp(join(tmpdir(), "skillgate-workspace-test-"));
+      const outside = await mkdtemp(join(await realpath(tmpdir()), "skillgate-workspace-test-"));
       try {
         const victim = join(outside, "skills.md");
         await writeFile(victim, "user content");
