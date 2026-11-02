@@ -1,5 +1,5 @@
 import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, type TestContext } from "vitest";
@@ -40,7 +40,7 @@ describe("CodexAdapter", () => {
   });
 
   it("refuses symlinked adapter directories before planning or writing", async (test) => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-symlink-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-symlink-"));
     try {
       const outside = join(root, "outside");
       await mkdir(outside);
@@ -57,7 +57,7 @@ describe("CodexAdapter", () => {
   });
 
   it("refuses symlinked skill destination files without touching their targets", async (test) => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-file-link-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-file-link-"));
     try {
       const outside = join(root, "outside.md");
       const source = join(root, "source.md");
@@ -80,7 +80,7 @@ describe("CodexAdapter", () => {
   });
 
   it("refuses symlinked manifest files even with force", async (test) => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-manifest-link-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-manifest-link-"));
     try {
       const outside = join(root, "outside.json");
       await writeFile(outside, "protected");
@@ -96,7 +96,7 @@ describe("CodexAdapter", () => {
   });
 
   it("does not delete arbitrary paths from a forged ownership manifest", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-forged-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-forged-"));
     try {
       const adapterRoot = join(root, ".codex");
       await mkdir(adapterRoot);
@@ -116,7 +116,7 @@ describe("CodexAdapter", () => {
   });
 
   it("rejects a forged ownership marker embedded in user content", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-marker-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-marker-"));
     try {
       const adapterRoot = join(root, ".codex");
       const targetDir = join(adapterRoot, "skills", "example");
@@ -137,7 +137,7 @@ describe("CodexAdapter", () => {
   });
 
   it("preserves a user-edited stale skill when reapplying an empty selection", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-stale-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-stale-"));
     try {
       const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const source = join(root, "source.md");
@@ -162,7 +162,7 @@ describe("CodexAdapter", () => {
   });
 
   it("rejects user-replaced skill files even when the manifest lists them", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-replaced-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-replaced-"));
     try {
       const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const source = join(root, "source.md");
@@ -185,7 +185,7 @@ describe("CodexAdapter", () => {
   });
 
   it("rejects malformed manifest path entries without deleting user files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-invalid-manifest-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-invalid-manifest-"));
     try {
       const agentRoot = join(root, ".codex");
       await mkdir(agentRoot);
@@ -211,7 +211,7 @@ describe("CodexAdapter", () => {
   });
 
   it("retains ownership records for user-edited stale files after reapply", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-retain-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-retain-"));
     try {
       const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const source = join(root, "source.md");
@@ -235,7 +235,7 @@ describe("CodexAdapter", () => {
   });
 
   it("retains manifest on cleanup while a user-edited tracked skill remains", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-cleanup-recovery-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-cleanup-recovery-"));
     try {
       const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const source = join(root, "source.md");
@@ -261,7 +261,7 @@ describe("CodexAdapter", () => {
 
 
   it("preflights later source read failures without mutating earlier destinations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-preflight-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-preflight-"));
     try {
       const valid = join(root, "valid.md");
       await writeFile(valid, "# Valid source");
@@ -281,7 +281,7 @@ describe("CodexAdapter", () => {
   });
 
   it("retains a recovery manifest after an interrupted multi-skill apply", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-partial-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-partial-"));
     try {
       const adapter = legacyCooperativeAdapter(new CodexAdapter());
       const source = join(root, "source.md");
@@ -314,7 +314,7 @@ describe("CodexAdapter", () => {
 
 
   it("keeps ownership manifest stable across identical applies", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-idempotent-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-idempotent-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
@@ -334,7 +334,7 @@ describe("CodexAdapter", () => {
   });
 
   it("applies skills by writing to .codex directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-codex-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-codex-"));
     const skillPath = join(root, "my-skill.md");
     await writeFile(
       skillPath,
