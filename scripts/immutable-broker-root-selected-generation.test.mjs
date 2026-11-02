@@ -158,3 +158,40 @@ test('root-selected reader rejects tampered content blob after authenticating ma
     assert.deepEqual(requested, [generationDigest, fileDigest]);
   });
 });
+
+
+test('root-selected reader rejects contradictory duplicate digest sizes before file reads', rootOnly, async () => {
+  await sandbox(async dir => {
+    const file = Buffer.from('shared');
+    const fileDigest = digest(file);
+    const manifest = Buffer.from(JSON.stringify({
+      schemaVersion: '1', agent: 'codex', kind: 'apply', files: [
+        { path: 'skills/a/SKILL.md', digest: fileDigest, size: file.length },
+        { path: 'skills/b/SKILL.md', digest: fileDigest, size: file.length + 1 },
+      ],
+    }));
+    const generationDigest = digest(manifest);
+    const path = await select(dir, 'codex', generationDigest);
+    const requested = [];
+    await assert.rejects(resolveRootSelectedGeneration(path, 'codex', async d => {
+      requested.push(d);
+      return d === generationDigest ? manifest : file;
+    }), /size mismatch/);
+    assert.deepEqual(requested, [generationDigest]);
+  });
+});
+
+test('root-selected cleanup never fetches file blobs', rootOnly, async () => {
+  await sandbox(async dir => {
+    const { blobs, generationDigest } = blobsFor('codex', 'cleanup');
+    const path = await select(dir, 'codex', generationDigest);
+    const requested = [];
+    const result = await resolveRootSelectedGeneration(path, 'codex', async d => {
+      requested.push(d);
+      return blobs.get(d);
+    });
+    assert.equal(result.generation.kind, 'cleanup');
+    assert.equal(result.files.size, 0);
+    assert.deepEqual(requested, [generationDigest]);
+  });
+});
