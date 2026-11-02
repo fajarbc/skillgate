@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, link, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveRootSelectedGeneration, readRootSelectedBrokerGeneration } from './immutable-broker-root-selected-generation.mjs';
@@ -89,5 +89,29 @@ test('root-selected but tampered manifest is rejected by digest verification', r
     const path = await select(dir, 'codex', generationDigest);
     blobs.set(generationDigest, Buffer.from('tampered'));
     await assert.rejects(resolveRootSelectedGeneration(path, 'codex', d => blobs.get(d)), /authentication/);
+  });
+});
+
+
+test('root-selected reader rejects hardlinked selector before blob transport', rootOnly, async () => {
+  await sandbox(async dir => {
+    const { generationDigest } = blobsFor('codex');
+    const path = await select(dir, 'codex', generationDigest);
+    const alias = join(dir, 'hardlink');
+    await link(path, alias);
+    let calls = 0;
+    await assert.rejects(resolveRootSelectedGeneration(path, 'codex', () => { calls++; }), /Untrusted/);
+    assert.equal(calls, 0);
+  });
+});
+
+test('root-selected reader rejects oversized selector before blob transport', rootOnly, async () => {
+  await sandbox(async dir => {
+    const { generationDigest } = blobsFor('codex');
+    const path = await select(dir, 'codex', generationDigest);
+    await appendFile(path, 'x'.repeat(193));
+    let calls = 0;
+    await assert.rejects(resolveRootSelectedGeneration(path, 'codex', () => { calls++; }), /Untrusted/);
+    assert.equal(calls, 0);
   });
 });
