@@ -1,6 +1,6 @@
 import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
 import { spawnSync } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, truncate, writeFile , realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -16,7 +16,7 @@ function context(root: string, path: string) {
 }
 
 it.skipIf(process.platform === "win32")("rejects FIFO skill sources without creating ownership state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-fifo-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-fifo-"));
   try {
     const source = join(root, "source.fifo");
     const created = spawnSync("mkfifo", [source], { timeout: 3000 });
@@ -30,7 +30,7 @@ it.skipIf(process.platform === "win32")("rejects FIFO skill sources without crea
 });
 
 it("rejects directory skill sources without creating ownership state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-directory-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-directory-"));
   try {
     const source = join(root, "source");
     await mkdir(source);
@@ -42,7 +42,7 @@ it("rejects directory skill sources without creating ownership state", async () 
 });
 
 it.each([32 * 1024 * 1024, 32 * 1024 * 1024 + 1])("rejects oversized skill sources of %i bytes", async (size) => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-oversized-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-oversized-"));
   try {
     const source = join(root, "large.md");
     await writeFile(source, "x");
@@ -55,7 +55,7 @@ it.each([32 * 1024 * 1024, 32 * 1024 * 1024 + 1])("rejects oversized skill sourc
 });
 
 it.each([0, 32 * 1024 * 1024 - Buffer.byteLength(OWNERSHIP_HEADER)])("accepts regular skill source of %i bytes", async (size) => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-boundary-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-boundary-"));
   try {
     const source = join(root, "source.md");
     await writeFile(source, "");
@@ -70,7 +70,7 @@ it.each([0, 32 * 1024 * 1024 - Buffer.byteLength(OWNERSHIP_HEADER)])("accepts re
 });
 
 it("rejects oversized pending manifests before creating the adapter root", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-manifest-size-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-manifest-size-"));
   try {
     const source = join(root, "small.md");
     await writeFile(source, "small");
@@ -84,7 +84,7 @@ it("rejects oversized pending manifests before creating the adapter root", async
 });
 
 it("rejects oversized managed writes before staging", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-managed-write-limit-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-managed-write-limit-"));
   try {
     await expect(writeManagedFile(join(root, "oversized.md"), "x".repeat(32 * 1024 * 1024 + 1)))
       .rejects.toBeInstanceOf(AdapterConflictError);
@@ -95,7 +95,7 @@ it("rejects oversized managed writes before staging", async () => {
 });
 
 it.skipIf(process.platform === "win32")("plan rejects FIFO sources without creating ownership state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-plan-fifo-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-plan-fifo-"));
   try {
     const source = join(root, "source.fifo");
     const created = spawnSync("mkfifo", [source], { timeout: 3000 });
@@ -109,7 +109,7 @@ it.skipIf(process.platform === "win32")("plan rejects FIFO sources without creat
 });
 
 it("plan rejects directory and oversized sources without creating ownership state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-plan-source-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-plan-source-"));
   try {
     const directory = join(root, "directory");
     await mkdir(directory);
@@ -125,7 +125,7 @@ it("plan rejects directory and oversized sources without creating ownership stat
 });
 
 it("rejects small malformed UTF-8 skill sources consistently in plan and apply", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-invalid-utf8-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-invalid-utf8-"));
   try {
     const source = join(root, "invalid.md");
     // An invalid continuation byte must not be silently replaced with U+FFFD.
@@ -140,7 +140,7 @@ it("rejects small malformed UTF-8 skill sources consistently in plan and apply",
 });
 
 it("plan rejects UTF-8 replacement expansion beyond the managed-source limit", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-plan-utf8-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-plan-utf8-"));
   try {
     const source = join(root, "invalid.md");
     await writeFile(source, Buffer.alloc(32 * 1024 * 1024, 0xff));
@@ -152,7 +152,7 @@ it("plan rejects UTF-8 replacement expansion beyond the managed-source limit", a
 });
 
 it("detects source pathname replacement even when replacement bytes are identical", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-path-snapshot-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-path-snapshot-"));
   try {
     const source = join(root, "source.md");
     const moved = join(root, "moved.md");
@@ -171,7 +171,7 @@ it("detects source pathname replacement even when replacement bytes are identica
 });
 
 it("detects a source pathname removed after descriptor validation", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-path-missing-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-path-missing-"));
   try {
     const source = join(root, "source.md");
     await writeFile(source, "# source");
@@ -185,7 +185,7 @@ it("detects a source pathname removed after descriptor validation", async () => 
 });
 
 it.skipIf(process.platform === "win32")("rejects source entry replacement by a symlink to the original inode", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-symlink-swap-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-symlink-swap-"));
   try {
     const source = join(root, "source.md");
     const moved = join(root, "moved.md");
@@ -208,7 +208,7 @@ it.skipIf(process.platform === "win32")("rejects source entry replacement by a s
 });
 
 it.skipIf(process.platform === "win32")("rejects symlink source entry replacement even when the target is unchanged", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-source-symlink-replaced-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-source-symlink-replaced-"));
   try {
     const target = join(root, "target.md");
     const source = join(root, "source.md");
@@ -228,7 +228,7 @@ it.skipIf(process.platform === "win32")("rejects symlink source entry replacemen
 });
 
 it("preserves metadata fallback only for a source absent at the initial path check", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-absent-source-fallback-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-absent-source-fallback-"));
   try {
     const missing = join(root, "missing.md");
     const adapter = legacyCooperativeAdapter(new CodexAdapter());
@@ -244,7 +244,7 @@ it("preserves metadata fallback only for a source absent at the initial path che
 });
 
 it("escapes fallback metadata so it cannot inject frontmatter or instructions", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-fallback-yaml-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-fallback-yaml-"));
   try {
     const missing = join(root, "missing.md");
     const ctx = context(root, missing);
@@ -262,7 +262,7 @@ it("escapes fallback metadata so it cannot inject frontmatter or instructions", 
 });
 
 it("escapes YAML Unicode line separators in fallback metadata", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-fallback-unicode-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-fallback-unicode-"));
   try {
     const missing = join(root, "missing.md");
     const ctx = context(root, missing);
@@ -282,7 +282,7 @@ it("escapes YAML Unicode line separators in fallback metadata", async () => {
 });
 
 it("rejects oversized manifest task metadata in both plan and apply without writing state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-oversized-manifest-plan-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-oversized-manifest-plan-"));
   try {
     // This cannot fit the 32 MiB ownership manifest even before path/digest fields.
     const task = "x".repeat(32 * 1024 * 1024 + 1);
@@ -297,7 +297,7 @@ it("rejects oversized manifest task metadata in both plan and apply without writ
 });
 
 it("rejects a near-limit task when the full pending manifest exceeds 32 MiB", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-near-limit-manifest-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-near-limit-manifest-"));
   try {
     const limit = 32 * 1024 * 1024;
     const task = "x".repeat(limit - 100);
@@ -315,7 +315,7 @@ it("rejects a near-limit task when the full pending manifest exceeds 32 MiB", as
 });
 
 it("rejects an oversized pending manifest during plan when ownership already exists", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skillgate-existing-manifest-limit-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-existing-manifest-limit-"));
   try {
     const adapter = legacyCooperativeAdapter(new CodexAdapter());
     const manifestPath = join(root, ".codex", "skills.json");
