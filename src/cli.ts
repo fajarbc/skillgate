@@ -60,7 +60,7 @@ function requestsJsonTransport(argv: string[]): boolean {
     }
     // A malformed --json=value still explicitly requests machine transport.
     // Let runJson return one structured INVALID_REQUEST rather than human stderr.
-    if (arg === "--json" || arg.startsWith("--json=")) return true;
+    if (arg === "--json" || arg?.startsWith("--json=")) return true;
   }
   return false;
 }
