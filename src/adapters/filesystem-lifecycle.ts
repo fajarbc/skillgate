@@ -238,6 +238,13 @@ export async function writeManagedFile(path: string, content: string, options?: 
   if (Buffer.byteLength(content, "utf8") > MAX_OWNERSHIP_FILE_BYTES) {
     throw new AdapterConflictError([path]);
   }
+  // A symlink at the destination is an ownership conflict, even with force.
+  // Report it consistently with the later lstat() check, without following it.
+  const destination = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (destination?.isSymbolicLink()) throw new AdapterConflictError([path]);
   await assertNoSymlinkAncestors(path);
   const temporaryPath = join(dirname(path), `.skillgate-${randomUUID()}.tmp`);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
