@@ -142,3 +142,19 @@ test('root-selected reader rejects missing generation without requesting file bl
     assert.deepEqual(requested, [generationDigest]);
   });
 });
+
+
+test('root-selected reader rejects tampered content blob after authenticating manifest', rootOnly, async () => {
+  await sandbox(async dir => {
+    const { blobs, generationDigest } = blobsFor('codex');
+    const path = await select(dir, 'codex', generationDigest);
+    const fileDigest = JSON.parse(blobs.get(generationDigest).toString()).files[0].digest;
+    blobs.set(fileDigest, Buffer.from('attacker-controlled content'));
+    const requested = [];
+    await assert.rejects(resolveRootSelectedGeneration(path, 'codex', async d => {
+      requested.push(d);
+      return blobs.get(d);
+    }), /authentication/);
+    assert.deepEqual(requested, [generationDigest, fileDigest]);
+  });
+});
