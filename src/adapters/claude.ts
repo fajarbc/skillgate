@@ -1,3 +1,4 @@
+import { PinnedImmutableAdapter } from "./immutable-generation.js";
 import {
   applyFilesystemAdapter,
   cleanupFilesystemAdapter,
@@ -14,6 +15,11 @@ import type {
 
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly name = "claude-code";
+
+  /** Explicit opt-in to immutable, digest-pinned storage. Does not write adapter-visible paths. */
+  immutable(store: string): PinnedImmutableAdapter {
+    return new PinnedImmutableAdapter(this.name, store);
+  }
 
   async format(context: AdapterContext): Promise<string> {
     const lines: string[] = [

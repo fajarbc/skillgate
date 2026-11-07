@@ -91,7 +91,7 @@ function sanitizeTraceRecord(value: unknown): unknown | null {
  * on special files or emitting arbitrary JSON through a symlinked trace.
  * This is a read-only defense, not an atomic guarantee against external writers.
  */
-async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
+export async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
   const directory = join(root, ".skillgate");
   const file = join(directory, "trace.json");
   const maxBytes = 32 * 1024 * 1024;
@@ -102,8 +102,13 @@ async function loadBoundedJsonTrace(root: string): Promise<unknown | null> {
     const entry = await lstat(file);
     if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1 ||
         entry.size > maxBytes) return null;
+    // Without both flags, a concurrent pathname swap can redirect the open
+    // to a symlink target or block indefinitely on a FIFO. Fail closed on
+    // platforms that cannot provide these descriptor protections.
+    if (typeof constants.O_NOFOLLOW !== "number" ||
+        typeof constants.O_NONBLOCK !== "number") return null;
     handle = await open(file, constants.O_RDONLY |
-      (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+      constants.O_NONBLOCK | constants.O_NOFOLLOW);
     const before = await handle.stat();
     if (!before.isFile() || before.nlink !== 1 || before.size > maxBytes ||
         before.dev !== entry.dev || before.ino !== entry.ino ||

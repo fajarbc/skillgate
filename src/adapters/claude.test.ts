@@ -1,12 +1,31 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { legacyCooperativeAdapter } from "./testing/adapter-contract.test.js";
+import { mkdtemp, readFile, readdir, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeAdapter } from "./claude.js";
 
 describe("ClaudeCodeAdapter", () => {
+  it.skipIf(process.platform !== "win32")("fails closed on Windows before publishing a source without nonblocking open", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-win-source-guard-"));
+    try {
+      const source = join(root, "source.md");
+      await writeFile(source, "# Existing source");
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
+      const context = {
+        root, task: "guard test",
+        skills: [{ path: source, metadata: { name: "example", description: "example" }, score: 1, reasons: [] }],
+      };
+      await expect(adapter.apply(context)).rejects.toThrow(/Destination contains user-owned content/);
+      expect(await readdir(root)).toEqual(["source.md"]);
+      expect(await readFile(source, "utf8")).toBe("# Existing source");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("formats skills into Markdown instructions for Claude Code", async () => {
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
     const formatted = await adapter.format({
       task: "build backend",
       root: "/tmp",
@@ -31,9 +50,9 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("preflights source reads before changing existing Claude state", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-preflight-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-preflight-"));
     try {
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const source = join(root, "source.md");
       await writeFile(source, "# Initial");
       const select = (path: string, name: string) => ({
@@ -57,11 +76,11 @@ describe("ClaudeCodeAdapter", () => {
 
 
   it("keeps the Claude ownership manifest unchanged on equivalent reapply", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-idempotent-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-idempotent-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Instructions");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const context = { task: "repeat", root, skills: [{
         path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [],
@@ -80,13 +99,13 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("cleans up stale Claude-managed skills without deleting unrelated user files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-cleanup-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-cleanup-"));
     try {
       const source = join(root, "source.md");
       const userFile = join(root, "keep.md");
       await writeFile(source, "# Managed");
       await writeFile(userFile, "# User");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const selected = { path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [] };
       await adapter.apply({ task: "first", root, skills: [selected] });
@@ -104,11 +123,11 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("rejects a user-owned Claude skill without force", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-conflict-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-conflict-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const selected = { path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [] };
       const context = { task: "test", root, skills: [selected] };
@@ -126,11 +145,11 @@ describe("ClaudeCodeAdapter", () => {
 
 
   it("planning is deterministic and does not write Claude files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-plan-only-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-plan-only-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Source");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const context = { task: "plan only", root, skills: [{
         path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [],
@@ -147,11 +166,11 @@ describe("ClaudeCodeAdapter", () => {
 
 
   it("preserves user-edited Claude skill and manifest during cleanup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-edited-cleanup-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-edited-cleanup-"));
     try {
       const source = join(root, "source.md");
       await writeFile(source, "# Original");
-      const adapter = new ClaudeCodeAdapter();
+      const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
       const context = { task: "cleanup", root, skills: [{
         path: source, metadata: { name: "example", description: "Example" },
         score: 1, reasons: [],
@@ -171,14 +190,14 @@ describe("ClaudeCodeAdapter", () => {
   });
 
   it("applies skills by writing to .claude directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "skillgate-claude-"));
+    const root = await mkdtemp(join(await realpath(tmpdir()), "skillgate-claude-"));
     const skillPath = join(root, "my-skill.md");
     await writeFile(
       skillPath,
       "---\nname: my-skill\ndescription: A test skill\n---\n# Instructions\nExecute tests.",
     );
 
-    const adapter = new ClaudeCodeAdapter();
+    const adapter = legacyCooperativeAdapter(new ClaudeCodeAdapter());
     const result = await adapter.apply({
       task: "run tests",
       root,

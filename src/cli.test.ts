@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -95,6 +95,37 @@ describe("CLI", () => {
     log.mockRestore();
   });
 
+  it("does not expose symlinked or malformed foreign JSON in human trace output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-human-trace-"));
+    const directory = join(root, ".skillgate");
+    const trace = join(directory, "trace.json");
+    const foreign = join(root, "private.json");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await mkdir(directory);
+      await writeFile(foreign, JSON.stringify({
+        id: "private-trace", timestamp: "2026-10-01T00:00:00Z",
+        task: "SECRET TASK", root: "/private",
+        signals: [], candidates: [],
+        selectedCount: 0, rejectedCount: 0, totalEstimatedTokens: 0,
+      }));
+      await symlink(foreign, trace);
+      expect(await run(["trace", "--root", root])).toBe(0);
+      expect(log).toHaveBeenCalledWith("No trace found. Run `skillgate recommend` first.");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET TASK");
+
+      await rm(trace);
+      await writeFile(trace, JSON.stringify({ id: "foreign", task: "SECRET TASK" }));
+      log.mockClear();
+      expect(await run(["trace", "--root", root])).toBe(0);
+      expect(log).toHaveBeenCalledWith("No trace found. Run `skillgate recommend` first.");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET TASK");
+    } finally {
+      log.mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("persists trace during recommend and displays with trace command", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
@@ -148,28 +179,42 @@ describe("CLI", () => {
     error.mockRestore();
   });
 
-  it("applies approved skills with codex adapter", async () => {
+  it("fails closed before changing an existing trace or Codex files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
     await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
+    await mkdir(join(root, ".skillgate"), { recursive: true });
+    const trace = join(root, ".skillgate", "trace.json");
+    await writeFile(trace, "USER-OWNED TRACE");
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "codex"])).toBe(0);
-    const written = await readFile(join(root, ".codex", "skills", "react-testing", "SKILL.md"), "utf8");
-    expect(written).toContain("react-testing");
-    log.mockRestore();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "codex"])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("Strict external-writer lifecycle safety"));
+      expect(await readFile(trace, "utf8")).toBe("USER-OWNED TRACE");
+      await expect(readFile(join(root, ".codex", "skills", "react-testing", "SKILL.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      error.mockRestore();
+    }
   });
 
-  it("applies approved skills with claude adapter", async () => {
+  it("fails closed without creating a trace or Claude files", async () => {
     const root = await mkdtemp(join(tmpdir(), "skillgate-cli-"));
     await mkdir(join(root, "skills", "react"), { recursive: true });
     await writeFile(join(root, "skills", "react", "SKILL.md"), "---\nname: react-testing\ndescription: Test React components\n---\n");
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "claude"])).toBe(0);
-    const written = await readFile(join(root, ".claude", "skills", "react-testing", "SKILL.md"), "utf8");
-    expect(written).toContain("react-testing");
-    log.mockRestore();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await run(["recommend", "test", "react", "--root", root, "--adapter", "claude"])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("Strict external-writer lifecycle safety"));
+      await expect(readFile(join(root, ".skillgate", "trace.json"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(join(root, ".claude", "skills", "react-testing", "SKILL.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("executes doctor command for healthy workspace", async () => {
@@ -186,6 +231,24 @@ describe("CLI", () => {
 
     const output = await captureJson(["recommend", "test", "react", "--root", root, "--json"]);
     expect(output.recommendations).toHaveLength(0);
+  });
+
+  it("rejects an explicitly empty adapter before overwriting a legacy trace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "skillgate-cli-empty-adapter-"));
+    await mkdir(join(root, ".skillgate"), { recursive: true });
+    const trace = join(root, ".skillgate", "trace.json");
+    await writeFile(trace, "USER-OWNED TRACE");
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      for (const adapterArgs of [["--adapter", ""], ["--adapter="], ["--adapter", " "]]) {
+        expect(await run(["recommend", "test", "--root", root, ...adapterArgs])).toBe(1);
+        expect(error).toHaveBeenCalledWith("Adapter name must not be empty");
+        expect(await readFile(trace, "utf8")).toBe("USER-OWNED TRACE");
+      }
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("rejects adapters excluded by configuration", async () => {

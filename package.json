@@ -13,13 +13,16 @@
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run typecheck && npm test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node scripts/validate-cli-json-fixtures.mjs && vitest run",
+    "test": "npm run test:immutable-broker && node scripts/validate-cli-json-fixtures.mjs && vitest run",
+    "test:immutable-broker": "node --test \"scripts/immutable-broker-*.test.mjs\"",
     "test:protocol": "node scripts/validate-cli-json-fixtures.mjs",
     "test:adapters": "vitest run src/adapters",
     "benchmark": "vitest run src/benchmark",
     "smoke:cli": "node scripts/smoke-cli.mjs",
     "prepack": "npm run check && npm run build",
-    "inspect:pack": "npm pack --dry-run"
+    "inspect:pack": "npm pack --dry-run",
+    "smoke:immutable-crash": "node scripts/smoke-immutable-crash.mjs",
+    "smoke:immutable-broker-real": "node scripts/smoke-immutable-broker-real.mjs"
   },
   "repository": {
     "type": "git",

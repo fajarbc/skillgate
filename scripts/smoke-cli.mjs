@@ -147,17 +147,26 @@ try {
       assert.equal(rejected.ok, false);
       assert.equal(rejected.error.code, "ADAPTER_CONFLICT");
 
-      // Human CLI adapter behavior remains backward-compatible.
+      // Strict legacy apply must fail before creating adapter files or traces.
+      // JSON transport rejects adapter application independently.
       const humanArgs = ["recommend", "test TypeScript", "--adapter", adapter, "--root", root];
-      assert.match(invoke(humanArgs), /testing/);
-      const exposed = join(root, `.${adapter}`, "skills", "testing", "SKILL.md");
-      const managed = await readFile(exposed, "utf8");
-      assert.match(managed, /# Run tests/);
-      // Reapplying an unchanged skill must preserve its managed content.
-      invoke(humanArgs);
-      assert.equal(await readFile(exposed, "utf8"), managed);
+      const failed = spawnSync(process.execPath, [cli, ...humanArgs], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, ".config") },
+        timeout: 30_000,
+      });
+      assert.ifError(failed.error);
+      assert.equal(failed.status, 1, "strict legacy apply must fail closed");
+      assert.equal(failed.stdout, "", "failed adapter apply must not print recommendations");
+      assert.match(failed.stderr, /Strict external-writer lifecycle safety/);
+      await assert.rejects(access(join(root, `.${adapter}`)), { code: "ENOENT" });
+      await assert.rejects(access(join(root, ".skillgate")), { code: "ENOENT" });
     }
 
+    // Human read-only recommendations still persist the legacy trace; the
+    // JSON transport and rejected adapter operations never write it.
+    invoke(["recommend", "test TypeScript", "--root", root]);
     const trace = json("trace");
     assert.equal(trace.task, "test TypeScript");
     assert.equal(trace.selectedCount, 1);
