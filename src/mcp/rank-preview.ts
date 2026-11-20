@@ -3,6 +3,7 @@
  * A score is NOT a policy authorization decision.
  */
 import { rankSkills } from "../ranking/index.js";
+import { mcpJsonText } from "./json-serialize.js";
 
 export const MCP_RANK_PREVIEW_SCHEMA_VERSION = "1" as const;
 const MAX_TASK_LENGTH = 4096;
@@ -150,6 +151,6 @@ export function rankPreviewResult(value: unknown): Record<string, unknown> | nul
   };
   return {
     structuredContent: payload,
-    content: [{ type: "text", text: JSON.stringify(payload) }],
+    content: [{ type: "text", text: mcpJsonText(payload) }],
   };
 }
