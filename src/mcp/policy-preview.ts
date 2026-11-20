@@ -3,6 +3,7 @@
  * Reuse the CLI's policy evaluator without loading configuration or policy files.
  */
 import { evaluateSkillPolicy, validatePolicyConfig } from "../policy/index.js";
+import { mcpJsonText } from "./json-serialize.js";
 
 export const MCP_POLICY_PREVIEW_SCHEMA_VERSION = "1" as const;
 const MAX_TEXT = 128;
@@ -127,6 +128,6 @@ export function policyPreviewResult(value: unknown): Record<string, unknown> | n
   } as const;
   return {
     structuredContent: payload,
-    content: [{ type: "text", text: JSON.stringify(payload) }],
+    content: [{ type: "text", text: mcpJsonText(payload) }],
   };
 }
