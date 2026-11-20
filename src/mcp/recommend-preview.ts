@@ -4,6 +4,7 @@
  * adapters instead of adding an alternate authorization implementation.
  */
 import { RANK_PREVIEW_TOOL, rankPreviewResult } from "./rank-preview.js";
+import { mcpJsonText } from "./json-serialize.js";
 import { POLICY_PREVIEW_TOOL, policyPreviewResult, validPreviewCapabilities } from "./policy-preview.js";
 
 export const MCP_RECOMMEND_PREVIEW_SCHEMA_VERSION = "1" as const;
@@ -108,6 +109,6 @@ export function recommendPreviewResult(value: unknown): Record<string, unknown> 
   } as const;
   return {
     structuredContent: payload,
-    content: [{ type: "text", text: JSON.stringify(payload) }],
+    content: [{ type: "text", text: mcpJsonText(payload) }],
   };
 }
