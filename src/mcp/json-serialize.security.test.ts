@@ -1,3 +1,4 @@
+import { types as nodeTypes } from "node:util";
 import { describe, expect, it } from "vitest";
 import { mcpJsonLine, mcpJsonText } from "./json-serialize.js";
 
@@ -11,6 +12,7 @@ const originalWeakSetHas = WeakSet.prototype.has;
 const originalWeakSetAdd = WeakSet.prototype.add;
 const originalWeakSetDelete = WeakSet.prototype.delete;
 const originalArrayIterator = Array.prototype[Symbol.iterator];
+const originalIsProxy = nodeTypes.isProxy;
 
 function restore(): void {
   if (originalObjectToJSON) Object.defineProperty(Object.prototype, "toJSON", originalObjectToJSON);
@@ -25,6 +27,7 @@ function restore(): void {
   WeakSet.prototype.add = originalWeakSetAdd;
   WeakSet.prototype.delete = originalWeakSetDelete;
   Array.prototype[Symbol.iterator] = originalArrayIterator;
+  nodeTypes.isProxy = originalIsProxy;
 }
 
 describe("MCP JSON serialization integrity", () => {
@@ -147,6 +150,14 @@ describe("MCP JSON serialization integrity", () => {
     const revoked = Proxy.revocable({ safe: true }, {});
     revoked.revoke();
     expect(() => mcpJsonText(revoked.proxy)).toThrow(/proxy/);
+  });
+
+  it("uses captured proxy detection after the util.types export is poisoned", () => {
+    const proxy = new Proxy({ safe: true }, {});
+    nodeTypes.isProxy = () => false;
+    try {
+      expect(() => mcpJsonText(proxy)).toThrow(/proxy/);
+    } finally { restore(); }
   });
 
   it("does not invoke inherited numeric setters while projecting arrays", () => {
