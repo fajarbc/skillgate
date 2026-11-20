@@ -4,6 +4,7 @@
 import { RANK_PREVIEW_TOOL, rankPreviewResult } from "./rank-preview.js";
 import { POLICY_PREVIEW_TOOL, policyPreviewResult } from "./policy-preview.js";
 import { RECOMMEND_PREVIEW_TOOL, recommendPreviewResult } from "./recommend-preview.js";
+import { mcpJsonText } from "./json-serialize.js";
 export const MCP_PROTOCOL_VERSION = "2025-06-18" as const;
 
 type JsonId = string | number | null;
@@ -102,7 +103,7 @@ function statusResult(): Record<string, unknown> {
   return {
     structuredContent: payload,
     // Keep text for MCP clients that have not adopted structured tool output.
-    content: [{ type: "text", text: JSON.stringify(payload) }],
+    content: [{ type: "text", text: mcpJsonText(payload) }],
   };
 }
 
