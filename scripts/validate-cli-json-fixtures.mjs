@@ -7,37 +7,110 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const fixtureDir = join(root, "fixtures", "cli-json-v1");
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 
+/** JSON Schema equality ignores object property order and treats -0 as 0.
+ * Node's deepStrictEqual incorrectly distinguishes signed zero for JSON data.
+ */
+function jsonEqual(left, right) {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== typeof right ||
+      typeof left !== "object") return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => Object.hasOwn(right, key) && jsonEqual(left[key], right[key]));
+}
+
 // Intentionally strict evaluator for the schema keywords used by these fixtures.
 // Unsupported keywords must fail instead of silently weakening the checks.
 // A full standards-compliant JSON Schema validator is still needed for release.
-export function validate(schema, value, path = "$") {
-  const supported = new Set(["$schema", "title", "description", "oneOf", "type", "const", "enum", "required", "properties", "items", "minLength", "pattern"]);
+const supportedKeywords = new Set(["$schema", "title", "description", "oneOf", "allOf", "type", "const", "enum", "required", "properties", "items", "minLength", "maxLength", "pattern", "minItems", "maxItems", "minimum", "maximum", "additionalProperties"]);
+
+/** Preflight every branch before oneOf catches ordinary validation failures.
+ * Otherwise a branch with an unsupported keyword can be silently skipped
+ * whenever a different oneOf branch matches, weakening fixture checks.
+ */
+function assertSupportedSchema(schema) {
+  if (typeof schema === "boolean") return; // JSON Schema boolean schemas
+  assert.ok(schema !== null && typeof schema === "object" && !Array.isArray(schema),
+    "Unsupported fixture schema shape");
   for (const keyword of Object.keys(schema)) {
-    assert.ok(supported.has(keyword), `Unsupported fixture schema keyword: ${keyword}`);
+    assert.ok(supportedKeywords.has(keyword), `Unsupported fixture schema keyword: ${keyword}`);
+  }
+  for (const key of ["oneOf", "allOf"]) {
+    if (schema[key] !== undefined) {
+      assert.ok(Array.isArray(schema[key]), `Unsupported fixture schema ${key} shape`);
+      for (const branch of schema[key]) assertSupportedSchema(branch);
+    }
+  }
+  if (schema.properties !== undefined) {
+    assert.ok(schema.properties !== null && typeof schema.properties === "object" &&
+      !Array.isArray(schema.properties), "Unsupported fixture properties shape");
+    for (const child of Object.values(schema.properties)) assertSupportedSchema(child);
+  }
+  if (schema.items !== undefined) assertSupportedSchema(schema.items);
+}
+
+export function validate(schema, value, path = "$") {
+  assertSupportedSchema(schema);
+  if (typeof schema === "boolean") {
+    assert.ok(schema, `${path}: boolean false schema`);
+    return;
   }
   if (schema.oneOf) {
     const matches = schema.oneOf.filter((variant) => {
       try { validate(variant, value, path); return true; } catch { return false; }
     });
     assert.equal(matches.length, 1, `${path}: expected exactly one matching variant`);
-    return;
+    // oneOf is an applicator, not a short circuit: sibling keywords must
+    // still constrain the same instance (JSON Schema 2020-12 semantics).
   }
-  if ("const" in schema) assert.deepEqual(value, schema.const, `${path}: constant mismatch`);
-  if (schema.enum) assert.ok(schema.enum.includes(value), `${path}: unexpected enum value`);
+  if (schema.allOf !== undefined) {
+    assert.ok(Array.isArray(schema.allOf) && schema.allOf.length > 0,
+      `${path}: invalid allOf schema`);
+    for (const variant of schema.allOf) validate(variant, value, path);
+  }
+  if ("const" in schema) assert.ok(jsonEqual(value, schema.const), `${path}: constant mismatch`);
+  if (schema.enum) assert.ok(schema.enum.some((candidate) => jsonEqual(candidate, value)),
+    `${path}: unexpected enum value`);
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
     const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-    assert.ok(types.includes(actual), `${path}: expected ${types.join("|")}, got ${actual}`);
+    assert.ok(types.some((type) => type === "integer"
+      ? typeof value === "number" && Number.isSafeInteger(value)
+      : type === "number" ? typeof value === "number" && Number.isFinite(value)
+      : type === actual), `${path}: expected ${types.join("|")}, got ${actual}`);
   }
-  if (schema.minLength !== undefined) {
-    assert.equal(typeof value, "string", `${path}: expected string`);
-    assert.ok(value.length >= schema.minLength, `${path}: too short`);
+  // String-specific assertions do not apply to non-string JSON instances.
+  // A sibling "type" constraint, when present, handles type rejection.
+  if (typeof value === "string" &&
+      (schema.minLength !== undefined || schema.maxLength !== undefined)) {
+    // JSON Schema measures string lengths in Unicode code points, not UTF-16 units.
+    const length = Array.from(value).length;
+    if (schema.minLength !== undefined) assert.ok(length >= schema.minLength, `${path}: too short`);
+    if (schema.maxLength !== undefined) assert.ok(length <= schema.maxLength, `${path}: too long`);
   }
-  if (schema.pattern) {
-    assert.equal(typeof value, "string", `${path}: expected string`);
+  if (schema.pattern && typeof value === "string") {
     assert.match(value, new RegExp(schema.pattern), `${path}: pattern mismatch`);
   }
-  if (schema.required) {
+  if (Array.isArray(value) &&
+      (schema.minItems !== undefined || schema.maxItems !== undefined)) {
+    if (schema.minItems !== undefined) assert.ok(value.length >= schema.minItems, `${path}: too few items`);
+    if (schema.maxItems !== undefined) assert.ok(value.length <= schema.maxItems, `${path}: too many items`);
+  }
+  if (typeof value === "number" &&
+      (schema.minimum !== undefined || schema.maximum !== undefined)) {
+    assert.ok(Number.isFinite(value), `${path}: expected finite number`);
+    if (schema.minimum !== undefined) assert.ok(value >= schema.minimum, `${path}: below minimum`);
+    if (schema.maximum !== undefined) assert.ok(value <= schema.maximum, `${path}: above maximum`);
+  }
+  if (schema.additionalProperties !== undefined) {
+    assert.equal(typeof schema.additionalProperties, "boolean", `${path}: unsupported additionalProperties schema`);
+    if (schema.additionalProperties === false && value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const allowed = new Set(Object.keys(schema.properties ?? {}));
+      for (const key of Object.keys(value)) assert.ok(allowed.has(key), `${path}: unexpected property ${key}`);
+    }
+  }
+  if (schema.required && value !== null && typeof value === "object" && !Array.isArray(value)) {
     for (const key of schema.required) assert.ok(Object.hasOwn(value, key), `${path}: missing ${key}`);
   }
   if (schema.properties && value && typeof value === "object" && !Array.isArray(value)) {
@@ -63,6 +136,147 @@ async function validateFixtures() {
   assert.throws(() => validate(input, { protocolVersion: 1, task: 42 }));
   assert.throws(() => validate(input, { protocolVersion: 1, task: "  " }));
   assert.throws(() => validate(input, { protocolVersion: 1, task: "ok", context: { paths: [" "] } }));
+  // The same strict subset also validates MCP tool schemas in the built smoke.
+  // Exercise each added keyword here, independently of a compiled MCP server.
+  const bounded = {
+    type: "object",
+    properties: {
+      name: { type: "string", maxLength: 2, pattern: "\\S" },
+      count: { type: "integer", minimum: 1, maximum: 3 },
+      entries: { type: "array", maxItems: 1, items: { type: "string" } },
+    },
+    required: ["name", "count", "entries"],
+    additionalProperties: false,
+  };
+  const valid = { name: "🛡🛡", count: 2, entries: ["ok"] };
+  validate(bounded, valid);
+  for (const invalid of [
+    { ...valid, name: "🛡🛡🛡" },
+    { ...valid, name: " " },
+    { ...valid, count: 1.5 },
+    { ...valid, count: 0 },
+    { ...valid, count: 4 },
+    { ...valid, entries: ["a", "b"] },
+    { ...valid, extra: true },
+    { name: "ok", count: 1 },
+  ]) assert.throws(() => validate(bounded, invalid));
+  // JSON Schema enum compares JSON values structurally, not by object
+  // identity. A validator that uses Array.includes rejects valid objects.
+  const enumSchema = { enum: [
+    { name: "safe", flags: [true, null] },
+    ["rank", { limit: 2 }],
+    0,
+  ] };
+  validate(enumSchema, { flags: [true, null], name: "safe" });
+  validate(enumSchema, ["rank", { limit: 2 }]);
+  validate(enumSchema, 0);
+  for (const invalid of [
+    { name: "safe", flags: [true, false] },
+    ["rank", { limit: 3 }],
+    "0",
+    { name: "safe", flags: [true, null], secret: "unexpected" },
+  ]) assert.throws(() => validate(enumSchema, invalid), /unexpected enum value/);
+  // JSON Schema numeric equality treats signed zero as the same number.
+  validate({ const: 0 }, -0);
+  validate({ enum: [-0] }, 0);
+  validate({ const: { a: [1, { b: 2 }] } }, { a: [1, { b: 2 }] });
+  assert.throws(() => validate({ const: { a: [1, { b: 2 }] } },
+    { a: [1, { b: 3 }] }), /constant mismatch/);
+  assert.throws(() => validate({ enum: [{ a: [1, 2] }] },
+    { a: [2, 1] }), /unexpected enum value/);
+  // oneOf must not bypass sibling object/ownership constraints. A value can
+  // match exactly one variant and still violate the enclosing schema.
+  const combined = {
+    type: "object",
+    oneOf: [
+      { type: "object", properties: { kind: { const: "safe" } }, required: ["kind"] },
+      { type: "object", properties: { kind: { const: "other" } }, required: ["kind"] },
+    ],
+    properties: { kind: { type: "string" } },
+    required: ["kind"],
+    additionalProperties: false,
+  };
+  validate(combined, { kind: "safe" });
+  validate(combined, { kind: "other" });
+  assert.throws(() => validate(combined, { kind: "safe", path: "/etc/passwd" }),
+    /unexpected property/);
+  assert.throws(() => validate({ ...combined, required: ["kind", "token"] }, { kind: "safe" }),
+    /missing token/);
+  assert.throws(() => validate({ ...combined, type: "array" }, { kind: "safe" }),
+    /expected array/);
+  // A JavaScript number is not necessarily a representable JSON number.
+  // Never approve NaN/Infinity before an MCP result is serialized to JSON.
+  validate({ type: "number" }, 0);
+  validate({ type: "number" }, 1.25);
+  for (const invalid of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => validate({ type: "number" }, invalid), /expected number/);
+    assert.throws(() => validate({ type: ["number", "null"] }, invalid), /expected number\\|null/);
+  }
+  assert.throws(() => validate({ type: "object", unevaluatedProperties: false }, {}),
+    /Unsupported fixture schema keyword/);
+  // allOf applies in addition to sibling constraints, including nested MCP
+  // display-name restrictions. A trailing newline must not pass via $ anchoring.
+  const safeDisplayName = {
+    type: "string", pattern: "\\S",
+    allOf: [{ pattern: String.raw`^(?![\s\S]*[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u202a-\u202e\u2066-\u2069])[\s\S]*$` }],
+  };
+  validate(safeDisplayName, "React 東京 🛡️");
+  for (const invalid of [" ", "React\n", "React\u001b[31m", "React\u202e"]) {
+    assert.throws(() => validate(safeDisplayName, invalid), /pattern mismatch/);
+  }
+  assert.throws(() => validate({ allOf: [] }, "ok"), /invalid allOf schema/);
+  assert.throws(() => validate({ type: "object", allOf: [{ required: ["name"] }] }, {}),
+    /missing name/);
+  // Unsupported nested keywords must never be swallowed by oneOf's
+  // expected mismatch handling. Boolean schemas also have defined semantics.
+  validate(true, { arbitrary: "safe" });
+  assert.throws(() => validate(false, { arbitrary: "unsafe" }), /boolean false schema/);
+  validate({ oneOf: [false, { type: "string" }] }, "safe");
+  assert.throws(() => validate({ oneOf: [false, { type: "number" }] }, "unsafe"),
+    /expected exactly one matching variant/);
+  for (const invalidSchema of [
+    { oneOf: [{ type: "string" }, { type: "number", not: { const: 1 } }] },
+    { properties: { value: { oneOf: [
+      { type: "string" }, { type: "number", not: { const: 1 } },
+    ] } } },
+    { items: { anyOf: [{ type: "string" }] } },
+    { allOf: [{ type: "object" }, { unevaluatedProperties: false }] },
+  ]) assert.throws(() => validate(invalidSchema, { value: "safe" }),
+    /Unsupported fixture schema keyword/);
+  assert.throws(() => validate({ oneOf: [true, { anyOf: [] }] }, "safe"),
+    /Unsupported fixture schema keyword/);
+  // JSON Schema 2020-12: validation keywords are conditional on the instance
+  // type. In particular, required does not reject null/array/string values,
+  // and string/array/numeric constraints do not implicitly impose a type.
+  const typeScoped = {
+    minLength: 2, maxLength: 4, pattern: "^ab",
+    minItems: 1, maxItems: 2, minimum: 2, maximum: 4,
+    required: ["name"],
+  };
+  for (const instance of [null, true, "ab", 3, ["ok"], { name: "safe" }]) {
+    // Each instance is checked against the relevant subset of keywords only.
+    validate(typeScoped, instance);
+  }
+  validate({ required: ["name"] }, null);
+  validate({ required: ["name"] }, "text");
+  validate({ required: ["name"] }, ["text"]);
+  validate({ minLength: 10, pattern: "^never" }, 42);
+  validate({ minItems: 5 }, "text");
+  validate({ minimum: 99 }, "text");
+  for (const invalid of [
+    ["a", { minLength: 2 }],
+    ["abcde", { maxLength: 4 }],
+    ["no", { pattern: "^ab" }],
+    [[], { minItems: 1 }],
+    [[1, 2, 3], { maxItems: 2 }],
+    [1, { minimum: 2 }],
+    [5, { maximum: 4 }],
+    [{}, { required: ["name"] }],
+  ]) assert.throws(() => validate(invalid[1], invalid[0]));
+  // Explicit types still reject wrong-instance types.
+  assert.throws(() => validate({ type: "object", required: ["name"] }, "text"));
+  assert.throws(() => validate({ type: "string", minLength: 2 }, 42));
+  assert.throws(() => validate({ type: "array", minItems: 1 }, null));
   console.log(`CLI JSON v1 schema fixtures passed (${names.length} fixtures)`);
 }
 
