@@ -5,6 +5,7 @@ import { type Writable } from "node:stream";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { McpJsonLineDecoder } from "./json-line.js";
+import { mcpJsonLine } from "./json-serialize.js";
 import { McpJsonRpcSession } from "./json-rpc.js";
 import { nextMcpChunk } from "./stdio-next.js";
 
@@ -117,10 +118,7 @@ export async function runMcpStdio(
         if (outputFailed) throw new Error("MCP output failed");
         const result = session.handle(message);
         if (result === null) continue;
-        const line = JSON.stringify(result)
-          .replace(/\u0085/g, "\\u0085")
-          .replace(/\u2028/g, "\\u2028")
-          .replace(/\u2029/g, "\\u2029") + "\n";
+        const line = mcpJsonLine(result)
         await writeResponse(output, line);
       }
     }
