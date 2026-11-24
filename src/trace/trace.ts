@@ -18,13 +18,16 @@ export interface CreateTraceOptions {
   signals: ProjectSignal[];
   discoveredSkills: DiscoveredSkill[];
   rankedSkills: RankedSkill[];
+  /** Optional complete relevance scores; rankedSkills alone determines selection. */
+  scoredSkills?: RankedSkill[];
   policyEvaluations?: Map<string, SkillPolicyEvaluation>;
   limit?: number;
 }
 
 export function createTraceRecord(options: CreateTraceOptions): TraceRecord {
   const sanitizedTask = sanitizeText(options.task);
-  const rankedMap = new Map(options.rankedSkills.map((s) => [s.path, s]));
+  const rankedMap = new Map((options.scoredSkills ?? options.rankedSkills).map((s) => [s.path, s]));
+  const selectedPaths = new Set(options.rankedSkills.map((s) => s.path));
   const candidates: CandidateTrace[] = [];
 
   for (const skill of options.discoveredSkills) {
@@ -59,7 +62,7 @@ export function createTraceRecord(options: CreateTraceOptions): TraceRecord {
         estimatedTokens: tokens,
         policyDecision: "deny",
       });
-    } else if (ranked) {
+    } else if (ranked && selectedPaths.has(skill.path)) {
       candidates.push({
         path: skill.path,
         name: skill.metadata.name,
@@ -77,9 +80,9 @@ export function createTraceRecord(options: CreateTraceOptions): TraceRecord {
         name: skill.metadata.name,
         description: skill.metadata.description,
         status: "rejected",
-        decisionReason: "zero relevance score",
-        score: 0,
-        reasons: [],
+        decisionReason: ranked ? "candidate limit reached" : "zero relevance score",
+        score: ranked?.score ?? 0,
+        reasons: ranked?.reasons ?? [],
         estimatedTokens: tokens,
         policyDecision: policyEval?.decision ?? "allow",
       });

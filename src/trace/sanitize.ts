@@ -4,7 +4,7 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /sk-[a-zA-Z0-9_-]{10,}/g, replacement: "[REDACTED_API_KEY]" },
   { pattern: /AKIA[0-9A-Z]{16}/g, replacement: "[REDACTED_AWS_KEY]" },
   { pattern: /-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----/g, replacement: "[REDACTED_PRIVATE_KEY]" },
-  { pattern: /(?:api[_-]?key|secret|password|passwd|token)\s*[:=]\s*['"]?([^\s'"&,]+)/gi, replacement: "$1=[REDACTED]" },
+  { pattern: /((?:api[_-]?key|secret|password|passwd|token)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s'"&,;]+)/gi, replacement: "$1[REDACTED]" },
 ];
 
 export function sanitizeText(text: string): string {
